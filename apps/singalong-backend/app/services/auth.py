@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, WebSocket, WebSocketException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import InvalidTokenError
 from sqlalchemy import select
@@ -41,18 +41,7 @@ def _decode_token(token: str) -> dict[str, object]:
     return payload
 
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
-) -> User:
-    if credentials is None or credentials.scheme.lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    payload = _decode_token(credentials.credentials)
+def _get_user_from_payload(payload: dict[str, object], db: Session) -> User:
     subject = payload.get("sub")
     if not isinstance(subject, str):
         raise HTTPException(
@@ -77,8 +66,55 @@ def get_current_user(
             detail="User not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
     return user
+
+
+def authenticate_websocket_user(
+    websocket: WebSocket,
+    db: Session,
+    allowed_roles: set[str],
+    token_query: str | None = None,
+) -> User:
+    token = token_query
+    if token is None or token == "":
+        authorization = websocket.headers.get("authorization")
+        if authorization is not None and authorization.lower().startswith("bearer "):
+            token = authorization[7:]
+
+    if token is None or token == "":
+        raise WebSocketException(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Missing bearer token",
+        )
+
+    try:
+        user = _get_user_from_payload(_decode_token(token), db)
+    except HTTPException as exc:
+        raise WebSocketException(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason=exc.detail,
+        ) from exc
+
+    if user.role not in allowed_roles:
+        raise WebSocketException(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Role not allowed for this websocket channel",
+        )
+    return user
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return _get_user_from_payload(_decode_token(credentials.credentials), db)
 
 
 def require_admin_user(current_user: User = Depends(get_current_user)) -> User:

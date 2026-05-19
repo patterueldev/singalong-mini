@@ -31,6 +31,24 @@ def list_sessions(db: Session) -> list[KaraokeSession]:
     return list(db.scalars(select(KaraokeSession).order_by(KaraokeSession.created_at.desc())).all())
 
 
+def get_latest_active_session(db: Session) -> KaraokeSession | None:
+    return db.scalar(
+        select(KaraokeSession)
+        .where(KaraokeSession.archived_at.is_(None))
+        .order_by(KaraokeSession.created_at.desc())
+        .limit(1),
+    )
+
+
+def get_active_session_by_code(db: Session, session_code: str) -> KaraokeSession | None:
+    return db.scalar(
+        select(KaraokeSession)
+        .where(KaraokeSession.session_code == session_code)
+        .where(KaraokeSession.archived_at.is_(None))
+        .limit(1),
+    )
+
+
 def create_session(db: Session, name: str) -> KaraokeSession:
     normalized_name = name.strip()
     if normalized_name == "":

@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   BrowserRouter,
   Navigate,
   Route,
   Routes,
+  useNavigate,
+  useParams,
 } from 'react-router-dom'
 import './App.css'
 
@@ -39,18 +41,42 @@ type SessionArchiveResponse = {
   message: string
 }
 
+type SongQueueItem = {
+  id: string
+  title: string
+  artist: string
+  status: string
+}
+
+type PlaybackState = {
+  isPlaying: boolean
+  positionSeconds: number
+}
+
 type StoredAuth = {
   accessToken: string
   user: UserProfile
 }
 
-const AUTH_STORAGE_KEY = 'singalong-admin-auth'
+type WSIncoming = {
+  type: string
+  session_code: string
+  payload: Record<string, unknown>
+}
 
+const AUTH_STORAGE_KEY = 'singalong-admin-auth'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin
 const API_ROOT =
   API_BASE_URL.endsWith('/api') || API_BASE_URL.endsWith('/api/')
     ? API_BASE_URL.replace(/\/$/, '')
     : `${API_BASE_URL.replace(/\/$/, '')}/api`
+const HTTP_BASE = API_ROOT.replace(/\/api$/, '')
+const WS_BASE = HTTP_BASE.replace(/^http/i, 'ws')
+
+const INITIAL_MOCK_QUEUE: SongQueueItem[] = [
+  { id: 'mock-1', title: 'Bohemian Rhapsody', artist: 'Queen', status: 'queued' },
+  { id: 'mock-2', title: 'Dancing Queen', artist: 'ABBA', status: 'queued' },
+]
 
 class ApiError extends Error {
   status: number
@@ -103,6 +129,11 @@ function authHeaders(token?: string): HeadersInit {
   return {
     Authorization: `Bearer ${token}`,
   }
+}
+
+function buildWSUrl(path: string, params: Record<string, string>): string {
+  const query = new URLSearchParams(params).toString()
+  return `${WS_BASE}${path}?${query}`
 }
 
 async function apiJson<T>(
@@ -240,6 +271,7 @@ function SessionsPage({
   onCreateSession,
   onArchiveSession,
 }: SessionsPageProps) {
+  const navigate = useNavigate()
   const activeCount = useMemo(
     () => sessions.filter((session) => session.archived_at === null).length,
     [sessions],
@@ -320,18 +352,268 @@ function SessionsPage({
                       {new Date(session.created_at).toLocaleString()}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={!isActive}
-                    onClick={() => onArchiveSession(session.id)}
-                  >
-                    {isActive ? 'Mark inactive' : 'Archived'}
-                  </button>
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={!isActive}
+                      onClick={() => navigate(`/sessions/${session.session_code}`)}
+                    >
+                      Open controls
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={!isActive}
+                      onClick={() => onArchiveSession(session.id)}
+                    >
+                      {isActive ? 'Mark inactive' : 'Archived'}
+                    </button>
+                  </div>
                 </article>
               )
             })
           )}
+        </div>
+      </section>
+    </main>
+  )
+}
+
+type SessionControlPageProps = {
+  auth: StoredAuth
+  sessions: SessionRecord[]
+  onRefreshSessions: () => void
+  onArchiveSession: (sessionId: string) => void
+}
+
+function SessionControlPage({
+  auth,
+  sessions,
+  onRefreshSessions,
+  onArchiveSession,
+}: SessionControlPageProps) {
+  const navigate = useNavigate()
+  const params = useParams<{ sessionCode: string }>()
+  const sessionCode = params.sessionCode ?? ''
+  const [socketStatus, setSocketStatus] = useState('Connecting...')
+  const [queueItems, setQueueItems] = useState<SongQueueItem[]>(INITIAL_MOCK_QUEUE)
+  const [downloadsCount, setDownloadsCount] = useState(0)
+  const [playbackState, setPlaybackState] = useState<PlaybackState>({
+    isPlaying: false,
+    positionSeconds: 0,
+  })
+  const [wsMessage, setWsMessage] = useState('')
+  const socketRef = useRef<WebSocket | null>(null)
+
+  const session = useMemo(
+    () =>
+      sessions.find(
+        (entry) =>
+          entry.session_code === sessionCode && entry.archived_at === null,
+      ) ?? null,
+    [sessionCode, sessions],
+  )
+
+  const sendCommand = useCallback((type: string, payload: Record<string, unknown> = {}) => {
+    const socket = socketRef.current
+    if (socket === null || socket.readyState !== WebSocket.OPEN) {
+      setWsMessage('WebSocket is not connected.')
+      return
+    }
+
+    socket.send(
+      JSON.stringify({
+        type,
+        session_code: sessionCode,
+        payload,
+      }),
+    )
+  }, [sessionCode])
+
+  useEffect(() => {
+    if (session === null) {
+      setSocketStatus('Session not found or inactive.')
+      return
+    }
+
+    const wsUrl = buildWSUrl('/ws/admin', {
+      session_code: session.session_code,
+      token: auth.accessToken,
+    })
+    const socket = new WebSocket(wsUrl)
+    socketRef.current = socket
+
+    socket.onopen = () => {
+      setSocketStatus('Connected')
+      setWsMessage('')
+      onRefreshSessions()
+    }
+
+    socket.onclose = () => {
+      setSocketStatus('Disconnected')
+    }
+
+    socket.onerror = () => {
+      setSocketStatus('Connection error')
+    }
+
+    socket.onmessage = (event) => {
+      let payload: WSIncoming
+      try {
+        payload = JSON.parse(event.data) as WSIncoming
+      } catch {
+        return
+      }
+
+      if (payload.type === 'queue.updated') {
+        const items = payload.payload.items
+        if (Array.isArray(items)) {
+          setQueueItems(items as SongQueueItem[])
+        }
+        return
+      }
+
+      if (payload.type === 'downloads.updated') {
+        const items = payload.payload.items
+        if (Array.isArray(items)) {
+          setDownloadsCount(items.length)
+        }
+        return
+      }
+
+      if (payload.type === 'playback.position') {
+        const nextPosition = Number(payload.payload.position_seconds ?? 0)
+        setPlaybackState((previous) => ({
+          ...previous,
+          positionSeconds: Number.isFinite(nextPosition) ? nextPosition : previous.positionSeconds,
+        }))
+        return
+      }
+
+      if (payload.type === 'playback.ended') {
+        setPlaybackState((previous) => ({ ...previous, isPlaying: false }))
+        setWsMessage('Player reported playback ended.')
+        return
+      }
+
+      if (payload.type === 'session.ended') {
+        setWsMessage('Session ended. Returning to sessions.')
+        onRefreshSessions()
+        setTimeout(() => navigate('/sessions'), 500)
+        return
+      }
+
+      if (payload.type === 'error') {
+        const message = payload.payload.message
+        if (typeof message === 'string') {
+          setWsMessage(message)
+        }
+      }
+    }
+
+    return () => {
+      socket.close()
+      socketRef.current = null
+    }
+  }, [auth.accessToken, navigate, onRefreshSessions, session])
+
+  if (session === null) {
+    return (
+      <main className="app-shell">
+        <section className="card">
+          <h1>Session Control</h1>
+          <p className="error-message">Session not found or inactive.</p>
+          <button type="button" className="secondary" onClick={() => navigate('/sessions')}>
+            Back to sessions
+          </button>
+        </section>
+      </main>
+    )
+  }
+
+  return (
+    <main className="app-shell">
+      <section className="card session-control-card">
+        <div className="card-header">
+          <div>
+            <h1>{session.name}</h1>
+            <p className="subtitle">
+              Session code: <code>{session.session_code}</code>
+            </p>
+            <p className="subtitle">WebSocket: {socketStatus}</p>
+          </div>
+          <div className="row-actions">
+            <button type="button" className="secondary" onClick={() => navigate('/sessions')}>
+              Back
+            </button>
+            <button type="button" className="secondary" onClick={() => onArchiveSession(session.id)}>
+              End session
+            </button>
+          </div>
+        </div>
+
+        {wsMessage !== '' ? <p className="success-message">{wsMessage}</p> : null}
+
+        <div className="control-layout">
+          <section className="panel">
+            <h2>Playback</h2>
+            <p className="subtitle">
+              State: {playbackState.isPlaying ? 'Playing' : 'Paused'} · Position:{' '}
+              {playbackState.positionSeconds.toFixed(1)}s
+            </p>
+            <div className="playback-actions">
+              <button type="button" onClick={() => {
+                setPlaybackState((previous) => ({ ...previous, isPlaying: true }))
+                sendCommand('playback.play')
+              }}>
+                Play
+              </button>
+              <button type="button" className="secondary" onClick={() => {
+                setPlaybackState((previous) => ({ ...previous, isPlaying: false }))
+                sendCommand('playback.pause')
+              }}>
+                Pause
+              </button>
+              <button type="button" className="secondary" onClick={() => {
+                setPlaybackState((previous) => ({ ...previous, positionSeconds: 0 }))
+                sendCommand('playback.skip')
+              }}>
+                Skip
+              </button>
+              <button type="button" className="secondary" onClick={() => {
+                const nextPosition = playbackState.positionSeconds + 10
+                setPlaybackState((previous) => ({ ...previous, positionSeconds: nextPosition }))
+                sendCommand('playback.seek', { position_seconds: nextPosition })
+              }}>
+                Seek +10s
+              </button>
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Queued Songs</h2>
+              <button type="button" className="secondary" onClick={() => setWsMessage('Songbook is mocked for now.')}>
+                Songbook
+              </button>
+            </div>
+            <p className="subtitle">Download queue: {downloadsCount}</p>
+            <div className="queue-list">
+              {queueItems.length === 0 ? (
+                <p className="empty-state">No queued songs.</p>
+              ) : (
+                queueItems.map((song) => (
+                  <article className="queue-item" key={song.id}>
+                    <strong>{song.title}</strong>
+                    <p className="session-meta">
+                      {song.artist} · {song.status}
+                    </p>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
         </div>
       </section>
     </main>
@@ -503,7 +785,7 @@ function AppShell() {
     }
   }
 
-  const handleArchiveSession = async (sessionId: string) => {
+  const handleArchiveSession = useCallback(async (sessionId: string) => {
     if (auth === null) {
       return
     }
@@ -529,7 +811,7 @@ function AppShell() {
         error instanceof Error ? error.message : 'Unexpected error archiving session'
       setSessionErrorMessage(message)
     }
-  }
+  }, [auth, loadSessions])
 
   if (isHydratingAuth) {
     return <LoadingView />
@@ -580,7 +862,28 @@ function AppShell() {
                 }}
                 onSessionNameChange={setNewSessionName}
                 onCreateSession={handleCreateSession}
-                onArchiveSession={handleArchiveSession}
+                onArchiveSession={(sessionId) => {
+                  void handleArchiveSession(sessionId)
+                }}
+              />
+            )
+          }
+        />
+        <Route
+          path="/sessions/:sessionCode"
+          element={
+            auth === null ? (
+              <Navigate to="/login" replace />
+            ) : (
+              <SessionControlPage
+                auth={auth}
+                sessions={sessions}
+                onRefreshSessions={() => {
+                  void loadSessions(auth.accessToken)
+                }}
+                onArchiveSession={(sessionId) => {
+                  void handleArchiveSession(sessionId)
+                }}
               />
             )
           }

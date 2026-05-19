@@ -11,6 +11,10 @@
   - `POST /api/sessions`
   - `PATCH /api/sessions/{session_id}/archive`
 - `GET /api/users/me` returns the current authenticated user.
+- WebSocket channels require JWT-authenticated users with role checks:
+  - `/ws/admin` (admin)
+  - `/ws/player` (player, or admin fallback for development)
+  - `/ws/guest` (guest, or admin fallback for development)
 
 ## Environment variables
 - `JWT_SECRET_KEY`
@@ -20,3 +24,4 @@
 ## Notes
 - JWT logout is client-side state clearing only; the token is not revoked server-side yet.
 - Keep user and session routes separate from auth helpers to preserve the service/router split.
+- Browser WS clients pass JWT via the `token` query param because native browser `WebSocket` does not support custom authorization headers.

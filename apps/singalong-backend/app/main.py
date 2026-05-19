@@ -1,15 +1,20 @@
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from fastapi.websockets import WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import WebSocketException, status
+from sqlalchemy.orm import Session
 
 from .bootstrap import seed_admin_user
 from .config import settings
-from .db import Base, engine
+from .db import Base, engine, get_db
+from .models import User
 from .routers.sessions import router as sessions_router
 from .routers.users import router as users_router
+from .services.auth import authenticate_websocket_user
+from .services.sessions import get_active_session_by_code
+from .services.ws import ws_hub
 
 app = FastAPI(title=settings.app_name)
 app.add_middleware(
@@ -95,11 +100,64 @@ def suggest():
     """
 
 
-@app.websocket("/ws")
-async def websocket_placeholder(websocket: WebSocket):
-    await websocket.accept()
-    await websocket.send_json({"message": "WebSocket placeholder ready"})
-    await websocket.close()
+def _require_active_session(db: Session, session_code: str):
+    active_session = get_active_session_by_code(db, session_code)
+    if active_session is None:
+        raise WebSocketException(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Active session not found for session_code",
+        )
+    return active_session
+
+
+def _authenticate_ws_channel(
+    websocket: WebSocket,
+    db: Session,
+    token: str | None,
+    allowed_roles: set[str],
+) -> User:
+    return authenticate_websocket_user(
+        websocket=websocket,
+        db=db,
+        token_query=token,
+        allowed_roles=allowed_roles,
+    )
+
+
+@app.websocket("/ws/player")
+async def websocket_player(
+    websocket: WebSocket,
+    session_code: str = Query(..., min_length=6, max_length=6),
+    token: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    _ = _authenticate_ws_channel(websocket, db, token, {"player", "admin"})
+    _require_active_session(db, session_code)
+    await ws_hub.run_connection(websocket=websocket, channel="player", session_code=session_code)
+
+
+@app.websocket("/ws/admin")
+async def websocket_admin(
+    websocket: WebSocket,
+    session_code: str = Query(..., min_length=6, max_length=6),
+    token: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    _ = _authenticate_ws_channel(websocket, db, token, {"admin"})
+    _require_active_session(db, session_code)
+    await ws_hub.run_connection(websocket=websocket, channel="admin", session_code=session_code)
+
+
+@app.websocket("/ws/guest")
+async def websocket_guest(
+    websocket: WebSocket,
+    session_code: str = Query(..., min_length=6, max_length=6),
+    token: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    _ = _authenticate_ws_channel(websocket, db, token, {"guest", "admin"})
+    _require_active_session(db, session_code)
+    await ws_hub.run_connection(websocket=websocket, channel="guest", session_code=session_code)
 
 
 @app.get("/health")

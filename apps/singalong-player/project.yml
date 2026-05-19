@@ -1,0 +1,24 @@
+name: SingalongPlayer
+options:
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    MACOSX_DEPLOYMENT_TARGET: 14.0
+targets:
+  SingalongPlayer:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - Sources/SingalongPlayer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.patteruel.singalong.player
+        PRODUCT_NAME: SingalongPlayer
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: SingalongPlayer
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music
+        INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Singalong"
+    scheme:
+      testTargets: []
