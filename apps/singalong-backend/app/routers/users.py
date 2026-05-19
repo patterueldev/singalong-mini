@@ -12,9 +12,11 @@ from ..schemas import (
     GuestUsernameSuggestionResponse,
     LoginResponse,
     LogoutResponse,
+    UserResponse,
     UserLoginRequest,
     UserLogoutRequest,
 )
+from ..services.auth import create_access_token, get_current_user
 from ..security import verify_password
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -46,16 +48,22 @@ def login_user(payload: UserLoginRequest, db: Session = Depends(get_db)):
     if user is None or user.password_hash is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    return LoginResponse(user=user, message="Login successful")
+    return LoginResponse(access_token=create_access_token(user), user=user, message="Login successful")
 
 
 @router.post("/logout", response_model=LogoutResponse)
-def logout_user(payload: UserLogoutRequest, db: Session = Depends(get_db)):
-    user_exists = db.scalar(select(User.id).where(User.username == payload.username))
-    if user_exists is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
+def logout_user(
+    payload: UserLogoutRequest,
+    current_user: User = Depends(get_current_user),
+):
+    _ = payload
+    _ = current_user
     return LogoutResponse(message="Logout successful")
+
+
+@router.get("/me", response_model=UserResponse)
+def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
 
 
 @router.post("/guest", response_model=GuestCreateResponse, status_code=status.HTTP_201_CREATED)

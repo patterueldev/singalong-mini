@@ -1,14 +1,14 @@
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.websockets import WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from .bootstrap import seed_admin_user
 from .config import settings
 from .db import Base, engine
+from .routers.sessions import router as sessions_router
 from .routers.users import router as users_router
 
 app = FastAPI(title=settings.app_name)
@@ -20,10 +20,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(users_router)
+app.include_router(sessions_router)
 
 admin_static_path = Path(settings.admin_static_dir)
-if admin_static_path.exists():
-    app.mount("/admin", StaticFiles(directory=str(admin_static_path), html=True), name="admin-static")
+admin_index_path = admin_static_path / "index.html"
+
+
+def _serve_admin_path(path: str = "") -> FileResponse:
+    if not admin_static_path.exists() or not admin_index_path.exists():
+        raise HTTPException(status_code=404, detail="Admin app is not available")
+
+    root = admin_static_path.resolve()
+    requested = (root / path).resolve()
+    try:
+        requested.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Path not found") from exc
+
+    if path != "" and requested.exists() and requested.is_file():
+        return FileResponse(requested)
+
+    if path != "" and "." in Path(path).name:
+        raise HTTPException(status_code=404, detail="Static asset not found")
+
+    return FileResponse(admin_index_path)
 
 
 @app.get("/")
@@ -34,6 +54,21 @@ def root():
 @app.get("/api")
 def api_root():
     return {"message": "Singalong API root"}
+
+
+@app.get("/admin")
+def admin_root():
+    return RedirectResponse(url="/admin/", status_code=307)
+
+
+@app.get("/admin/")
+def admin_index():
+    return _serve_admin_path()
+
+
+@app.get("/admin/{full_path:path}")
+def admin_path(full_path: str):
+    return _serve_admin_path(full_path)
 
 
 @app.get("/guest", response_class=HTMLResponse)

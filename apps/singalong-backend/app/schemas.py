@@ -32,6 +32,8 @@ class UserResponse(BaseModel):
 
 
 class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
     user: UserResponse
     message: str
 
@@ -42,4 +44,24 @@ class LogoutResponse(BaseModel):
 
 class GuestCreateResponse(BaseModel):
     user: UserResponse
+    message: str
+
+
+class SessionCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class SessionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    session_code: str
+    name: str
+    archived_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SessionArchiveResponse(BaseModel):
+    session: SessionResponse
     message: str

@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     singalong_admin_username: str = "admin"
     singalong_admin_password: str = "password"
     admin_static_dir: str = "/app/static/admin"
+    jwt_secret_key: str = "singalong-dev-jwt-secret"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 43200
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
