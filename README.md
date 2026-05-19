@@ -12,6 +12,7 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
 # Proposed Database Schema
 - Sessions
   - id (primary key)
+  - session_code (6-digit code for players to join)
   - name
   - created_at
   - updated_at
@@ -30,6 +31,7 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
   - session_id (foreign key to Sessions)
   - song_id (foreign key to Songs)
   - order (integer to determine the position in the queue)
+  - status (e.g., `pending`, `finished`, `skipped`)
   - reserved_by (name or identifier of the person who made the reservation)
   - reserved_at (timestamp of when the reservation was made)
 - Users
