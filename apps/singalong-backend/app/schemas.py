@@ -1,0 +1,45 @@
+from datetime import datetime
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class UserLoginRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=100)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class UserLogoutRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=100)
+
+
+class GuestCreateRequest(BaseModel):
+    nickname: str = Field(min_length=1, max_length=50)
+
+
+class GuestUsernameSuggestionResponse(BaseModel):
+    username: str
+
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    username: str
+    role: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class LoginResponse(BaseModel):
+    user: UserResponse
+    message: str
+
+
+class LogoutResponse(BaseModel):
+    message: str
+
+
+class GuestCreateResponse(BaseModel):
+    user: UserResponse
+    message: str

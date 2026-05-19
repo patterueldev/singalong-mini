@@ -1,0 +1,77 @@
+import re
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..db import get_db
+from ..models import User
+from ..schemas import (
+    GuestCreateRequest,
+    GuestCreateResponse,
+    GuestUsernameSuggestionResponse,
+    LoginResponse,
+    LogoutResponse,
+    UserLoginRequest,
+    UserLogoutRequest,
+)
+from ..security import verify_password
+
+router = APIRouter(prefix="/api/users", tags=["users"])
+USERNAME_SANITIZER = re.compile(r"[^a-z0-9]+")
+
+
+def _normalize_nickname(value: str) -> str:
+    normalized = USERNAME_SANITIZER.sub("-", value.strip().lower()).strip("-")
+    return normalized or "guest"
+
+
+def suggest_guest_username(db: Session, nickname: str) -> str:
+    base = f"guest-{_normalize_nickname(nickname)}"
+    existing = set(
+        db.scalars(select(User.username).where(User.username.like(f"{base}%"))).all()
+    )
+    if base not in existing:
+        return base
+
+    suffix = 2
+    while f"{base}-{suffix}" in existing:
+        suffix += 1
+    return f"{base}-{suffix}"
+
+
+@router.post("/login", response_model=LoginResponse)
+def login_user(payload: UserLoginRequest, db: Session = Depends(get_db)):
+    user = db.scalar(select(User).where(User.username == payload.username))
+    if user is None or user.password_hash is None or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    return LoginResponse(user=user, message="Login successful")
+
+
+@router.post("/logout", response_model=LogoutResponse)
+def logout_user(payload: UserLogoutRequest, db: Session = Depends(get_db)):
+    user_exists = db.scalar(select(User.id).where(User.username == payload.username))
+    if user_exists is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    return LogoutResponse(message="Logout successful")
+
+
+@router.post("/guest", response_model=GuestCreateResponse, status_code=status.HTTP_201_CREATED)
+def create_guest(payload: GuestCreateRequest, db: Session = Depends(get_db)):
+    username = suggest_guest_username(db, payload.nickname)
+    guest_user = User(username=username, role="guest", password_hash=None)
+    db.add(guest_user)
+    db.commit()
+    db.refresh(guest_user)
+
+    return GuestCreateResponse(user=guest_user, message="Guest user created")
+
+
+@router.get("/guest/username", response_model=GuestUsernameSuggestionResponse)
+def get_guest_username(
+    nickname: str = Query(..., min_length=1, max_length=50),
+    db: Session = Depends(get_db),
+):
+    return GuestUsernameSuggestionResponse(username=suggest_guest_username(db, nickname))
