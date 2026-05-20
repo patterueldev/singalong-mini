@@ -17,6 +17,10 @@ class GuestCreateRequest(BaseModel):
     nickname: str = Field(min_length=1, max_length=50)
 
 
+class GuestLoginRequest(BaseModel):
+    nickname: str = Field(min_length=1, max_length=50)
+
+
 class GuestUsernameSuggestionResponse(BaseModel):
     username: str
 
@@ -44,6 +48,14 @@ class LogoutResponse(BaseModel):
 
 class GuestCreateResponse(BaseModel):
     user: UserResponse
+    message: str
+
+
+class GuestLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+    nickname: str
     message: str
 
 
@@ -75,3 +87,44 @@ class SongSuggestDownloadResponse(BaseModel):
     status: str
     message: str
     youtube_id: str
+
+
+class SongSuggestSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=200)
+
+
+class SongSuggestSearchItem(BaseModel):
+    id: str
+    title: str
+    artist: str
+    source_url: str
+
+
+class SongSuggestSearchResponse(BaseModel):
+    effective_query: str
+    appended_karaoke: bool
+    results: list[SongSuggestSearchItem]
+
+
+class SongSuggestIdentifyRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=1000)
+
+
+class SongSuggestIdentifyResponse(BaseModel):
+    title: str
+    artist: str
+    source_url: str
+    youtube_id: str
+
+
+class SongSuggestUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    artist: str = Field(min_length=1, max_length=200)
+    source_url: str = Field(min_length=1, max_length=1000)
+    youtube_id: str = Field(min_length=1, max_length=50)
+
+
+class SongSuggestUpdateResponse(BaseModel):
+    status: str
+    message: str
+    draft: SongSuggestIdentifyResponse

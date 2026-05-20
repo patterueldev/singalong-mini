@@ -79,6 +79,7 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
 ## User
 - POST /api/users/login - Authenticate a user (Admin Web App)
 - POST /api/users/logout - Log out a user (Admin Web App)
+- POST /api/users/guest/login - Guest sign-in with nickname (unstrict; always allowed, returns bearer token)
 - POST /api/users/guest - (Unstrictly) Create a guest user with a nickname (Guest Web App)
 - GET /api/users/guest/username - returns a suggested guest username based on the nickname provided (Guest Web App)
 
@@ -88,6 +89,7 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
 - POST /api/songs/suggest/search - Search for a song on supported platforms (e.g., YouTube) based on a query (Admin Web App, Guest Web App, Songs Suggestion Web App)
 - POST /api/songs/suggest/identify - Accepts a URL and identifies the song details (Admin Web App, Guest Web App, Songs Suggestion Web App)
 - POST /api/songs/suggest/enhance - Accepts song details json and enhances it using OpenAI API (Admin Web App, Guest Web App, Songs Suggestion Web App)
+- POST /api/songs/suggest/update - Accepts edited suggestion metadata before download/review (authenticated Guest/Admin)
 - POST /api/songs/suggest/download - Accepts a YouTube URL and queues an async download via `yt-dlp` (HTTP 202 Accepted, includes `youtube_id`; uses `/data/cookies.txt` when present)
 - GET /media/{path} - Serve media file for playback from `/data/media` (Player App)
   - Allowed prefixes only: `assets/*` and `songs/*`

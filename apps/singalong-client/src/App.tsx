@@ -27,6 +27,14 @@ type LoginResponse = {
   message: string
 }
 
+type GuestLoginResponse = {
+  access_token: string
+  token_type: 'bearer'
+  user: UserProfile
+  nickname: string
+  message: string
+}
+
 type SessionRecord = {
   id: string
   session_code: string
@@ -63,6 +71,30 @@ type SuggestResult = {
   sourceUrl: string
 }
 
+type SuggestSearchResponse = {
+  effective_query: string
+  appended_karaoke: boolean
+  results: Array<{
+    id: string
+    title: string
+    artist: string
+    source_url: string
+  }>
+}
+
+type SuggestIdentifyResponse = {
+  title: string
+  artist: string
+  source_url: string
+  youtube_id: string
+}
+
+type SuggestUpdateResponse = {
+  status: string
+  message: string
+  draft: SuggestIdentifyResponse
+}
+
 type SuggestDraft = {
   title: string
   artist: string
@@ -80,6 +112,12 @@ type StoredAuth = {
   user: UserProfile
 }
 
+type GuestAuth = {
+  accessToken: string
+  nickname: string
+  user: UserProfile
+}
+
 type WSIncoming = {
   type: string
   session_code: string
@@ -88,6 +126,7 @@ type WSIncoming = {
 
 const AUTH_STORAGE_KEY = 'singalong-client-admin-auth'
 const SUGGEST_STORAGE_KEY = 'singalong-client-suggest-nickname'
+const SUGGEST_AUTH_STORAGE_KEY = 'singalong-client-suggest-auth'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin
 const API_ROOT =
   API_BASE_URL.endsWith('/api') || API_BASE_URL.endsWith('/api/')
@@ -169,6 +208,47 @@ function saveSuggestNickname(nickname: string) {
   window.localStorage.setItem(SUGGEST_STORAGE_KEY, nickname)
 }
 
+function clearSuggestNickname() {
+  window.localStorage.removeItem(SUGGEST_STORAGE_KEY)
+}
+
+function readSuggestAuth(): GuestAuth | null {
+  const raw = window.localStorage.getItem(SUGGEST_AUTH_STORAGE_KEY)
+  if (raw === null) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<GuestAuth>
+    if (
+      typeof parsed.accessToken === 'string' &&
+      parsed.accessToken !== '' &&
+      typeof parsed.nickname === 'string' &&
+      parsed.nickname !== '' &&
+      typeof parsed.user?.id === 'string'
+    ) {
+      return {
+        accessToken: parsed.accessToken,
+        nickname: parsed.nickname,
+        user: parsed.user as UserProfile,
+      }
+    }
+  } catch {
+    // Fall through to clear invalid payloads.
+  }
+
+  window.localStorage.removeItem(SUGGEST_AUTH_STORAGE_KEY)
+  return null
+}
+
+function saveSuggestAuth(auth: GuestAuth) {
+  window.localStorage.setItem(SUGGEST_AUTH_STORAGE_KEY, JSON.stringify(auth))
+}
+
+function clearSuggestAuth() {
+  window.localStorage.removeItem(SUGGEST_AUTH_STORAGE_KEY)
+}
+
 function normalizeSuggestQuery(query: string): { effectiveQuery: string; appendedKaraoke: boolean } {
   const trimmed = query.trim()
   if (trimmed === '') {
@@ -218,6 +298,57 @@ function createMockSuggestResults(query: string): SuggestResult[] {
       sourceUrl: `https://www.youtube.com/watch?v=${suffix}`,
     }
   })
+}
+
+async function guestLoginWithNickname(nickname: string): Promise<GuestAuth> {
+  const payload = await apiJson<GuestLoginResponse>('/users/guest/login', {
+    method: 'POST',
+    body: JSON.stringify({ nickname }),
+  })
+
+  return {
+    accessToken: payload.access_token,
+    nickname: payload.nickname,
+    user: payload.user,
+  }
+}
+
+async function suggestSearch(query: string, token: string): Promise<SuggestSearchResponse> {
+  return apiJson<SuggestSearchResponse>(
+    '/songs/suggest/search',
+    {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    },
+    token,
+  )
+}
+
+async function suggestIdentify(url: string, token: string): Promise<SuggestIdentifyResponse> {
+  return apiJson<SuggestIdentifyResponse>(
+    '/songs/suggest/identify',
+    {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    },
+    token,
+  )
+}
+
+async function suggestUpdate(draft: SuggestDraft, token: string): Promise<SuggestUpdateResponse> {
+  return apiJson<SuggestUpdateResponse>(
+    '/songs/suggest/update',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        title: draft.title,
+        artist: draft.artist,
+        source_url: draft.sourceUrl,
+        youtube_id: draft.youtubeId,
+      }),
+    },
+    token,
+  )
 }
 
 function authHeaders(token?: string): HeadersInit {
@@ -303,10 +434,11 @@ function GuestPage() {
 
 type SongbookPageProps = {
   notice: string
-  hasSuggestNickname: boolean
+  guestNickname: string | null
+  onChangeNickname: () => void
 }
 
-function SongbookPage({ notice, hasSuggestNickname }: SongbookPageProps) {
+function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageProps) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const filteredSongs = useMemo(() => {
@@ -329,19 +461,31 @@ function SongbookPage({ notice, hasSuggestNickname }: SongbookPageProps) {
           <div>
             <h1>Songbook</h1>
             <p className="subtitle">Search existing songs before suggesting a new one.</p>
+            {guestNickname !== null ? (
+              <p className="subtitle top-gap">
+                Suggesting as <strong>{guestNickname}</strong>
+              </p>
+            ) : null}
           </div>
-          <button
-            type="button"
-            onClick={() =>
-              navigate(
-                hasSuggestNickname
-                  ? '/songbook/suggest/search'
-                  : '/songbook/suggest/login',
-              )
-            }
-          >
-            Suggest a Song
-          </button>
+          <div className="row-actions">
+            {guestNickname !== null ? (
+              <button type="button" className="secondary" onClick={onChangeNickname}>
+                Change Nickname
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() =>
+                navigate(
+                  guestNickname !== null
+                    ? '/songbook/suggest/search'
+                    : '/songbook/suggest/login',
+                )
+              }
+            >
+              Suggest a Song
+            </button>
+          </div>
         </div>
 
         {notice !== '' ? <p className="success-message top-gap">{notice}</p> : null}
@@ -378,13 +522,14 @@ function SongbookPage({ notice, hasSuggestNickname }: SongbookPageProps) {
 
 type SuggestLoginPageProps = {
   initialNickname: string
-  onLogin: (nickname: string) => void
+  onLogin: (nickname: string) => Promise<void>
 }
 
 function SuggestLoginPage({ initialNickname, onLogin }: SuggestLoginPageProps) {
   const navigate = useNavigate()
   const [nickname, setNickname] = useState(initialNickname)
   const [errorMessage, setErrorMessage] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   return (
     <main className="app-shell">
@@ -400,8 +545,17 @@ function SuggestLoginPage({ initialNickname, onLogin }: SuggestLoginPageProps) {
               return
             }
             setErrorMessage('')
-            onLogin(nickname)
-            navigate('/songbook/suggest/search')
+            setIsSubmitting(true)
+            void onLogin(nickname)
+              .then(() => navigate('/songbook/suggest/search'))
+              .catch((error: unknown) => {
+                const message =
+                  error instanceof Error ? error.message : 'Guest login failed'
+                setErrorMessage(message)
+              })
+              .finally(() => {
+                setIsSubmitting(false)
+              })
           }}
         >
           <label>
@@ -414,7 +568,9 @@ function SuggestLoginPage({ initialNickname, onLogin }: SuggestLoginPageProps) {
             />
           </label>
           {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
-          <button type="submit">Continue</button>
+          <button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Signing in…' : 'Continue'}
+          </button>
         </form>
       </section>
     </main>
@@ -423,39 +579,95 @@ function SuggestLoginPage({ initialNickname, onLogin }: SuggestLoginPageProps) {
 
 type SuggestSearchPageProps = {
   nickname: string
+  authToken: string
   onSelectResult: (draft: SuggestDraft) => void
+  onCancel: () => void
+  onChangeNickname: () => void
 }
 
-function SuggestSearchPage({ nickname, onSelectResult }: SuggestSearchPageProps) {
+function SuggestSearchPage({
+  nickname,
+  authToken,
+  onSelectResult,
+  onCancel,
+  onChangeNickname,
+}: SuggestSearchPageProps) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [effectiveQuery, setEffectiveQuery] = useState('')
   const [queryInfo, setQueryInfo] = useState('')
   const [results, setResults] = useState<SuggestResult[]>([])
+  const [errorMessage, setErrorMessage] = useState('')
+  const [isSearching, setIsSearching] = useState(false)
 
   return (
     <main className="app-shell">
       <section className="card">
         <h1>Suggest · Search YouTube</h1>
         <p className="subtitle">Signed in as <strong>{nickname}</strong></p>
+        <div className="row-actions top-gap">
+          <button type="button" className="secondary" onClick={onChangeNickname}>
+            Change Nickname
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              if (query.trim() !== '' || results.length > 0) {
+                const shouldLeave = window.confirm(
+                  'Cancel this suggestion and go back to songbook?',
+                )
+                if (!shouldLeave) {
+                  return
+                }
+              }
+              onCancel()
+              navigate('/songbook')
+            }}
+          >
+            Back to Songbook
+          </button>
+        </div>
         <form
           className="form top-gap"
           onSubmit={(event) => {
             event.preventDefault()
+            setErrorMessage('')
             const normalized = normalizeSuggestQuery(query)
             if (normalized.effectiveQuery === '') {
               setQueryInfo('Please enter a search query.')
               setResults([])
               return
             }
-
-            setEffectiveQuery(normalized.effectiveQuery)
-            setQueryInfo(
-              normalized.appendedKaraoke
-                ? 'Mock behavior: backend would append "karaoke" to this query.'
-                : 'Mock behavior: query already includes karaoke/instrumental/off vocal.',
-            )
-            setResults(createMockSuggestResults(normalized.effectiveQuery))
+            setIsSearching(true)
+            void suggestSearch(normalized.effectiveQuery, authToken)
+              .then((response) => {
+                setEffectiveQuery(response.effective_query)
+                setQueryInfo(
+                  response.appended_karaoke
+                    ? 'Backend appended "karaoke" to the query.'
+                    : 'Backend kept your query (already contains karaoke/instrumental/off vocal).',
+                )
+                setResults(
+                  response.results.map((item) => ({
+                    id: item.id,
+                    title: item.title,
+                    artist: item.artist,
+                    sourceUrl: item.source_url,
+                  })),
+                )
+              })
+              .catch((error: unknown) => {
+                const message =
+                  error instanceof Error ? error.message : 'Search failed'
+                setErrorMessage(message)
+                setEffectiveQuery(normalized.effectiveQuery)
+                setQueryInfo('Falling back to mock search results.')
+                setResults(createMockSuggestResults(normalized.effectiveQuery))
+              })
+              .finally(() => {
+                setIsSearching(false)
+              })
           }}
         >
           <label>
@@ -468,12 +680,15 @@ function SuggestSearchPage({ nickname, onSelectResult }: SuggestSearchPageProps)
             />
           </label>
           <div className="row-actions">
-            <button type="submit">Search</button>
+            <button type="submit" disabled={isSearching}>
+              {isSearching ? 'Searching…' : 'Search'}
+            </button>
             <button type="button" className="secondary" onClick={() => navigate('/songbook/suggest/identify')}>
               Paste URL Instead
             </button>
           </div>
         </form>
+        {errorMessage !== '' ? <p className="error-message top-gap">{errorMessage}</p> : null}
         {queryInfo !== '' ? <p className="subtitle top-gap">{queryInfo}</p> : null}
         {effectiveQuery !== '' ? (
           <p className="subtitle">
@@ -514,19 +729,52 @@ function SuggestSearchPage({ nickname, onSelectResult }: SuggestSearchPageProps)
 
 type SuggestIdentifyPageProps = {
   nickname: string
+  authToken: string
   onIdentify: (draft: SuggestDraft) => void
+  onCancel: () => void
+  onChangeNickname: () => void
 }
 
-function SuggestIdentifyPage({ nickname, onIdentify }: SuggestIdentifyPageProps) {
+function SuggestIdentifyPage({
+  nickname,
+  authToken,
+  onIdentify,
+  onCancel,
+  onChangeNickname,
+}: SuggestIdentifyPageProps) {
   const navigate = useNavigate()
   const [url, setUrl] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   return (
     <main className="app-shell">
       <section className="card auth-card">
         <h1>Suggest · Identify URL</h1>
         <p className="subtitle">Signed in as <strong>{nickname}</strong></p>
+        <div className="row-actions top-gap">
+          <button type="button" className="secondary" onClick={onChangeNickname}>
+            Change Nickname
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              if (url.trim() !== '') {
+                const shouldLeave = window.confirm(
+                  'Cancel this suggestion and go back to songbook?',
+                )
+                if (!shouldLeave) {
+                  return
+                }
+              }
+              onCancel()
+              navigate('/songbook')
+            }}
+          >
+            Back to Songbook
+          </button>
+        </div>
         <form
           className="form top-gap"
           onSubmit={(event) => {
@@ -536,15 +784,26 @@ function SuggestIdentifyPage({ nickname, onIdentify }: SuggestIdentifyPageProps)
               setErrorMessage('Enter a valid YouTube URL.')
               return
             }
-
             setErrorMessage('')
-            onIdentify({
-              title: `YouTube Video ${videoId}`,
-              artist: 'Unknown Artist',
-              sourceUrl: url.trim(),
-              youtubeId: videoId,
-            })
-            navigate('/songbook/suggest/update')
+            setIsSubmitting(true)
+            void suggestIdentify(url.trim(), authToken)
+              .then((response) => {
+                onIdentify({
+                  title: response.title,
+                  artist: response.artist,
+                  sourceUrl: response.source_url,
+                  youtubeId: response.youtube_id,
+                })
+                navigate('/songbook/suggest/update')
+              })
+              .catch((error: unknown) => {
+                const message =
+                  error instanceof Error ? error.message : 'Identify failed'
+                setErrorMessage(message)
+              })
+              .finally(() => {
+                setIsSubmitting(false)
+              })
           }}
         >
           <label>
@@ -558,7 +817,9 @@ function SuggestIdentifyPage({ nickname, onIdentify }: SuggestIdentifyPageProps)
           </label>
           {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
           <div className="row-actions">
-            <button type="submit">Identify</button>
+            <button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Identifying…' : 'Identify'}
+            </button>
             <button type="button" className="secondary" onClick={() => navigate('/songbook/suggest/search')}>
               Back to Search
             </button>
@@ -571,30 +832,82 @@ function SuggestIdentifyPage({ nickname, onIdentify }: SuggestIdentifyPageProps)
 
 type SuggestUpdatePageProps = {
   nickname: string
+  authToken: string
   draft: SuggestDraft
   onDraftChange: (draft: SuggestDraft) => void
   onDownload: () => void
+  onCancel: () => void
+  onChangeNickname: () => void
 }
 
 function SuggestUpdatePage({
   nickname,
+  authToken,
   draft,
   onDraftChange,
   onDownload,
+  onCancel,
+  onChangeNickname,
 }: SuggestUpdatePageProps) {
   const navigate = useNavigate()
+  const [originalDraft] = useState(draft)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const isDirty = useMemo(
+    () =>
+      draft.title !== originalDraft.title ||
+      draft.artist !== originalDraft.artist ||
+      draft.sourceUrl !== originalDraft.sourceUrl,
+    [draft, originalDraft],
+  )
 
   return (
     <main className="app-shell">
       <section className="card">
         <h1>Suggest · Update Details</h1>
         <p className="subtitle">Signed in as <strong>{nickname}</strong></p>
+        <div className="row-actions top-gap">
+          <button type="button" className="secondary" onClick={onChangeNickname}>
+            Change Nickname
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              if (isDirty) {
+                const shouldLeave = window.confirm(
+                  'You have unsaved changes. Cancel and go back to songbook?',
+                )
+                if (!shouldLeave) {
+                  return
+                }
+              }
+              onCancel()
+              navigate('/songbook')
+            }}
+          >
+            Cancel
+          </button>
+        </div>
         <form
           className="form top-gap"
           onSubmit={(event) => {
             event.preventDefault()
-            onDownload()
-            navigate('/songbook')
+            setErrorMessage('')
+            setIsSubmitting(true)
+            void suggestUpdate(draft, authToken)
+              .then(() => {
+                onDownload()
+                navigate('/songbook')
+              })
+              .catch((error: unknown) => {
+                const message =
+                  error instanceof Error ? error.message : 'Update failed'
+                setErrorMessage(message)
+              })
+              .finally(() => {
+                setIsSubmitting(false)
+              })
           }}
         >
           <label>
@@ -628,8 +941,28 @@ function SuggestUpdatePage({
             <button type="button" className="secondary" disabled>
               Enhance with AI (Coming soon)
             </button>
-            <button type="submit">Download</button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                if (isDirty) {
+                  const shouldLeave = window.confirm(
+                    'You have unsaved changes. Go back to search anyway?',
+                  )
+                  if (!shouldLeave) {
+                    return
+                  }
+                }
+                navigate('/songbook/suggest/search')
+              }}
+            >
+              Back
+            </button>
+            <button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Saving…' : 'Download'}
+            </button>
           </div>
+          {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
         </form>
       </section>
     </main>
@@ -1155,6 +1488,7 @@ function AppShell() {
   const [isSavingSession, setIsSavingSession] = useState(false)
   const [sessionMessage, setSessionMessage] = useState('')
   const [sessionErrorMessage, setSessionErrorMessage] = useState('')
+  const [suggestAuth, setSuggestAuth] = useState<GuestAuth | null>(null)
   const [suggestNickname, setSuggestNickname] = useState('')
   const [suggestDraft, setSuggestDraft] = useState<SuggestDraft | null>(null)
   const [songbookNotice, setSongbookNotice] = useState('')
@@ -1182,6 +1516,13 @@ function AppShell() {
   }, [])
 
   useEffect(() => {
+    const storedSuggestAuth = readSuggestAuth()
+    if (storedSuggestAuth !== null) {
+      setSuggestAuth(storedSuggestAuth)
+      setSuggestNickname(storedSuggestAuth.nickname)
+      return
+    }
+
     setSuggestNickname(readSuggestNickname())
   }, [])
 
@@ -1342,12 +1683,15 @@ function AppShell() {
     }
   }, [auth, loadSessions])
 
-  const hasSuggestNickname = isValidSuggestNickname(suggestNickname)
+  const hasSuggestAuth = suggestAuth !== null
 
-  const handleSuggestLogin = useCallback((nickname: string) => {
+  const handleSuggestLogin = useCallback(async (nickname: string) => {
     const cleaned = nickname.trim()
-    setSuggestNickname(cleaned)
-    saveSuggestNickname(cleaned)
+    const guestAuth = await guestLoginWithNickname(cleaned)
+    setSuggestAuth(guestAuth)
+    setSuggestNickname(guestAuth.nickname)
+    saveSuggestNickname(guestAuth.nickname)
+    saveSuggestAuth(guestAuth)
   }, [])
 
   const handleSelectSuggestDraft = useCallback((draft: SuggestDraft) => {
@@ -1355,8 +1699,21 @@ function AppShell() {
   }, [])
 
   const handleDownloadSuggestion = useCallback(() => {
-    setSongbookNotice('Suggestion queued (mock). You can now return to browsing the songbook.')
+    setSongbookNotice('Suggestion queued. You can now return to browsing the songbook.')
     setSuggestDraft(null)
+  }, [])
+
+  const handleCancelSuggestion = useCallback(() => {
+    setSuggestDraft(null)
+  }, [])
+
+  const handleChangeSuggestNickname = useCallback(() => {
+    clearSuggestAuth()
+    clearSuggestNickname()
+    setSuggestAuth(null)
+    setSuggestNickname('')
+    setSuggestDraft(null)
+    setSongbookNotice('Nickname cleared. Sign in again to continue suggesting songs.')
   }, [])
 
   if (isHydratingAuth) {
@@ -1401,14 +1758,15 @@ function AppShell() {
           element={
             <SongbookPage
               notice={songbookNotice}
-              hasSuggestNickname={hasSuggestNickname}
+              guestNickname={suggestAuth?.nickname ?? null}
+              onChangeNickname={handleChangeSuggestNickname}
             />
           }
         />
         <Route
           path="/songbook/suggest/login"
           element={
-            hasSuggestNickname ? (
+            hasSuggestAuth ? (
               <Navigate to="/songbook/suggest/search" replace />
             ) : (
               <SuggestLoginPage
@@ -1421,12 +1779,15 @@ function AppShell() {
         <Route
           path="/songbook/suggest/search"
           element={
-            !hasSuggestNickname ? (
+            !hasSuggestAuth ? (
               <Navigate to="/songbook/suggest/login" replace />
             ) : (
               <SuggestSearchPage
-                nickname={suggestNickname}
+                nickname={suggestAuth.nickname}
+                authToken={suggestAuth.accessToken}
                 onSelectResult={handleSelectSuggestDraft}
+                onCancel={handleCancelSuggestion}
+                onChangeNickname={handleChangeSuggestNickname}
               />
             )
           }
@@ -1434,12 +1795,15 @@ function AppShell() {
         <Route
           path="/songbook/suggest/identify"
           element={
-            !hasSuggestNickname ? (
+            !hasSuggestAuth ? (
               <Navigate to="/songbook/suggest/login" replace />
             ) : (
               <SuggestIdentifyPage
-                nickname={suggestNickname}
+                nickname={suggestAuth.nickname}
+                authToken={suggestAuth.accessToken}
                 onIdentify={handleSelectSuggestDraft}
+                onCancel={handleCancelSuggestion}
+                onChangeNickname={handleChangeSuggestNickname}
               />
             )
           }
@@ -1447,16 +1811,19 @@ function AppShell() {
         <Route
           path="/songbook/suggest/update"
           element={
-            !hasSuggestNickname ? (
+            !hasSuggestAuth ? (
               <Navigate to="/songbook/suggest/login" replace />
             ) : suggestDraft === null ? (
               <Navigate to="/songbook/suggest/search" replace />
             ) : (
               <SuggestUpdatePage
-                nickname={suggestNickname}
+                nickname={suggestAuth.nickname}
+                authToken={suggestAuth.accessToken}
                 draft={suggestDraft}
                 onDraftChange={setSuggestDraft}
                 onDownload={handleDownloadSuggestion}
+                onCancel={handleCancelSuggestion}
+                onChangeNickname={handleChangeSuggestNickname}
               />
             )
           }

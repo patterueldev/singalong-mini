@@ -1,4 +1,5 @@
 import re
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -9,6 +10,8 @@ from ..models import User
 from ..schemas import (
     GuestCreateRequest,
     GuestCreateResponse,
+    GuestLoginRequest,
+    GuestLoginResponse,
     GuestUsernameSuggestionResponse,
     LoginResponse,
     LogoutResponse,
@@ -42,6 +45,11 @@ def suggest_guest_username(db: Session, nickname: str) -> str:
     return f"{base}-{suffix}"
 
 
+def build_guest_login_username(nickname: str) -> str:
+    base = _normalize_nickname(nickname)
+    return f"guest-{base}-{uuid4().hex[:8]}"
+
+
 @router.post("/login", response_model=LoginResponse)
 def login_user(payload: UserLoginRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.username == payload.username))
@@ -49,6 +57,29 @@ def login_user(payload: UserLoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     return LoginResponse(access_token=create_access_token(user), user=user, message="Login successful")
+
+
+@router.post("/guest/login", response_model=GuestLoginResponse)
+def login_guest(payload: GuestLoginRequest, db: Session = Depends(get_db)):
+    nickname = payload.nickname.strip()
+    if nickname == "":
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Nickname is required")
+
+    guest_user = User(
+        username=build_guest_login_username(nickname),
+        role="guest",
+        password_hash=None,
+    )
+    db.add(guest_user)
+    db.commit()
+    db.refresh(guest_user)
+
+    return GuestLoginResponse(
+        access_token=create_access_token(guest_user),
+        user=guest_user,
+        nickname=nickname,
+        message="Guest login successful",
+    )
 
 
 @router.post("/logout", response_model=LogoutResponse)

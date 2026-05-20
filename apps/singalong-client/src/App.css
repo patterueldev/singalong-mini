@@ -7,11 +7,11 @@
 
 .card {
   width: min(920px, 100%);
-  background: #ffffff;
-  border: 1px solid #d7dce3;
+  background: var(--surface-card);
+  border: 1px solid var(--border-primary);
   border-radius: 12px;
   padding: 24px;
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-card);
 }
 
 .auth-card {
@@ -40,7 +40,7 @@ h2 {
 
 .subtitle {
   margin: 4px 0 0;
-  color: #516072;
+  color: var(--text-secondary);
 }
 
 .top-gap {
@@ -62,46 +62,73 @@ label {
   display: grid;
   gap: 6px;
   font-weight: 600;
-  color: #27384b;
+  color: var(--text-primary);
 }
 
 input {
-  border: 1px solid #c2cbd6;
+  border: 1px solid var(--border-primary);
   border-radius: 8px;
   padding: 10px 12px;
   font-size: 1rem;
+  background: var(--surface-input);
+  color: var(--text-primary);
+}
+
+input::placeholder {
+  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
+}
+
+input:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+  border-color: var(--border-strong);
 }
 
 button {
   border: none;
   border-radius: 8px;
-  background: #0f62fe;
-  color: #fff;
+  background: var(--accent-primary);
+  color: var(--text-primary);
   font-weight: 600;
   font-size: 0.95rem;
   padding: 10px 14px;
   cursor: pointer;
+  transition: background 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent-primary-hover);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 button:disabled {
-  opacity: 0.7;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
 .secondary {
-  background: #e8edf3;
-  color: #1e2f41;
+  background: var(--surface-button-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+}
+
+.secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-button-secondary) 82%, white 18%);
 }
 
 .error-message {
   margin: 0;
-  color: #b3261e;
+  color: var(--error);
   font-weight: 600;
 }
 
 .success-message {
   margin: 12px 0 0;
-  color: #0b6b2f;
+  color: var(--success);
   font-weight: 600;
 }
 
@@ -113,15 +140,15 @@ button:disabled {
 }
 
 .metrics > div {
-  border: 1px solid #d9e0ea;
+  border: 1px solid var(--border-primary);
   border-radius: 10px;
   padding: 14px;
-  background: #f8fbff;
+  background: var(--surface-panel);
 }
 
 .metric-label {
   display: block;
-  color: #5d6f83;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   margin-bottom: 4px;
 }
@@ -146,9 +173,9 @@ button:disabled {
   gap: 16px;
   align-items: center;
   padding: 16px;
-  border: 1px solid #d9e0ea;
+  border: 1px solid var(--border-primary);
   border-radius: 10px;
-  background: #f5f8fc;
+  background: var(--surface-panel);
 }
 
 .row-actions {
@@ -172,29 +199,30 @@ button:disabled {
 }
 
 .badge.active {
-  background: #daf5e3;
-  color: #0b6b2f;
+  background: color-mix(in srgb, var(--success) 22%, transparent);
+  color: var(--success);
 }
 
 .badge.inactive {
-  background: #edf1f5;
-  color: #526173;
+  background: color-mix(in srgb, var(--text-secondary) 24%, transparent);
+  color: var(--text-secondary);
 }
 
 .session-meta {
   margin: 6px 0 0;
-  color: #5d6f83;
+  color: var(--text-secondary);
 }
 
 .session-meta code {
-  background: #e8edf3;
+  background: color-mix(in srgb, var(--surface-input) 74%, black 26%);
   border-radius: 4px;
   padding: 2px 6px;
+  color: var(--text-primary);
 }
 
 .empty-state {
   margin: 0;
-  color: #5d6f83;
+  color: var(--text-secondary);
 }
 
 .session-control-card {
@@ -209,9 +237,9 @@ button:disabled {
 }
 
 .panel {
-  border: 1px solid #d9e0ea;
+  border: 1px solid var(--border-primary);
   border-radius: 10px;
-  background: #f8fbff;
+  background: var(--surface-panel);
   padding: 16px;
 }
 
@@ -236,10 +264,10 @@ button:disabled {
 }
 
 .queue-item {
-  border: 1px solid #d9e0ea;
+  border: 1px solid var(--border-primary);
   border-radius: 8px;
   padding: 10px;
-  background: #fff;
+  background: var(--surface-card);
 }
 
 @media (max-width: 720px) {
