@@ -3,6 +3,7 @@ import logging
 import math
 import os
 import re
+import uuid
 
 import yt_dlp
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
