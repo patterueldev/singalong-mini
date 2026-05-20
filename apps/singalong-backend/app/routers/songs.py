@@ -37,6 +37,12 @@ from ..services.songs_download import extract_youtube_video_id, run_song_downloa
 router = APIRouter(prefix="/api/songs", tags=["songs"])
 logger = logging.getLogger(__name__)
 SUGGEST_KEYWORD_REGEX = re.compile(r"\b(karaoke|instrumental|off[\s-]?vocal)\b", re.IGNORECASE)
+LEGACY_GUEST_USERNAME_REGEX = re.compile(r"^guest-(.+)-[0-9a-f]{8}$", re.IGNORECASE)
+
+
+def _display_added_by_username(username: str) -> str:
+    match = LEGACY_GUEST_USERNAME_REGEX.match(username)
+    return match.group(1) if match is not None else username
 
 
 def _format_duration(seconds: int | float | None) -> str:
@@ -587,7 +593,7 @@ def _load_added_by_usernames(db: Session, songs: list[Song]) -> dict[uuid.UUID, 
         return {}
 
     rows = db.query(User.id, User.username).filter(User.id.in_(user_ids)).all()
-    return {user_id: username for user_id, username in rows}
+    return {user_id: _display_added_by_username(username) for user_id, username in rows}
 
 
 def _song_to_item(song: Song, added_by_username: str | None = None) -> SongbookItem:
@@ -702,4 +708,6 @@ def get_song(
         .filter(User.id == song.added_by)
         .scalar()
     )
+    if isinstance(added_by_username, str):
+        added_by_username = _display_added_by_username(added_by_username)
     return _song_to_item(song, added_by_username)

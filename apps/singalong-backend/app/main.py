@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import WebSocketException, status
 from sqlalchemy.orm import Session
 
-from .bootstrap import seed_admin_user
+from .bootstrap import migrate_guest_usernames, seed_admin_user
 from .config import settings
 from .db import Base, engine, get_db
 from .models import User
@@ -148,6 +148,7 @@ def health():
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    migrate_guest_usernames()
     seed_admin_user()
 
     # Initialize song downloader
