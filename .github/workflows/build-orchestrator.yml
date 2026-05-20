@@ -1,0 +1,123 @@
+name: Build Orchestrator
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        required: true
+        type: string
+        description: 'Build environment: dev, qa, or prod'
+      web:
+        required: true
+        type: string
+        description: 'Web service files changed: true or false'
+      player:
+        required: true
+        type: string
+        description: 'Player service files changed: true or false'
+
+jobs:
+
+  # Web service Docker build & push
+  build-web:
+    name: Build Web Image
+    uses: ./.github/workflows/build-web.yml
+    with:
+      env: ${{ inputs.env }}
+    if: inputs.web == 'true'
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+
+  # Player service macOS build
+  build-player:
+    name: Build Player App
+    uses: ./.github/workflows/build-player.yml
+    with:
+      env: ${{ inputs.env }}
+    if: inputs.player == 'true'
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+
+  # Summary: display overall build results
+  summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: [build-web, build-player]
+    if: always()
+    steps:
+      - name: Check for build failures
+        run: |
+          # Fail summary if any build failed
+          FAILED=false
+          
+          # web-build: only fails if it ran and failed (not if skipped)
+          if [ "${{ needs.build-web.result }}" = "failure" ]; then
+            echo "❌ Web build failed"
+            FAILED=true
+          fi
+          
+          # player-build: only fails if it ran and failed (not if skipped)
+          if [ "${{ needs.build-player.result }}" = "failure" ]; then
+            echo "❌ Player build failed"
+            FAILED=true
+          fi
+          
+          if [ "$FAILED" = "true" ]; then
+            exit 1
+          fi
+
+      - name: Generate Summary
+        run: |
+          ENV_LABEL="${{ inputs.env }}"
+          ENV_UPPER=$(echo $ENV_LABEL | tr '[:lower:]' '[:upper:]')
+          
+          echo "## 🚀 Build Summary ($ENV_UPPER)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch**: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment**: \`$ENV_LABEL\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Files Changed" >> $GITHUB_STEP_SUMMARY
+          echo "- Web: ${{ inputs.web }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Player: ${{ inputs.player }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Builds" >> $GITHUB_STEP_SUMMARY
+          
+          # Conditionally show web build
+          if [ "${{ inputs.web }}" = "true" ]; then
+            WEB_STATUS="${{ needs.build-web.result }}"
+            WEB_ICON=$([ "$WEB_STATUS" = "success" ] && echo "✅" || echo "❌")
+            echo "- $WEB_ICON Web (Docker): $WEB_STATUS" >> $GITHUB_STEP_SUMMARY
+            if [ "$WEB_STATUS" = "success" ]; then
+              echo "  - Image: \`ghcr.io/${{ github.repository }}/web:$ENV_LABEL\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "- ⊘ Web: skipped (no changes)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Conditionally show player build
+          if [ "${{ inputs.player }}" = "true" ]; then
+            PLAYER_STATUS="${{ needs.build-player.result }}"
+            PLAYER_ICON=$([ "$PLAYER_STATUS" = "success" ] && echo "✅" || echo "❌")
+            echo "- $PLAYER_ICON Player (Xcode): $PLAYER_STATUS" >> $GITHUB_STEP_SUMMARY
+            if [ "$PLAYER_STATUS" = "success" ]; then
+              echo "  - Artifact: \`singalong-player-$ENV_LABEL\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "- ⊘ Player: skipped (no changes)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Conditionally show admin build
+          if [ "${{ inputs.admin }}" = "true" ]; then
+            ADMIN_STATUS="${{ needs.build-admin.result }}"
+            ADMIN_ICON=$([ "$ADMIN_STATUS" = "success" ] && echo "✅" || echo "❌")
+            echo "- $ADMIN_ICON Admin (Docker): $ADMIN_STATUS" >> $GITHUB_STEP_SUMMARY
+            if [ "$ADMIN_STATUS" = "success" ]; then
+              echo "  - Image: \`ghcr.io/${{ github.repository }}/admin:$ENV_LABEL\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "- ⊘ Admin: skipped (no changes)" >> $GITHUB_STEP_SUMMARY
+          fi

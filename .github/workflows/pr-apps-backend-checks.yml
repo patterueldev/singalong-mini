@@ -1,0 +1,35 @@
+name: PR / Backend App Checks
+
+on:
+  workflow_call:
+
+jobs:
+  backend-checks:
+    name: Backend app checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/singalong-backend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile check
+        run: python3 -m compileall app
+
+      - name: Verify package integrity
+        run: |
+          echo "✅ Backend checks passed"

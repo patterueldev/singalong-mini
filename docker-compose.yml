@@ -5,6 +5,8 @@ services:
       POSTGRES_DB: singalong
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
     volumes:
       - ./data/singalong-db:/var/lib/postgresql/data
     healthcheck:
@@ -13,41 +15,26 @@ services:
       timeout: 3s
       retries: 10
 
-  backend:
+  singalong:
     build:
-      context: ./apps/singalong-backend
-      dockerfile: ../../infrastructure/development/Backend.dockerfile
-    container_name: singalong-backend
+      context: .
+      dockerfile: infrastructure/production/Singalong.dockerfile
+    container_name: singalong-app
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/singalong
-      APP_ENV: development
-      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      APP_ENV: production
+      SINGALONG_HTTP_PORT: ${SINGALONG_HTTP_PORT:-9000}
+      CORS_ORIGINS: http://localhost:${SINGALONG_HTTP_PORT:-9000}
       SINGALONG_ADMIN_USERNAME: ${SINGALONG_ADMIN_USERNAME:-admin}
       SINGALONG_ADMIN_PASSWORD: ${SINGALONG_ADMIN_PASSWORD:-password}
-      JWT_SECRET_KEY: ${SINGALONG_JWT_SECRET_KEY:-singalong-dev-jwt-secret}
+      JWT_SECRET_KEY: ${SINGALONG_JWT_SECRET_KEY:-singalong-prod-jwt-secret-key-longer-than-32-bytes-required}
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${SINGALONG_JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-43200}
-    ports:
-      - "8000:8000"
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      CLIENT_STATIC_DIR: /app/static/client
     volumes:
-      - ./apps/singalong-backend:/app
       - ./data/singalong-backend:/data
+    ports:
+      - "${SINGALONG_HTTP_PORT:-9000}:8000"
     depends_on:
       db:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-  admin:
-    build:
-      context: ./apps/singalong-admin
-      dockerfile: ../../infrastructure/development/Admin.dockerfile
-    container_name: singalong-admin
-    environment:
-      VITE_API_BASE_URL: http://localhost:8000
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./apps/singalong-admin:/app
-      - /app/node_modules
-    depends_on:
-      backend:
-        condition: service_started

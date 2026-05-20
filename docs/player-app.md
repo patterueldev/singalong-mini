@@ -19,6 +19,9 @@
 - Endpoint: `GET /api/sessions/active`
 - Success: returns latest active session object.
 - Empty state: 404 with `No active session`.
+- Media route: `GET /media/{path}`
+  - Allowed paths are limited to `assets/*` and `songs/*`.
+  - Backend media root is `/data/media` (from data mount `./data/singalong-backend:/data`).
 - WebSocket channel: `/ws/player?session_code=<6-digit>&token=<jwt>`
   - Receives: `queue.updated`, `playback.play`, `playback.pause`, `playback.skip`, `playback.seek`, `session.ended`
   - Sends: `playback.position`, `playback.ended` (placeholder telemetry/events for now)

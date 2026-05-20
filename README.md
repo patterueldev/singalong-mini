@@ -1,13 +1,28 @@
 # Singalong Mini
 
-I want this to be a very simple and straightforward implementation of the Singalong Karaoke system. Applications would be 3 or more apps:
+I want this to be a very simple and straightforward implementation of the Singalong Karaoke system. Applications would be:
 - Python Server - Handles sessions, songbook, reservations, and downloads.
 - Player MacOS App - Handles Playback
-- Admin Web App - Managing Sessions, Session Reservations, and Playback Controls
-- (Optional) Guest Web App - For users to view the songbook and make reservations
-- (Optional, but a bit important) Songs Suggestion Web App - For users to suggest songs to be added to the songbook (so guests can suggest songs before the session starts, and the admin can review and add them to the songbook)
+- Unified Client Web App - One frontend with route-based surfaces:
+  - `/client/admin` - Managing sessions, reservations, and playback controls
+  - `/client/guest` - Guest landing page
+  - `/client/songbook` - Songbook list + search
+  - `/client/songbook/suggest/*` - Song suggestion wizard
+
+Legacy frontend note:
+- `apps/singalong-admin` is deprecated and marked for archive.
+- Active frontend development should target `apps/singalong-client`.
 
 Unlike the original Singalong Karaoke system, I want this to be less restrictive, assume a one-off application (but still reusable if data is kept intact).
+
+# Compose workflows
+- Development stack: `infrastructure/development/docker-compose.yml`
+  - Run with: `docker compose -f infrastructure/development/docker-compose.yml up --build`
+- Production stack (single app container + db): root `docker-compose.yml`
+  - Run with: `docker compose up --build`
+- Backend data mount contract: `./data/singalong-backend:/data`
+  - Media root in container: `/data/media`
+  - Cookies file used by song download: `/data/cookies.txt`
 
 # Proposed Database Schema
 - Sessions
@@ -22,10 +37,26 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
   - title
   - artist
   - duration (in seconds)
-  - file_path (path to the video file on the server)
-  - source_url (original URL where the song was downloaded from, for reference)
+  - language (optional; ISO 639-1 code, e.g., 'en' for English, 'zh' for Chinese, 'jp' for Japanese, etc.)
+  - is_off_vocal (boolean; indicates if the song is an instrumental version without vocals)
+  - has_lyrics (boolean; indicates if the song has lyrics embedded in the video)
+  - video_file (optional; filename of the downloaded video in `/data/media/songs/` e.g. `never_gonna_give_you_up[abc123].mp4`)
+  - thumbnail_file (optional; filename of the thumbnail image in `/data/media/thumbnails/` e.g. `never_gonna_give_you_up[abc123].jpg`)
+  - genre
+  - tags (optional; a comma-separated string of tags for categorization and searchability, e.g., "pop, 80s, dance")
+  - lyrics (optional; plain text)
+  - metadata: <String: String> (optional; a JSON string for any additional metadata that may be useful, such as original YouTube title, description, etc.)
+  - source (e.g., 'youtube', 'local', etc.)
   - source_id (optional; an identifier from the source platform, e.g., YouTube video ID)
-  - added_in_session (nullable; if not null, indicates the session in which the song was added, for tracking purposes)
+  - source_url (optional; original URL where the song was downloaded from, for reference)
+  - added_by (required; id of the user who suggested or added the song)
+  - added_in_session (nullable; session if not null, indicates the session ID in which the song was added, for tracking purposes)
+  - last_modified_by (nullable; id of the user who last modified the song details, for tracking purposes)
+  - created_at
+  - updated_at
+  - status (e.g. `draft`, `downloading`, `published`, `archived`, `error`; error means the download failed)
+  - published_at (nullable; null by default, until the song is downloaded and video_file is available)
+  - archived_at (nullable; if not null, song is considered archived and won't be shown in the songbook for new reservations; useful when status is `error`, so we can keep the record for tracking but hide it from users, and the admin can fix it)
 - Reservations
   - id (primary key)
   - session_id (foreign key to Sessions)
@@ -52,6 +83,7 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
 ## User
 - POST /api/users/login - Authenticate a user (Admin Web App)
 - POST /api/users/logout - Log out a user (Admin Web App)
+- POST /api/users/guest/login - Guest sign-in with nickname (unstrict; always allowed, returns bearer token)
 - POST /api/users/guest - (Unstrictly) Create a guest user with a nickname (Guest Web App)
 - GET /api/users/guest/username - returns a suggested guest username based on the nickname provided (Guest Web App)
 
@@ -61,8 +93,15 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
 - POST /api/songs/suggest/search - Search for a song on supported platforms (e.g., YouTube) based on a query (Admin Web App, Guest Web App, Songs Suggestion Web App)
 - POST /api/songs/suggest/identify - Accepts a URL and identifies the song details (Admin Web App, Guest Web App, Songs Suggestion Web App)
 - POST /api/songs/suggest/enhance - Accepts song details json and enhances it using OpenAI API (Admin Web App, Guest Web App, Songs Suggestion Web App)
-- POST /api/songs/suggest/download - Accepts a URL, downloads the song, and adds it to the songbook (Admin Web App, Guest Web App, Songs Suggestion Web App)
-
+- POST /api/songs/suggest/update - Accepts edited suggestion metadata before download/review (authenticated Guest/Admin)
+- POST /api/songs/suggest/download - Accepts a YouTube URL and queues an async download via `yt-dlp` (HTTP 202 Accepted, includes `youtube_id`; uses `/data/cookies.txt` when present)
+- GET /media/{path} - Serve media file for playback from `/data/media` (Player App)
+  - Allowed prefixes only: `assets/*` and `songs/*`
+  - Example: `GET /media/assets/loop.mp4`
+  - Example: `GET /media/songs/<filename>`
+- Downloaded songs filename convention:
+  - `<normalized_title>[<youtube_id>].<ext>`
+  - `youtube_id` allows letters, numbers, `_`, and `-`
 # Flows
 
 ## Player Flow
@@ -78,4 +117,4 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
 1. Admin logs in to the Admin Web App (authentication can be simple, or even just a password prompt for simplicity).
 2. Admin can create a new session, which will automatically be detected by the Player App and joined.
 3. Admin can view the songbook, which is a list of all available songs that can be added to the session's queue.
-4. Admin can download new songs from supported platforms (e.g., YouTube) by providing a URL. The server will handle the downloading and processing of the song, and once it's ready, it will be added to the songbook.
+4. Admin can request song downloads from YouTube. The server accepts the request immediately (`202`) and processes the download asynchronously.

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
 USER_ROLES = ("admin", "guest", "player")
+SONG_STATUSES = ("draft", "downloading", "published", "archived", "error")
 
 
 class User(Base):
@@ -41,6 +42,49 @@ class Session(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_code: Mapped[str] = mapped_column(String(6), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class Song(Base):
+    __tablename__ = "songs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    artist: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    duration: Mapped[int | None] = mapped_column(nullable=True)
+    language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    is_off_vocal: Mapped[bool] = mapped_column(default=False, server_default="false")
+    has_lyrics: Mapped[bool] = mapped_column(default=False, server_default="false")
+    video_file: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    thumbnail_file: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    genre: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    tags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lyrics: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extra_metadata: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(50), default="youtube", server_default="youtube")
+    source_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    added_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    added_in_session: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    last_modified_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    status: Mapped[str] = mapped_column(
+        Enum(*SONG_STATUSES, name="song_status", create_type=True),
+        nullable=False,
+        default="draft",
+        server_default="draft",
+    )
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
