@@ -49,7 +49,7 @@ class LanguageIdentifierAgent:
         },
     }
 
-    def detect(
+    async def detect(
         self,
         title: str,
         artist: Optional[str] = None,
