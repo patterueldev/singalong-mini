@@ -103,6 +103,29 @@ def authenticate_websocket_user(
     return user
 
 
+def authenticate_websocket_user_optional(
+    websocket: WebSocket,
+    db: Session,
+    allowed_roles: set[str],
+    token_query: str | None = None,
+) -> User | None:
+    token = token_query
+    if token is None or token == "":
+        authorization = websocket.headers.get("authorization")
+        if authorization is not None and authorization.lower().startswith("bearer "):
+            token = authorization[7:]
+
+    if token is None or token == "":
+        return None
+
+    return authenticate_websocket_user(
+        websocket=websocket,
+        db=db,
+        allowed_roles=allowed_roles,
+        token_query=token,
+    )
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),

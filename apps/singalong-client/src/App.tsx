@@ -57,6 +57,25 @@ type SongQueueItem = {
   status: string
 }
 
+type DownloadProgressItem = {
+  songId: string
+  title: string
+  artist: string
+  duration: string | null
+  addedByUsername: string | null
+  sourceThumbnail: string | null
+  status: 'pending' | 'downloading' | 'error'
+  progressPct: number | null
+  progressMessage: string | null
+  errorMessage: string | null
+}
+
+type SongDownloadRetryResponse = {
+  status: string
+  message: string
+  song_id: string
+}
+
 type SongbookSong = {
   id: string
   title: string
@@ -703,7 +722,54 @@ function authHeaders(token?: string): HeadersInit {
 
 function buildWSUrl(path: string, params: Record<string, string>): string {
   const query = new URLSearchParams(params).toString()
+  if (query === '') {
+    return `${WS_BASE}${path}`
+  }
   return `${WS_BASE}${path}?${query}`
+}
+
+function normalizeDownloadProgressItems(payload: unknown): DownloadProgressItem[] {
+  if (!Array.isArray(payload)) {
+    return []
+  }
+
+  return payload.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null) {
+      return []
+    }
+    const raw = entry as Record<string, unknown>
+    const songId = typeof raw.song_id === 'string' ? raw.song_id : null
+    const title = typeof raw.title === 'string' ? raw.title : null
+    const artist = typeof raw.artist === 'string' ? raw.artist : null
+    const status =
+      raw.status === 'pending' || raw.status === 'downloading' || raw.status === 'error'
+        ? raw.status
+        : null
+    if (songId === null || title === null || artist === null || status === null) {
+      return []
+    }
+
+    return [
+      {
+        songId,
+        title,
+        artist,
+        duration: typeof raw.duration === 'string' && raw.duration !== '' ? raw.duration : null,
+        addedByUsername:
+          typeof raw.added_by_username === 'string' && raw.added_by_username !== ''
+            ? raw.added_by_username
+            : null,
+        sourceThumbnail:
+          typeof raw.source_thumbnail === 'string' && raw.source_thumbnail !== ''
+            ? raw.source_thumbnail
+            : null,
+        status,
+        progressPct: typeof raw.progress_pct === 'number' ? raw.progress_pct : null,
+        progressMessage: typeof raw.progress_message === 'string' ? raw.progress_message : null,
+        errorMessage: typeof raw.error_message === 'string' ? raw.error_message : null,
+      },
+    ]
+  })
 }
 
 async function apiJson<T>(
@@ -987,6 +1053,14 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
   const [contextMenu, setContextMenu] = useState<SongContextMenu>(null)
+  const [isDownloadsModalOpen, setIsDownloadsModalOpen] = useState(false)
+  const [downloadItems, setDownloadItems] = useState<DownloadProgressItem[]>([])
+  const [downloadsSocketStatus, setDownloadsSocketStatus] = useState('Disconnected')
+  const [retryingSongIds, setRetryingSongIds] = useState<string[]>([])
+  const downloadsSocketRef = useRef<WebSocket | null>(null)
+  const downloadsReconnectTimerRef = useRef<number | null>(null)
+  const shouldReconnectDownloadsRef = useRef(false)
+  const downloadReconnectAttemptsRef = useRef(0)
 
   // Debounce search query
   useEffect(() => {
@@ -1021,11 +1095,125 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
     return () => window.removeEventListener('click', close)
   }, [contextMenu])
 
+  const clearDownloadsReconnectTimer = useCallback(() => {
+    if (downloadsReconnectTimerRef.current !== null) {
+      window.clearTimeout(downloadsReconnectTimerRef.current)
+      downloadsReconnectTimerRef.current = null
+    }
+  }, [])
+
+  const closeDownloadsSocket = useCallback(() => {
+    const socket = downloadsSocketRef.current
+    downloadsSocketRef.current = null
+    if (socket !== null) {
+      socket.close()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isDownloadsModalOpen) {
+      shouldReconnectDownloadsRef.current = false
+      clearDownloadsReconnectTimer()
+      closeDownloadsSocket()
+      setDownloadsSocketStatus('Disconnected')
+      return
+    }
+
+    shouldReconnectDownloadsRef.current = true
+    downloadReconnectAttemptsRef.current = 0
+
+    const scheduleReconnect = () => {
+      if (!shouldReconnectDownloadsRef.current) {
+        return
+      }
+      clearDownloadsReconnectTimer()
+      const delaySeconds = Math.min(2 ** downloadReconnectAttemptsRef.current, 8)
+      downloadReconnectAttemptsRef.current += 1
+      setDownloadsSocketStatus(`Reconnecting in ${delaySeconds}s...`)
+      downloadsReconnectTimerRef.current = window.setTimeout(() => {
+        downloadsReconnectTimerRef.current = null
+        connectSocket()
+      }, delaySeconds * 1000)
+    }
+
+    const connectSocket = () => {
+      if (!shouldReconnectDownloadsRef.current) {
+        return
+      }
+
+      setDownloadsSocketStatus('Connecting...')
+      const socket = new WebSocket(buildWSUrl('/ws/guest', {}))
+      downloadsSocketRef.current = socket
+
+      socket.onopen = () => {
+        downloadReconnectAttemptsRef.current = 0
+        setDownloadsSocketStatus('Connected')
+      }
+
+      socket.onclose = () => {
+        if (!shouldReconnectDownloadsRef.current) {
+          setDownloadsSocketStatus('Disconnected')
+          return
+        }
+        scheduleReconnect()
+      }
+
+      socket.onerror = () => {
+        setDownloadsSocketStatus('Connection error')
+      }
+
+      socket.onmessage = (event) => {
+        let payload: WSIncoming
+        try {
+          payload = JSON.parse(event.data) as WSIncoming
+        } catch {
+          return
+        }
+        if (payload.type !== 'downloads.updated') {
+          return
+        }
+        setDownloadItems(normalizeDownloadProgressItems(payload.payload.items))
+      }
+    }
+
+    connectSocket()
+    return () => {
+      shouldReconnectDownloadsRef.current = false
+      clearDownloadsReconnectTimer()
+      closeDownloadsSocket()
+    }
+  }, [isDownloadsModalOpen, clearDownloadsReconnectTimer, closeDownloadsSocket])
+
   const handleSongClick = (event: React.MouseEvent, song: SongbookSong) => {
     event.stopPropagation()
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
     setContextMenu({ song, x: rect.left, y: rect.bottom + window.scrollY })
   }
+
+  const handleRetryDownload = useCallback((songId: string) => {
+    setRetryingSongIds((current) => (current.includes(songId) ? current : [...current, songId]))
+    void apiJson<SongDownloadRetryResponse>(`/songs/downloads/${songId}/retry`, {
+      method: 'POST',
+    })
+      .then(() => {
+        setDownloadItems((items) =>
+          items.map((item) =>
+            item.songId === songId
+              ? {
+                  ...item,
+                  status: 'pending',
+                  progressPct: null,
+                  progressMessage: 'Waiting in queue',
+                  errorMessage: null,
+                }
+              : item,
+          ),
+        )
+      })
+      .finally(() => {
+        setRetryingSongIds((current) => current.filter((entry) => entry !== songId))
+      })
+  }, [])
 
   return (
     <main className="app-shell">
@@ -1040,6 +1228,13 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
             ) : null}
           </div>
           <div className="row-actions">
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setIsDownloadsModalOpen(true)}
+            >
+              Download Progress
+            </button>
             <button
               type="button"
               onClick={() =>
@@ -1159,6 +1354,98 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
               View on YouTube
             </button>
           ) : null}
+        </div>
+      ) : null}
+
+      {isDownloadsModalOpen ? (
+        <div
+          className="modal-backdrop"
+          onClick={() => setIsDownloadsModalOpen(false)}
+          role="presentation"
+        >
+          <section
+            className="modal-card downloads-modal-card"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h2>Download Progress</h2>
+                <p className="subtitle">Status: {downloadsSocketStatus}</p>
+              </div>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setIsDownloadsModalOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="downloads-modal-list top-gap">
+              {downloadItems.length === 0 ? (
+                <p className="empty-state">No active downloads.</p>
+              ) : (
+                downloadItems.map((item) => {
+                  const isRetrying = retryingSongIds.includes(item.songId)
+                  const progressValue =
+                    item.progressPct !== null ? Math.max(0, Math.min(100, item.progressPct)) : 0
+                  const statusText =
+                    item.status === 'error'
+                      ? item.errorMessage ?? 'Download failed'
+                      : item.progressMessage ??
+                        (item.status === 'pending' ? 'Waiting in queue' : 'Downloading')
+
+                  return (
+                    <article key={item.songId} className="downloads-progress-item">
+                      {item.sourceThumbnail ? (
+                        <img
+                          className="downloads-progress-thumb"
+                          src={item.sourceThumbnail}
+                          alt={item.title}
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="downloads-progress-thumb downloads-progress-thumb--placeholder" />
+                      )}
+                      <div className="downloads-progress-content">
+                        <strong>{item.title}</strong>
+                        <p className="session-meta">
+                          {(item.duration ?? '--:--') +
+                            ' * ' +
+                            item.artist +
+                            ' * ' +
+                            (item.addedByUsername ?? '—')}
+                        </p>
+                        <div className="downloads-progress-row">
+                          <progress
+                            className="downloads-progress-bar"
+                            max={100}
+                            value={progressValue}
+                          />
+                          <span className={`badge download-status-badge ${item.status}`}>
+                            {item.status}
+                          </span>
+                        </div>
+                        <p className="session-meta">{statusText}</p>
+                        {item.status === 'error' ? (
+                          <div className="downloads-actions">
+                            <button
+                              type="button"
+                              className="secondary small"
+                              onClick={() => handleRetryDownload(item.songId)}
+                              disabled={isRetrying}
+                            >
+                              {isRetrying ? 'Retrying…' : 'Retry'}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </article>
+                  )
+                })
+              )}
+            </div>
+          </section>
         </div>
       ) : null}
     </main>

@@ -1050,6 +1050,74 @@ button.small {
   overflow: auto;
 }
 
+.downloads-modal-card {
+  width: min(840px, 100%);
+}
+
+.downloads-modal-list {
+  display: grid;
+  gap: 10px;
+}
+
+.downloads-progress-item {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--surface-panel);
+}
+
+.downloads-progress-thumb {
+  width: 110px;
+  height: 62px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--surface-input);
+}
+
+.downloads-progress-thumb--placeholder {
+  border: 1px dashed var(--border-primary);
+}
+
+.downloads-progress-content {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.downloads-progress-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.downloads-progress-bar {
+  width: 100%;
+  height: 10px;
+}
+
+.downloads-actions {
+  margin-top: 2px;
+}
+
+.download-status-badge.pending {
+  background: color-mix(in srgb, #f4b400 20%, transparent);
+  color: #f4b400;
+}
+
+.download-status-badge.downloading {
+  background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+  color: var(--accent-primary);
+}
+
+.download-status-badge.error {
+  background: color-mix(in srgb, var(--error) 18%, transparent);
+  color: var(--error);
+}
+
 .secondary-link {
   color: #7ab8f0;
   text-decoration: none;
@@ -1098,4 +1166,5 @@ button.small {
   .song-detail-lyrics-panel {
     order: 2;
   }
+
 }

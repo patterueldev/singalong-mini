@@ -220,6 +220,9 @@ class SongDownloadItem(BaseModel):
     song_id: UUID
     title: str
     artist: str
+    duration: str | None = None
+    added_by_username: str | None = None
+    source_thumbnail: str | None = None
     source_id: str | None
     source_url: str
     status: str
