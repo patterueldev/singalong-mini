@@ -1,53 +1,23 @@
-"""Language Identifier Agent - Detect language from song metadata."""
+"""Language Identifier Agent - Detect language using OpenAI."""
+import json
 import logging
-import re
+import os
 from typing import Optional
+
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
 
 class LanguageIdentifierAgent:
-    """Detects language from song title, artist, and description."""
+    """Detects language from song metadata using OpenAI."""
 
-    # Language detection patterns (ISO 639-1 codes)
-    LANGUAGE_PATTERNS = {
-        "ja": {
-            "name": "Japanese",
-            "patterns": [
-                r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]",  # Hiragana, Katakana, Kanji
-            ],
-        },
-        "ko": {
-            "name": "Korean",
-            "patterns": [
-                r"[\uAC00-\uD7AF]",  # Hangul
-            ],
-        },
-        "zh": {
-            "name": "Chinese",
-            "patterns": [
-                r"[\u4E00-\u9FFF]",  # CJK Unified Ideographs
-            ],
-        },
-        "ru": {
-            "name": "Russian",
-            "patterns": [
-                r"[\u0400-\u04FF]",  # Cyrillic
-            ],
-        },
-        "ar": {
-            "name": "Arabic",
-            "patterns": [
-                r"[\u0600-\u06FF]",  # Arabic
-            ],
-        },
-        "en": {
-            "name": "English",
-            "patterns": [
-                r"\b(?:the|a|an|and|or|is|are|have|has|been|be|to|of|in|for|on|at|with|by|from)\b",
-            ],
-        },
-    }
+    def __init__(self):
+        """Initialize the Language Identifier agent."""
+        self.client = None
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key:
+            self.client = OpenAI(api_key=openai_key)
 
     async def detect(
         self,
@@ -56,7 +26,7 @@ class LanguageIdentifierAgent:
         youtube_title: str = "",
     ) -> dict:
         """
-        Detect language from song metadata.
+        Detect language from song metadata using OpenAI.
 
         Args:
             title: Song title
@@ -69,10 +39,32 @@ class LanguageIdentifierAgent:
             - confidence: float (0.0-1.0)
         """
         import sys
+
         try:
-            print(f"[LANGUAGE_IDENTIFIER] detect() called - title={title[:60] if title else ''} artist={artist} youtube_title={youtube_title[:60] if youtube_title else ''}", file=sys.stderr, flush=True)
-            logger.info("[LANGUAGE_IDENTIFIER] detect() called - title=%s artist=%s youtube_title=%s", title[:60] if title else "", artist, youtube_title[:60] if youtube_title else "")
-            
+            print(
+                f"[LANGUAGE_IDENTIFIER] detect() called - title={title[:60] if title else ''} artist={artist} youtube_title={youtube_title[:60] if youtube_title else ''}",
+                file=sys.stderr,
+                flush=True,
+            )
+            logger.info(
+                "[LANGUAGE_IDENTIFIER] detect() called - title=%s artist=%s youtube_title=%s",
+                title[:60] if title else "",
+                artist,
+                youtube_title[:60] if youtube_title else "",
+            )
+
+            if not self.client:
+                print(
+                    "[LANGUAGE_IDENTIFIER] No OpenAI client, using fallback",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                logger.warning("[LANGUAGE_IDENTIFIER] No OpenAI client")
+                return {
+                    "language": "en",
+                    "confidence": 0.1,
+                }
+
             # Combine text sources for analysis
             text_sources = [title]
             if artist:
@@ -81,17 +73,88 @@ class LanguageIdentifierAgent:
                 text_sources.append(youtube_title)
 
             combined_text = " ".join(text_sources)
-            print(f"[LANGUAGE_IDENTIFIER] combined_text for analysis={combined_text[:100]}", file=sys.stderr, flush=True)
-            logger.info("[LANGUAGE_IDENTIFIER] combined_text for analysis=%s", combined_text[:100])
+            print(
+                f"[LANGUAGE_IDENTIFIER] combined_text for analysis={combined_text[:100]}",
+                file=sys.stderr,
+                flush=True,
+            )
+            logger.info(
+                "[LANGUAGE_IDENTIFIER] combined_text for analysis=%s",
+                combined_text[:100],
+            )
 
-            # Detect language using pattern matching
-            detected_lang, confidence = self._detect_by_patterns(combined_text)
-            print(f"[LANGUAGE_IDENTIFIER] detection result - language={detected_lang} confidence={confidence:.2f}", file=sys.stderr, flush=True)
-            logger.info("[LANGUAGE_IDENTIFIER] detection result - language=%s confidence=%.2f", detected_lang, confidence)
+            # Use OpenAI to detect language
+            prompt = f"""You are a language detection expert. Identify the language of the song title and artist.
+
+Song Title: {title}
+Artist: {artist if artist else "(not provided)"}
+YouTube Title: {youtube_title if youtube_title else "(not provided)"}
+
+Your job:
+1. Identify what language the song title is in
+2. Return ISO 639-1 language code (e.g., "en", "ja", "ko", "fr", "es", etc.)
+3. Rate your confidence 0.0-1.0
+
+Return ONLY valid JSON:
+{{
+  "language": "ISO 639-1 code (e.g. 'ja', 'en', 'ko')",
+  "confidence": 0.95
+}}
+
+Guidelines:
+- Be precise with ISO 639-1 codes
+- For mixed language titles, use the primary language
+- Confidence reflects how certain you are about the language"""
+
+            print(
+                "[LANGUAGE_IDENTIFIER] Calling OpenAI to detect language...",
+                file=sys.stderr,
+                flush=True,
+            )
+            logger.info("[LANGUAGE_IDENTIFIER] Calling OpenAI to detect language")
+
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=100,
+            )
+
+            response_text = response.choices[0].message.content.strip()
+            print(
+                f"[LANGUAGE_IDENTIFIER] OpenAI response - raw={response_text[:150]}",
+                file=sys.stderr,
+                flush=True,
+            )
+            logger.info("[LANGUAGE_IDENTIFIER] OpenAI response - raw=%s", response_text[:150])
+
+            # Parse JSON response
+            result = json.loads(response_text)
+            detected_lang = result.get("language", "en")
+            confidence = float(result.get("confidence", 0.5))
+
+            print(
+                f"[LANGUAGE_IDENTIFIER] Parsed - language={detected_lang} confidence={confidence}",
+                file=sys.stderr,
+                flush=True,
+            )
+            logger.info(
+                "[LANGUAGE_IDENTIFIER] Parsed - language=%s confidence=%.2f",
+                detected_lang,
+                confidence,
+            )
 
             return {
                 "language": detected_lang,
                 "confidence": confidence,
+            }
+
+        except json.JSONDecodeError as e:
+            print(f"[LANGUAGE_IDENTIFIER] JSON parse failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("[LANGUAGE_IDENTIFIER] JSON parse failed: %s", e)
+            return {
+                "language": "en",
+                "confidence": 0.1,
             }
         except Exception as e:
             print(f"[LANGUAGE_IDENTIFIER] detect() failed: {e}", file=sys.stderr, flush=True)
@@ -100,38 +163,3 @@ class LanguageIdentifierAgent:
                 "language": "en",
                 "confidence": 0.1,
             }
-
-    def _detect_by_patterns(self, text: str) -> tuple[str, float]:
-        """Detect language using character patterns and keywords."""
-        if not text:
-            return "en", 0.1
-
-        # Check for CJK characters first (highest priority)
-        cjk_chars = re.findall(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]", text)
-        if cjk_chars:
-            # Count hiragana/katakana vs kanji to distinguish Japanese
-            hiragana_katakana = re.findall(r"[\u3040-\u309F\u30A0-\u30FF]", text)
-            kanji = re.findall(r"[\u4E00-\u9FFF]", text)
-
-            if hiragana_katakana or kanji:
-                # Likely Japanese if has hiragana/katakana or specific kanji patterns
-                if hiragana_katakana:
-                    return "ja", 0.9
-                # Pure kanji is ambiguous (Chinese/Japanese)
-                if kanji:
-                    return "ja", 0.7
-
-        # Check for Hangul (Korean)
-        if re.search(r"[\uAC00-\uD7AF]", text):
-            return "ko", 0.9
-
-        # Check for Cyrillic (Russian/Ukrainian)
-        if re.search(r"[\u0400-\u04FF]", text):
-            return "ru", 0.85
-
-        # Check for Arabic
-        if re.search(r"[\u0600-\u06FF]", text):
-            return "ar", 0.85
-
-        # Default to English if no other patterns found
-        return "en", 0.3
