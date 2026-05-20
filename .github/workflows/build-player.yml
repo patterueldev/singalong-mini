@@ -1,0 +1,75 @@
+name: Build Player MacOS App
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        required: true
+        type: string
+        description: "Build environment: dev, qa, or prod"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build SingalongPlayer
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select build configuration
+        id: config
+        shell: bash
+        run: |
+          case "${{ inputs.env }}" in
+            dev)
+              echo "configuration=Debug" >> "$GITHUB_OUTPUT"
+              ;;
+            qa|prod)
+              echo "configuration=Release" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported build environment: ${{ inputs.env }}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Build macOS app
+        working-directory: apps/singalong-player
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project SingalongPlayer.xcodeproj \
+            -scheme SingalongPlayer \
+            -configuration "${{ steps.config.outputs.configuration }}" \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            clean build
+
+      - name: Package app bundle
+        working-directory: apps/singalong-player
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="build/Build/Products/${{ steps.config.outputs.configuration }}/SingalongPlayer.app"
+          ZIP_PATH="SingalongPlayer-${{ inputs.env }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: singalong-player-${{ inputs.env }}
+          path: apps/singalong-player/SingalongPlayer-${{ inputs.env }}.zip
+          if-no-files-found: error
+
+      - name: Build summary
+        shell: bash
+        run: |
+          echo "✓ SingalongPlayer built successfully"
+          echo "Configuration: ${{ steps.config.outputs.configuration }}"
+          echo "Artifact: singalong-player-${{ inputs.env }}"
