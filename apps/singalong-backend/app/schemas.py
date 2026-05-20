@@ -191,3 +191,25 @@ class SongSuggestEnhanceResponse(BaseModel):
     status: str
     message: str
     enhanced: SongSuggestIdentifyResponse
+
+
+class SongbookItem(BaseModel):
+    id: UUID
+    title: str
+    artist: str
+    duration: str
+    language: str | None
+    genre: str | None
+    tags: list[str]
+    thumbnail_url: str | None
+    source_id: str | None
+    source_url: str | None
+    video_file: str | None = None
+    lyrics: str | None = None
+
+
+class SongbookListResponse(BaseModel):
+    items: list[SongbookItem]
+    total: int
+    page: int
+    pages: int

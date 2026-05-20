@@ -61,8 +61,22 @@ type SongbookSong = {
   id: string
   title: string
   artist: string
-  language: string
+  language: string | null
   duration: string
+  genre: string | null
+  tags: string[]
+  thumbnailUrl: string | null
+  sourceId: string | null
+  sourceUrl: string | null
+  videoFile: string | null
+  lyrics: string | null
+}
+
+type SongbookListResponse = {
+  items: SongbookSong[]
+  total: number
+  page: number
+  pages: number
 }
 
 type SuggestResult = {
@@ -180,12 +194,7 @@ const INITIAL_MOCK_QUEUE: SongQueueItem[] = [
   { id: 'mock-2', title: 'Dancing Queen', artist: 'ABBA', status: 'queued' },
 ]
 
-const MOCK_SONGBOOK: SongbookSong[] = [
-  { id: 'song-1', title: 'Never Gonna Give You Up', artist: 'Rick Astley', language: 'en', duration: '3:33' },
-  { id: 'song-2', title: 'Mijuku DREAMER', artist: 'Aqours', language: 'jp', duration: '4:31' },
-  { id: 'song-3', title: 'Bohemian Rhapsody', artist: 'Queen', language: 'en', duration: '5:55' },
-  { id: 'song-4', title: 'Dancing Queen', artist: 'ABBA', language: 'en', duration: '3:51' },
-]
+
 
 const NICKNAME_REGEX = /^[A-Za-z0-9_]+$/
 const SUGGEST_KEYWORD_REGEX = /\b(karaoke|instrumental|off[\s-]?vocal)\b/i
@@ -616,6 +625,68 @@ async function suggestMetadataSuggestions(
   return apiJson<SuggestMetadataSuggestionsResponse>(`/songs/suggest/suggestions?${params.toString()}`, {}, token)
 }
 
+async function fetchSongbook(page: number = 1, limit: number = 20): Promise<SongbookListResponse> {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+  const raw = await apiJson<{
+    items: Array<{
+      id: string; title: string; artist: string; duration: string
+      language: string | null; genre: string | null; tags: string[]
+      thumbnail_url: string | null; source_id: string | null; source_url: string | null
+      video_file: string | null; lyrics: string | null
+    }>
+    total: number; page: number; pages: number
+  }>(`/songs?${params.toString()}`)
+  return {
+    ...raw,
+    items: raw.items.map((s) => ({
+      id: s.id, title: s.title, artist: s.artist, duration: s.duration,
+      language: s.language, genre: s.genre, tags: s.tags,
+      thumbnailUrl: s.thumbnail_url, sourceId: s.source_id, sourceUrl: s.source_url,
+      videoFile: s.video_file,
+      lyrics: s.lyrics,
+    })),
+  }
+}
+
+async function searchSongbook(q: string, page: number = 1, limit: number = 20): Promise<SongbookListResponse> {
+  const params = new URLSearchParams({ q, page: String(page), limit: String(limit) })
+  const raw = await apiJson<{
+    items: Array<{
+      id: string; title: string; artist: string; duration: string
+      language: string | null; genre: string | null; tags: string[]
+      thumbnail_url: string | null; source_id: string | null; source_url: string | null
+      video_file: string | null; lyrics: string | null
+    }>
+    total: number; page: number; pages: number
+  }>(`/songs/search?${params.toString()}`)
+  return {
+    ...raw,
+    items: raw.items.map((s) => ({
+      id: s.id, title: s.title, artist: s.artist, duration: s.duration,
+      language: s.language, genre: s.genre, tags: s.tags,
+      thumbnailUrl: s.thumbnail_url, sourceId: s.source_id, sourceUrl: s.source_url,
+      videoFile: s.video_file,
+      lyrics: s.lyrics,
+    })),
+  }
+}
+
+async function fetchSongDetail(id: string): Promise<SongbookSong> {
+  const raw = await apiJson<{
+    id: string; title: string; artist: string; duration: string
+    language: string | null; genre: string | null; tags: string[]
+    thumbnail_url: string | null; source_id: string | null; source_url: string | null
+    video_file: string | null; lyrics: string | null
+  }>(`/songs/${id}`)
+  return {
+    id: raw.id, title: raw.title, artist: raw.artist, duration: raw.duration,
+    language: raw.language, genre: raw.genre, tags: raw.tags,
+    thumbnailUrl: raw.thumbnail_url, sourceId: raw.source_id, sourceUrl: raw.source_url,
+    videoFile: raw.video_file,
+    lyrics: raw.lyrics,
+  }
+}
+
 function authHeaders(token?: string): HeadersInit {
   if (token === undefined) {
     return {}
@@ -697,6 +768,202 @@ function GuestPage() {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Skeleton loader — shared between Songbook and YouTube search
+// ---------------------------------------------------------------------------
+
+function SkeletonSongItem() {
+  return (
+    <div className="skeleton-item">
+      <div className="skeleton skeleton-thumb" />
+      <div className="skeleton-info">
+        <div className="skeleton skeleton-line skeleton-line--title" />
+        <div className="skeleton skeleton-line skeleton-line--meta" />
+      </div>
+    </div>
+  )
+}
+
+function SkeletonList({ count }: { count: number }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <SkeletonSongItem key={i} />
+      ))}
+    </>
+  )
+}
+
+function BlockingHud({ message }: { message: string }) {
+  return (
+    <div className="blocking-hud" role="status" aria-live="polite" aria-busy="true">
+      <div className="blocking-hud-card">
+        <div className="blocking-hud-spinner" />
+        <p>{message}</p>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Song Detail Page
+// ---------------------------------------------------------------------------
+
+function SongDetailPage() {
+  const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const [song, setSong] = useState<SongbookSong | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState('')
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    if (!id) return
+    setIsLoading(true)
+    fetchSongDetail(id)
+      .then((s) => {
+        setSong(s)
+        setIsLoading(false)
+      })
+      .catch(() => {
+        setError('Song not found.')
+        setIsLoading(false)
+      })
+  }, [id])
+
+  const handleVideoLoaded = () => {
+    const el = videoRef.current
+    if (!el || !el.duration) return
+    el.currentTime = el.duration * 0.25
+  }
+
+  return (
+    <main
+      className="modal-backdrop song-detail-backdrop"
+      role="presentation"
+      onClick={() => navigate('/songbook')}
+    >
+      <section
+        className="modal-card song-detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={song?.title ?? 'Song details'}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-header">
+          <div>
+            <h2>Song Details</h2>
+            {song !== null ? <p className="subtitle">{song.artist}</p> : null}
+          </div>
+          <button type="button" className="secondary" onClick={() => navigate('/songbook')}>
+            Close
+          </button>
+        </div>
+
+        {isLoading ? (
+          <div className="top-gap">
+            <SkeletonList count={1} />
+          </div>
+        ) : error !== '' ? (
+          <p className="error-message top-gap">{error}</p>
+        ) : song !== null ? (
+          <div className="song-detail-layout">
+            <div className="song-detail-video-panel">
+              {song.videoFile ? (
+                <video
+                  ref={videoRef}
+                  controls
+                  className="song-detail-video"
+                  onLoadedMetadata={handleVideoLoaded}
+                  src={`/media/songs/${song.videoFile}`}
+                />
+              ) : (
+                <p className="empty-state">Video not available.</p>
+              )}
+            </div>
+
+            <div className="song-detail-panels">
+              <div className="song-detail-summary-panel">
+                <div className="song-detail-header-row">
+                  {song.thumbnailUrl ? (
+                    <img
+                      className="song-detail-thumbnail song-detail-thumbnail--small"
+                      src={song.thumbnailUrl}
+                      alt={song.title}
+                    />
+                  ) : (
+                    <div className="song-detail-thumbnail song-detail-thumbnail--small song-detail-thumbnail--placeholder" />
+                  )}
+                  <div className="song-detail-meta">
+                    <h1 className="song-detail-title">{song.title}</h1>
+                    <p className="subtitle">{song.artist}</p>
+                  </div>
+                </div>
+
+                <dl className="song-detail-grid top-gap">
+                  <div>
+                    <dt>Language</dt>
+                    <dd>{song.language ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Genre</dt>
+                    <dd>{song.genre ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Duration</dt>
+                    <dd>{song.duration}</dd>
+                  </div>
+                  <div>
+                    <dt>Source</dt>
+                    <dd>{song.sourceUrl ? 'YouTube' : '—'}</dd>
+                  </div>
+                  {song.sourceId ? (
+                    <div className="song-detail-grid-wide">
+                      <dt>Source ID</dt>
+                      <dd>{song.sourceId}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+
+                <div className="song-detail-chips top-gap">
+                  {song.language ? <span className="chip-badge">{song.language.toUpperCase()}</span> : null}
+                  {song.genre ? <span className="chip-badge">{song.genre}</span> : null}
+                  {song.duration ? <span className="chip-badge">{song.duration}</span> : null}
+                  {song.tags.map((t) => (
+                    <span key={t} className="chip-badge chip-badge--tag">{t}</span>
+                  ))}
+                </div>
+
+                {song.sourceUrl ? (
+                  <div className="top-gap">
+                    <a
+                      href={song.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="secondary-link"
+                    >
+                      View on YouTube ↗
+                    </a>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="song-detail-lyrics-panel">
+                <h3>Lyrics</h3>
+                <p className="song-detail-lyrics">
+                  {song.lyrics !== null && song.lyrics.trim() !== '' ? song.lyrics : 'No lyrics available.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </section>
+    </main>
+  )
+}
+
+type SongContextMenu = { song: SongbookSong; x: number; y: number } | null
+
 type SongbookPageProps = {
   notice: string
   guestNickname: string | null
@@ -706,18 +973,51 @@ type SongbookPageProps = {
 function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageProps) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
-  const filteredSongs = useMemo(() => {
-    const trimmed = query.trim().toLowerCase()
-    if (trimmed === '') {
-      return MOCK_SONGBOOK
-    }
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [songs, setSongs] = useState<SongbookSong[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [pages, setPages] = useState(1)
+  const [contextMenu, setContextMenu] = useState<SongContextMenu>(null)
 
-    return MOCK_SONGBOOK.filter(
-      (song) =>
-        song.title.toLowerCase().includes(trimmed) ||
-        song.artist.toLowerCase().includes(trimmed),
-    )
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 350)
+    return () => clearTimeout(timer)
   }, [query])
+
+  // Fetch when debounced query or page changes
+  useEffect(() => {
+    setIsLoading(true)
+    const trimmed = debouncedQuery.trim()
+    const fetchFn = trimmed === '' ? fetchSongbook(page) : searchSongbook(trimmed, page)
+    fetchFn
+      .then((data) => {
+        setSongs(data.items)
+        setPages(data.pages)
+      })
+      .catch(() => setSongs([]))
+      .finally(() => setIsLoading(false))
+  }, [debouncedQuery, page])
+
+  // Reset to page 1 on new query
+  useEffect(() => {
+    setPage(1)
+  }, [debouncedQuery])
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (contextMenu === null) return
+    const close = () => setContextMenu(null)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [contextMenu])
+
+  const handleSongClick = (event: React.MouseEvent, song: SongbookSong) => {
+    event.stopPropagation()
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    setContextMenu({ song, x: rect.left, y: rect.bottom + window.scrollY })
+  }
 
   return (
     <main className="app-shell">
@@ -725,19 +1025,13 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
         <div className="card-header">
           <div>
             <h1>Songbook</h1>
-            <p className="subtitle">Search existing songs before suggesting a new one.</p>
             {guestNickname !== null ? (
-              <p className="subtitle top-gap">
-                Suggesting as <strong>{guestNickname}</strong>
+              <p className="subtitle">
+                Signed in as <strong>{guestNickname}</strong>
               </p>
             ) : null}
           </div>
           <div className="row-actions">
-            {guestNickname !== null ? (
-              <button type="button" className="secondary" onClick={onChangeNickname}>
-                Change Nickname
-              </button>
-            ) : null}
             <button
               type="button"
               onClick={() =>
@@ -756,31 +1050,109 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
         {notice !== '' ? <p className="success-message top-gap">{notice}</p> : null}
 
         <div className="form top-gap">
-          <label>
-            Search songbook
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by title or artist"
-            />
-          </label>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search by title, artist, genre, tags, etc."
+          />
         </div>
 
         <div className="queue-list top-gap">
-          {filteredSongs.length === 0 ? (
+          {isLoading ? (
+            <SkeletonList count={8} />
+          ) : songs.length === 0 ? (
             <p className="empty-state">No songs found. Try suggesting a new one.</p>
           ) : (
-            filteredSongs.map((song) => (
-              <article className="queue-item" key={song.id}>
-                <strong>{song.title}</strong>
-                <p className="session-meta">
-                  {song.artist} · {song.language.toUpperCase()} · {song.duration}
-                </p>
+            songs.map((song) => (
+              <article
+                className="queue-item songbook-item"
+                key={song.id}
+                onClick={(e) => handleSongClick(e, song)}
+                style={{ cursor: 'pointer' }}
+              >
+                {song.thumbnailUrl ? (
+                  <img
+                    className="songbook-thumbnail"
+                    src={song.thumbnailUrl}
+                    alt={song.title}
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="songbook-thumbnail songbook-thumbnail--placeholder" />
+                )}
+                <div className="songbook-info">
+                  <strong>{song.title}</strong>
+                  <p className="session-meta">
+                    {song.artist}
+                    {song.duration ? ` · ${song.duration}` : ''}
+                  </p>
+                </div>
               </article>
             ))
           )}
         </div>
+
+        {pages > 1 ? (
+          <div className="pagination top-gap">
+            <button
+              type="button"
+              className="secondary"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              ← Prev
+            </button>
+            <span className="pagination-info">
+              Page {page} of {pages}
+            </span>
+            <button
+              type="button"
+              className="secondary"
+              disabled={page >= pages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next →
+            </button>
+          </div>
+        ) : null}
       </section>
+
+      {guestNickname !== null ? (
+        <div className="change-nickname-outside">
+          <button type="button" className="secondary small" onClick={onChangeNickname}>
+            Change Nickname
+          </button>
+        </div>
+      ) : null}
+
+      {contextMenu !== null ? (
+        <div
+          className="context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              navigate(`/songbook/song/${contextMenu.song.id}`)
+              setContextMenu(null)
+            }}
+          >
+            Details
+          </button>
+          {contextMenu.song.sourceUrl ? (
+            <button
+              type="button"
+              onClick={() => {
+                window.open(contextMenu.song.sourceUrl!, '_blank', 'noopener,noreferrer')
+                setContextMenu(null)
+              }}
+            >
+              View on YouTube
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </main>
   )
 }
@@ -1005,8 +1377,10 @@ function SuggestSearchPage({
           </p>
         ) : null}
         <div className="queue-list top-gap">
-          {results.length === 0 ? (
-            <p className="empty-state">Search for a video to see results.</p>
+          {isSearching ? (
+            <SkeletonList count={5} />
+          ) : results.length === 0 ? (
+            null
           ) : (
             results.map((result) => (
               <button
@@ -1232,14 +1606,13 @@ function SuggestIdentifyPage({
 
       void suggestIdentify(normalizedUrl, authToken, true)
         .then((response) => {
+          setIsSubmitting(false)
           onIdentify(buildInitialSuggestDraft(response))
           navigate('/songbook/suggest/update', { replace: true })
         })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : 'Identify failed'
           setErrorMessage(message)
-        })
-        .finally(() => {
           setIsSubmitting(false)
         })
     },
@@ -1318,6 +1691,7 @@ function SuggestIdentifyPage({
             </button>
           </div>
         </form>
+        {isSubmitting ? <BlockingHud message="Identifying song details..." /> : null}
       </section>
     </main>
   )
@@ -1328,7 +1702,7 @@ type SuggestUpdatePageProps = {
   authToken: string
   draft: SuggestDraft
   onDraftChange: (draft: SuggestDraft) => void
-  onDownload: () => void
+  onDownload: (title: string) => void
   onCancel: () => void
   onChangeNickname: () => void
 }
@@ -1704,21 +2078,17 @@ function SuggestUpdatePage({
             setIsSubmitting(true)
             void suggestDownload(draft, authToken)
               .then(() => {
-                onDownload()
+                onDownload(draft.title)
                 clearSuggestDraft()
-                // Show success message and wait before navigating
-                setTimeout(() => {
-                  navigate('/songbook')
-                }, 2000)
+                setIsSubmitting(false)
+                navigate('/songbook')
               })
               .catch((error: unknown) => {
                 const message = error instanceof Error ? error.message : 'Download failed'
                 setErrorMessage(message)
-              })
-              .finally(() => {
                 setIsSubmitting(false)
               })
-          }}
+            }}
         >
           <div className="suggest-update-layout">
             <section className="panel thumbnail-panel">
@@ -2022,51 +2392,9 @@ function SuggestUpdatePage({
         </div>
         {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
         </form>
-        
-        {(isEnhancing || isSubmitting) && (
-          <div 
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.4)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 2000,
-              backdropFilter: 'blur(2px)',
-            }}
-          >
-            <div 
-              style={{
-                backgroundColor: 'var(--surface-secondary)',
-                border: '1px solid var(--border-primary)',
-                borderRadius: 12,
-                padding: 32,
-                textAlign: 'center',
-                minWidth: 280,
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-              }}
-            >
-              <div 
-                style={{
-                  width: 48,
-                  height: 48,
-                  border: '4px solid var(--border-primary)',
-                  borderTop: '4px solid var(--accent-primary)',
-                  borderRadius: '50%',
-                  animation: 'spin 1s linear infinite',
-                  margin: '0 auto 16px',
-                }}
-              />
-              <p style={{ margin: 0, fontSize: 16, fontWeight: 500 }}>
-                {isEnhancing ? 'Enhancing song details...' : 'Saving song...'}
-              </p>
-            </div>
-          </div>
-        )}
+        {isEnhancing || isSubmitting ? (
+          <BlockingHud message={isEnhancing ? 'Enhancing song details...' : 'Saving song...'} />
+        ) : null}
       </section>
     </main>
   )
@@ -2838,8 +3166,8 @@ function AppShell() {
     setSuggestDraft(draft)
   }, [])
 
-  const handleDownloadSuggestion = useCallback(() => {
-    setSongbookNotice('Suggestion queued. You can now return to browsing the songbook.')
+  const handleDownloadSuggestion = useCallback((title: string) => {
+    setSongbookNotice(`${title} is now downloading!`)
     setSuggestDraft(null)
   }, [])
 
@@ -2902,6 +3230,10 @@ function AppShell() {
               onChangeNickname={handleChangeSuggestNickname}
             />
           }
+        />
+        <Route
+          path="/songbook/song/:id"
+          element={<SongDetailPage />}
         />
         <Route
           path="/songbook/suggest/login"

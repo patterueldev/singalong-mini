@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from ..config import settings
 
 router = APIRouter(prefix="/media", tags=["media"])
-allowed_media_directories = {"assets", "songs"}
+allowed_media_directories = {"assets", "songs", "thumbnails"}
 media_root_path = Path(settings.media_root_dir)
 
 

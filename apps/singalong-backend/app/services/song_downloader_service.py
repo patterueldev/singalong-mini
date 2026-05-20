@@ -23,7 +23,7 @@ class SongDownloaderService:
         self.db_session_factory = db_session_factory
         self.cookies_file = cookies_file
         self.downloader = YtDlpSongDownloader(cookies_file=str(cookies_file))
-        self.executor = ThreadPoolExecutor(max_workers=3)
+        self.executor = ThreadPoolExecutor(max_workers=1)
 
     def queue_song_download(
         self,
@@ -147,10 +147,16 @@ class SongDownloaderService:
             stmt = select(Song).where(Song.id == song_id)
             song = db.execute(stmt).scalar_one()
 
-            song.video_file = f"songs/{video_filename}"
-            song.thumbnail_file = f"thumbnails/{thumbnail_filename}"
+            song.video_file = video_filename
+            song.thumbnail_file = thumbnail_filename
             song.status = "published"
             song.published_at = datetime.utcnow()
+
+            # Capture duration from yt-dlp info
+            if artifact and artifact.info:
+                raw_duration = artifact.info.get("duration")
+                if isinstance(raw_duration, (int, float)) and raw_duration > 0:
+                    song.duration = int(raw_duration)
 
             db.commit()
             print(

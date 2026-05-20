@@ -5,6 +5,8 @@ services:
       POSTGRES_DB: singalong
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
     volumes:
       - ./data/singalong-db:/var/lib/postgresql/data
     healthcheck:

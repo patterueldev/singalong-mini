@@ -1,18 +1,22 @@
 import asyncio
 import logging
+import math
 import os
 import re
 
 import yt_dlp
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import text
+from sqlalchemy import func, or_, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..agents.orchestrator import OrchestratorAgent
+from ..config import settings
 from ..db import get_db
-from ..models import User
+from ..models import Song, User
 from ..schemas import (
+    SongbookItem,
+    SongbookListResponse,
     SongSuggestDownloadRequest,
     SongSuggestDownloadResponse,
     SongSuggestEnhanceRequest,
@@ -145,29 +149,57 @@ def suggest_song_download(
     print(f"[ENDPOINT] /suggest/download - title={payload.title}", flush=True)
 
     try:
-        # Create Song record with downloading status
-        song = Song(
-            id=uuid4(),
-            title=payload.title,
-            artist=payload.artist,
-            language=payload.language,
-            is_off_vocal=payload.is_off_vocal,
-            has_lyrics=payload.video_has_lyrics,
-            genre=payload.genre[0] if payload.genre else None,
-            tags=",".join(payload.tags) if payload.tags else None,
-            lyrics=payload.lyrics.strip() or None,
-            source=payload.source,
-            source_id=payload.source_id,
-            source_url=payload.source_url,
-            added_by=user.id,
-            status="downloading",
+        # Upsert: reuse existing record if same source_id exists
+        existing = (
+            db.query(Song).filter(Song.source_id == payload.source_id).first()
+            if payload.source_id
+            else None
         )
 
-        db.add(song)
-        db.commit()
-        db.refresh(song)
+        if existing:
+            print(f"[ENDPOINT] Overwriting existing song source_id={payload.source_id} song_id={existing.id}", flush=True)
+            existing.title = payload.title
+            existing.artist = payload.artist
+            existing.language = payload.language
+            existing.is_off_vocal = payload.is_off_vocal
+            existing.has_lyrics = payload.video_has_lyrics
+            existing.genre = payload.genre[0] if payload.genre else None
+            existing.tags = ",".join(payload.tags) if payload.tags else None
+            existing.lyrics = payload.lyrics.strip() or None
+            existing.source = payload.source
+            existing.source_url = payload.source_url
+            existing.last_modified_by = user.id
+            existing.status = "downloading"
+            existing.archived_at = None
+            existing.video_file = None
+            existing.thumbnail_file = None
+            existing.duration = None
+            existing.published_at = None
+            db.commit()
+            db.refresh(existing)
+            song = existing
+        else:
+            song = Song(
+                id=uuid4(),
+                title=payload.title,
+                artist=payload.artist,
+                language=payload.language,
+                is_off_vocal=payload.is_off_vocal,
+                has_lyrics=payload.video_has_lyrics,
+                genre=payload.genre[0] if payload.genre else None,
+                tags=",".join(payload.tags) if payload.tags else None,
+                lyrics=payload.lyrics.strip() or None,
+                source=payload.source,
+                source_id=payload.source_id,
+                source_url=payload.source_url,
+                added_by=user.id,
+                status="downloading",
+            )
+            db.add(song)
+            db.commit()
+            db.refresh(song)
 
-        print(f"[ENDPOINT] Song record created - song_id={song.id}", flush=True)
+        print(f"[ENDPOINT] Song record ready - song_id={song.id}", flush=True)
 
         # Queue background download task
         downloader = get_downloader()
@@ -511,3 +543,133 @@ def suggest_metadata_suggestions(
         tags = []
 
     return SongSuggestSuggestionsResponse(genres=genres, tags=tags)
+
+
+# ---------------------------------------------------------------------------
+# Songbook helpers
+# ---------------------------------------------------------------------------
+
+def _build_thumbnail_url(thumbnail_file: str | None) -> str | None:
+    if not thumbnail_file:
+        return None
+    return f"/media/thumbnails/{thumbnail_file}"
+
+
+def _parse_tags(tags_str: str | None) -> list[str]:
+    if not tags_str:
+        return []
+    import json
+    try:
+        parsed = json.loads(tags_str)
+        if isinstance(parsed, list):
+            return [str(t) for t in parsed]
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return [t.strip() for t in tags_str.split(",") if t.strip()]
+
+
+def _song_to_item(song: Song) -> SongbookItem:
+    return SongbookItem(
+        id=song.id,
+        title=song.title,
+        artist=song.artist,
+        duration=_format_duration(song.duration),
+        language=song.language,
+        genre=song.genre,
+        tags=_parse_tags(song.tags),
+        thumbnail_url=_build_thumbnail_url(song.thumbnail_file),
+        source_id=song.source_id,
+        source_url=song.source_url,
+        video_file=song.video_file,
+        lyrics=song.lyrics,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/songs  —  paginated songbook
+# ---------------------------------------------------------------------------
+
+@router.get("", response_model=SongbookListResponse)
+def list_songs(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    base_query = (
+        db.query(Song)
+        .filter(Song.status == "published", Song.archived_at.is_(None))
+        .order_by(Song.published_at.desc())
+    )
+    total = base_query.count()
+    pages = max(1, math.ceil(total / limit))
+    items = base_query.offset((page - 1) * limit).limit(limit).all()
+    return SongbookListResponse(
+        items=[_song_to_item(s) for s in items],
+        total=total,
+        page=page,
+        pages=pages,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/songs/search  —  keyword search across songbook
+# ---------------------------------------------------------------------------
+
+@router.get("/search", response_model=SongbookListResponse)
+def search_songs(
+    q: str = Query("", alias="q"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    base_query = (
+        db.query(Song)
+        .filter(Song.status == "published", Song.archived_at.is_(None))
+    )
+    keyword = q.strip()
+    if keyword:
+        pattern = f"%{keyword}%"
+        base_query = base_query.filter(
+            or_(
+                Song.title.ilike(pattern),
+                Song.artist.ilike(pattern),
+                Song.genre.ilike(pattern),
+                Song.tags.ilike(pattern),
+            )
+        )
+    base_query = base_query.order_by(Song.published_at.desc())
+    total = base_query.count()
+    pages = max(1, math.ceil(total / limit))
+    items = base_query.offset((page - 1) * limit).limit(limit).all()
+    return SongbookListResponse(
+        items=[_song_to_item(s) for s in items],
+        total=total,
+        page=page,
+        pages=pages,
+    )
+
+
+
+# ---------------------------------------------------------------------------
+# GET /api/songs/{song_id}  —  single song detail
+# ---------------------------------------------------------------------------
+
+@router.get("/{song_id}", response_model=SongbookItem)
+def get_song(
+    song_id: str,
+    db: Session = Depends(get_db),
+):
+    import uuid as _uuid
+    try:
+        uid = _uuid.UUID(song_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    song = (
+        db.query(Song)
+        .filter(Song.id == uid, Song.status == "published", Song.archived_at.is_(None))
+        .first()
+    )
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+    return _song_to_item(song)
