@@ -1,0 +1,37 @@
+name: PR / Player App Checks
+
+on:
+  workflow_call:
+
+jobs:
+  player-checks:
+    name: Player app checks
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/singalong-player
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build macOS app
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project SingalongPlayer.xcodeproj \
+            -scheme SingalongPlayer \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            clean build 2>&1 | tail -20
+
+      - name: Verify build artifacts
+        shell: bash
+        run: |
+          APP_PATH="build/Build/Products/Debug/SingalongPlayer.app"
+          [ -d "$APP_PATH" ] && echo "✅ Player build succeeded" || exit 1
