@@ -113,7 +113,7 @@ async def websocket_player(
 ):
     _ = _authenticate_ws_channel(websocket, db, token, {"player", "admin"})
     _require_active_session(db, session_code)
-    await ws_hub.run_connection(websocket=websocket, channel="player", session_code=session_code)
+    await ws_hub.run_connection(websocket=websocket, channel="player", session_code=session_code, db=db)
 
 
 @app.websocket("/ws/admin")
@@ -125,7 +125,7 @@ async def websocket_admin(
 ):
     _ = _authenticate_ws_channel(websocket, db, token, {"admin"})
     _require_active_session(db, session_code)
-    await ws_hub.run_connection(websocket=websocket, channel="admin", session_code=session_code)
+    await ws_hub.run_connection(websocket=websocket, channel="admin", session_code=session_code, db=db)
 
 
 @app.websocket("/ws/guest")
@@ -137,7 +137,7 @@ async def websocket_guest(
 ):
     _ = _authenticate_ws_channel(websocket, db, token, {"guest", "admin"})
     _require_active_session(db, session_code)
-    await ws_hub.run_connection(websocket=websocket, channel="guest", session_code=session_code)
+    await ws_hub.run_connection(websocket=websocket, channel="guest", session_code=session_code, db=db)
 
 
 @app.get("/health")
@@ -156,7 +156,8 @@ def on_startup():
 
     from .config import settings
     from .db import SessionLocal
-    from .services.song_downloader_service import initialize_downloader
+    from .services.song_downloader_service import get_downloader, initialize_downloader
 
     media_dir = Path(settings.media_root_dir)
     initialize_downloader(media_dir, SessionLocal, settings.ytdlp_cookies_file)
+    get_downloader().recover_pending_downloads()

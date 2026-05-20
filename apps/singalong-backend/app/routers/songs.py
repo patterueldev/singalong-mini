@@ -16,6 +16,7 @@ from ..config import settings
 from ..db import get_db
 from ..models import Song, User
 from ..schemas import (
+    SongDownloadListResponse,
     SongbookItem,
     SongbookListResponse,
     SongSuggestDownloadRequest,
@@ -31,7 +32,8 @@ from ..schemas import (
     SongSuggestUpdateRequest,
     SongSuggestUpdateResponse,
 )
-from ..services.auth import get_current_user
+from ..services.auth import get_current_user, require_admin_user
+from ..services.download_queue import list_active_download_items
 from ..services.songs_download import extract_youtube_video_id, run_song_download
 
 router = APIRouter(prefix="/api/songs", tags=["songs"])
@@ -215,6 +217,7 @@ def suggest_song_download(
             source_url=payload.source_url,
             source_id=payload.source_id,
             title=payload.title,
+            artist=payload.artist,
             source_thumbnail=payload.source_thumbnail,
             source_thumbnail_data_url=payload.source_thumbnail_data_url or None,
         )
@@ -230,6 +233,14 @@ def suggest_song_download(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to queue song download",
         )
+
+
+@router.get("/downloads", response_model=SongDownloadListResponse)
+def list_song_downloads(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin_user),
+):
+    return SongDownloadListResponse(items=list_active_download_items(db))
 
 
 @router.post("/suggest/search", response_model=SongSuggestSearchResponse)

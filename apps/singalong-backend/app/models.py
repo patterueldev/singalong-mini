@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, String, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -9,6 +9,7 @@ from .db import Base
 
 USER_ROLES = ("admin", "guest", "player")
 SONG_STATUSES = ("draft", "downloading", "published", "archived", "error")
+SONG_DOWNLOAD_STATUSES = ("pending", "downloading", "error")
 
 
 class User(Base):
@@ -91,6 +92,48 @@ class Song(Base):
         nullable=False,
         server_default=func.now(),
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class SongDownload(Base):
+    __tablename__ = "song_downloads"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    song_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("songs.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    source_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    artist: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_thumbnail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_thumbnail_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        Enum(*SONG_DOWNLOAD_STATUSES, name="song_download_status", create_type=True),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+    )
+    progress_pct: Mapped[int | None] = mapped_column(nullable=True)
+    current_step: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
