@@ -159,20 +159,27 @@ YouTube Title: {youtube_title}
 YouTube Description (first 200 chars): {youtube_description[:200] if youtube_description else "(empty)"}
 
 Your job:
-1. Extract the clean song TITLE (without [Karaoke], (Practice), (Instrumental) suffixes)
+1. Extract the clean song TITLE
+   - Remove [Karaoke], [Instrumental], [Practice] prefixes
+   - Remove (Practice), (Instrumental), (Off-vocal) suffixes
+   - KEEP romanized text in parentheses for Japanese/CJK titles! e.g. "(Romaji)" or "(English translation)"
+   - Example: "恋になりたいAQUARIUM (Koi ni Naritai Aquarium)" - KEEP the parentheses!
 2. Extract the ARTIST name (the performer/creator)
 3. Rate your confidence 0.0-1.0 that this is correct
 
 Return ONLY valid JSON with these exact fields (no markdown, no extra text):
 {{
-  "title": "The clean song title",
+  "title": "The clean song title with romanization if present",
   "artist": "The artist name or null",
   "confidence": 0.85
 }}
 
 Examples:
 - Input: "[Karaoke 0] Aqours - 未熟DREAMER ( Mijuku DREAMER )"
-  Output: {{"title": "未熟DREAMER", "artist": "Aqours", "confidence": 0.95}}
+  Output: {{"title": "未熟DREAMER (Mijuku DREAMER)", "artist": "Aqours", "confidence": 0.95}}
+
+- Input: "[歌詞・音程バーカラオケ/練習用] Aqours - 恋になりたいAQUARIUM (アニメ`ラブライブ! サンシャイン!!`OST)"
+  Output: {{"title": "恋になりたいAQUARIUM (Koi ni Naritai Aquarium)", "artist": "Aqours", "confidence": 0.9}}
 
 - Input: "Hoshizora Rin - Snow halation [Instrumental]"
   Output: {{"title": "Snow halation", "artist": "Hoshizora Rin", "confidence": 0.9}}
