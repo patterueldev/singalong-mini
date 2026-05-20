@@ -1,11 +1,12 @@
 # Singalong Mini
 
-I want this to be a very simple and straightforward implementation of the Singalong Karaoke system. Applications would be 3 or more apps:
+I want this to be a very simple and straightforward implementation of the Singalong Karaoke system. Applications would be:
 - Python Server - Handles sessions, songbook, reservations, and downloads.
 - Player MacOS App - Handles Playback
-- Admin Web App - Managing Sessions, Session Reservations, and Playback Controls
-- (Optional) Guest Web App - For users to view the songbook and make reservations
-- (Optional, but a bit important) Songs Suggestion Web App - For users to suggest songs to be added to the songbook (so guests can suggest songs before the session starts, and the admin can review and add them to the songbook)
+- Unified Client Web App - One frontend with route-based surfaces:
+  - `/client/admin` - Managing sessions, reservations, and playback controls
+  - `/client/guest` - Guest-facing songbook/reservation UI (planned)
+  - `/client/suggest` - Song suggestion UI (planned)
 
 Unlike the original Singalong Karaoke system, I want this to be less restrictive, assume a one-off application (but still reusable if data is kept intact).
 
@@ -31,10 +32,22 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
   - title
   - artist
   - duration (in seconds)
-  - file_path (path to the video file on the server)
-  - source_url (original URL where the song was downloaded from, for reference)
+  - language (optional; ISO 639-1 code, e.g., 'en' for English, 'zh' for Chinese, 'jp' for Japanese, etc.)
+  - is_off_vocal (boolean; indicates if the song is an instrumental version without vocals)
+  - has_lyrics (boolean; indicates if the song has lyrics embedded in the video)
+  - video_file (filename of the downloaded video in `/data/media/songs/` e.g. `never_gonna_give_you_up[abc123].mp4`)
+  - thumbnail_file (optional; filename of the thumbnail image in `/data/media/thumbnails/` e.g. `never_gonna_give_you_up[abc123].jpg`)
+  - lyrics (optional; plain text)
+  - metadata: <String: String> (optional; a JSON string for any additional metadata that may be useful, such as original YouTube title, description, etc.)
+  - source (e.g., 'youtube', 'local', etc.)
   - source_id (optional; an identifier from the source platform, e.g., YouTube video ID)
-  - added_in_session (nullable; if not null, indicates the session in which the song was added, for tracking purposes)
+  - source_url (optional; original URL where the song was downloaded from, for reference)
+  - added_by (required; id of the user who suggested or added the song)
+  - added_in_session (nullable; session if not null, indicates the session ID in which the song was added, for tracking purposes)
+  - last_modified_by (nullable; id of the user who last modified the song details, for tracking purposes)
+  - created_at
+  - updated_at
+  - archived_at (nullable; if not null, song is considered archived and won't be shown in the songbook for new reservations)
 - Reservations
   - id (primary key)
   - session_id (foreign key to Sessions)

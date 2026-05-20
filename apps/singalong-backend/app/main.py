@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import WebSocketException, status
 from sqlalchemy.orm import Session
@@ -31,15 +31,15 @@ app.include_router(sessions_router)
 app.include_router(songs_router)
 app.include_router(media_router)
 
-admin_static_path = Path(settings.admin_static_dir)
-admin_index_path = admin_static_path / "index.html"
+client_static_path = Path(settings.client_static_dir)
+client_index_path = client_static_path / "index.html"
 
 
-def _serve_admin_path(path: str = "") -> FileResponse:
-    if not admin_static_path.exists() or not admin_index_path.exists():
-        raise HTTPException(status_code=404, detail="Admin app is not available")
+def _serve_client_path(path: str = "") -> FileResponse:
+    if not client_static_path.exists() or not client_index_path.exists():
+        raise HTTPException(status_code=404, detail="Client app is not available")
 
-    root = admin_static_path.resolve()
+    root = client_static_path.resolve()
     requested = (root / path).resolve()
     try:
         requested.relative_to(root)
@@ -52,12 +52,12 @@ def _serve_admin_path(path: str = "") -> FileResponse:
     if path != "" and "." in Path(path).name:
         raise HTTPException(status_code=404, detail="Static asset not found")
 
-    return FileResponse(admin_index_path)
+    return FileResponse(client_index_path)
 
 
 @app.get("/")
 def root():
-    return RedirectResponse(url="/guest", status_code=307)
+    return RedirectResponse(url="/client/guest", status_code=307)
 
 
 @app.get("/api")
@@ -65,43 +65,19 @@ def api_root():
     return {"message": "Singalong API root"}
 
 
-@app.get("/admin")
-def admin_root():
-    return RedirectResponse(url="/admin/", status_code=307)
+@app.get("/client")
+def client_root():
+    return RedirectResponse(url="/client/", status_code=307)
 
 
-@app.get("/admin/")
-def admin_index():
-    return _serve_admin_path()
+@app.get("/client/")
+def client_index():
+    return _serve_client_path()
 
 
-@app.get("/admin/{full_path:path}")
-def admin_path(full_path: str):
-    return _serve_admin_path(full_path)
-
-
-@app.get("/guest", response_class=HTMLResponse)
-def guest():
-    return """
-    <!doctype html>
-    <html><head><title>Singalong Guest</title></head>
-    <body style="font-family: sans-serif; margin: 2rem;">
-      <h1>Singalong Guest</h1>
-      <p>Guest app is not implemented yet. This is a mock page.</p>
-    </body></html>
-    """
-
-
-@app.get("/suggest", response_class=HTMLResponse)
-def suggest():
-    return """
-    <!doctype html>
-    <html><head><title>Singalong Suggest</title></head>
-    <body style="font-family: sans-serif; margin: 2rem;">
-      <h1>Song Suggestions</h1>
-      <p>Suggestions app is not implemented yet. This is a mock page.</p>
-    </body></html>
-    """
+@app.get("/client/{full_path:path}")
+def client_path(full_path: str):
+    return _serve_client_path(full_path)
 
 
 def _require_active_session(db: Session, session_code: str):

@@ -1,12 +1,12 @@
-FROM node:22-alpine AS admin-builder
+FROM node:22-alpine AS client-builder
 
-WORKDIR /build/admin
+WORKDIR /build/client
 
-COPY apps/singalong-admin/package*.json /build/admin/
+COPY apps/singalong-client/package*.json /build/client/
 RUN npm install
 
-COPY apps/singalong-admin /build/admin
-ENV VITE_BASE_PATH=/admin/
+COPY apps/singalong-client /build/client
+ENV VITE_BASE_PATH=/client/
 RUN npm run build
 
 
@@ -16,7 +16,7 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    ADMIN_STATIC_DIR=/app/static/admin
+    CLIENT_STATIC_DIR=/app/static/client
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ffmpeg nodejs && \
@@ -27,7 +27,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY apps/singalong-backend /app
-COPY --from=admin-builder /build/admin/dist /app/static/admin
+COPY --from=client-builder /build/client/dist /app/static/client
 
 EXPOSE 8000
 

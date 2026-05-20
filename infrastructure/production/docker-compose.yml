@@ -27,7 +27,7 @@ services:
       SINGALONG_ADMIN_PASSWORD: ${SINGALONG_ADMIN_PASSWORD:-password}
       JWT_SECRET_KEY: ${SINGALONG_JWT_SECRET_KEY:-singalong-prod-jwt-secret}
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${SINGALONG_JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-43200}
-      ADMIN_STATIC_DIR: /app/static/admin
+      CLIENT_STATIC_DIR: /app/static/client
     volumes:
       - ./data/singalong-backend:/data
     ports:

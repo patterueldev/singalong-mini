@@ -36,17 +36,18 @@ services:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-  admin:
+  client:
     build:
-      context: ../../apps/singalong-admin
-      dockerfile: ../../infrastructure/development/Admin.dockerfile
-    container_name: singalong-admin
+      context: ../../apps/singalong-client
+      dockerfile: ../../infrastructure/development/Client.dockerfile
+    container_name: singalong-client
     environment:
       VITE_API_BASE_URL: http://localhost:8000
+      VITE_BASE_PATH: /client/
     ports:
       - "5173:5173"
     volumes:
-      - ../../apps/singalong-admin:/app
+      - ../../apps/singalong-client:/app
       - /app/node_modules
     depends_on:
       backend:
