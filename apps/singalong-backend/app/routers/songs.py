@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from ..agents.orchestrator import OrchestratorAgent
 from ..config import settings
 from ..db import get_db
-from ..models import Song, User
+from ..models import Song, SongDownload, User
 from ..schemas import (
     SongDownloadListResponse,
     SongbookItem,
@@ -243,6 +243,52 @@ def list_song_downloads(
     return SongDownloadListResponse(items=list_active_download_items(db))
 
 
+@router.post("/downloads/{song_id}/retry", response_model=SongSuggestDownloadResponse, status_code=status.HTTP_202_ACCEPTED)
+def retry_song_download(
+    song_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
+    from ..services.song_downloader_service import get_downloader
+
+    download = db.query(SongDownload).filter(SongDownload.song_id == song_id).first()
+    if download is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Download record not found")
+    if download.status != "error":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only errored downloads can be retried",
+        )
+
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if song is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    source_url = download.source_url or song.source_url
+    if source_url is None or source_url.strip() == "":
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Missing source URL")
+
+    song.status = "downloading"
+    song.archived_at = None
+    db.commit()
+
+    downloader = get_downloader()
+    downloader.queue_song_download(
+        song_id=str(song.id),
+        source_url=source_url,
+        source_id=download.source_id or song.source_id or "",
+        title=download.title or song.title,
+        artist=download.artist or song.artist,
+        source_thumbnail=download.source_thumbnail or "",
+        source_thumbnail_data_url=download.source_thumbnail_data_url,
+    )
+
+    return SongSuggestDownloadResponse(
+        status="accepted",
+        message="Song download requeued",
+        song_id=str(song.id),
+    )
+
+
 @router.post("/suggest/search", response_model=SongSuggestSearchResponse)
 def suggest_song_search(
     payload: SongSuggestSearchRequest,
@@ -279,7 +325,7 @@ def suggest_song_search(
         existing_source_ids = {
             source_id
             for (source_id,) in db.query(Song.source_id)
-            .filter(Song.source_id.in_(lookup_source_ids), Song.archived_at.is_(None))
+            .filter(Song.source_id.in_(lookup_source_ids))
             .all()
             if isinstance(source_id, str) and source_id != ""
         }

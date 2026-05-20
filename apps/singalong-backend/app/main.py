@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
@@ -14,7 +15,7 @@ from .routers.media import router as media_router
 from .routers.songs import router as songs_router
 from .routers.sessions import router as sessions_router
 from .routers.users import router as users_router
-from .services.auth import authenticate_websocket_user
+from .services.auth import authenticate_websocket_user, authenticate_websocket_user_optional
 from .services.sessions import get_active_session_by_code
 from .services.ws import ws_hub
 
@@ -131,12 +132,18 @@ async def websocket_admin(
 @app.websocket("/ws/guest")
 async def websocket_guest(
     websocket: WebSocket,
-    session_code: str = Query(..., min_length=6, max_length=6),
+    session_code: str | None = Query(None, min_length=6, max_length=6),
     token: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    _ = _authenticate_ws_channel(websocket, db, token, {"guest", "admin"})
-    _require_active_session(db, session_code)
+    _ = authenticate_websocket_user_optional(
+        websocket=websocket,
+        db=db,
+        token_query=token,
+        allowed_roles={"guest", "admin"},
+    )
+    if session_code is not None:
+        _require_active_session(db, session_code)
     await ws_hub.run_connection(websocket=websocket, channel="guest", session_code=session_code, db=db)
 
 
@@ -146,10 +153,11 @@ def health():
 
 
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     Base.metadata.create_all(bind=engine)
     migrate_guest_usernames()
     seed_admin_user()
+    ws_hub.bind_event_loop(asyncio.get_running_loop())
 
     # Initialize song downloader
     from pathlib import Path

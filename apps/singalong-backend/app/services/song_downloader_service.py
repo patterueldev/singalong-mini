@@ -14,6 +14,7 @@ from ..models import Song, SongDownload
 from ..services.ytdlp.naming import build_saved_filename, normalize_song_title
 from ..services.thumbnail_service import convert_base64_to_jpg, download_thumbnail, save_thumbnail
 from ..services.download_queue import list_active_download_items
+from ..services.ws import ws_hub
 from ..services.ytdlp.song_downloader import YtDlpSongDownloader
 
 
@@ -58,6 +59,7 @@ class SongDownloaderService:
                 started_at=None,
                 completed_at=None,
             )
+            self._emit_downloads_updated(db)
         finally:
             db.close()
 
@@ -248,6 +250,7 @@ class SongDownloaderService:
 
             self._delete_download_record(db, song_uuid)
             db.commit()
+            self._emit_downloads_updated(db)
             print(
                 f"[DOWNLOADER] Song published successfully - song_id={song_id}",
                 file=sys.stderr,
@@ -283,7 +286,6 @@ class SongDownloaderService:
                     current_step="error",
                     error_message=str(e),
                 )
-                db.commit()
                 print(
                     f"[DOWNLOADER] Song marked as error - song_id={song_id}",
                     file=sys.stderr,
@@ -371,6 +373,7 @@ class SongDownloaderService:
             if hasattr(download, key):
                 setattr(download, key, value)
         db.commit()
+        self._emit_downloads_updated(db)
 
     def _delete_download_record(self, db: DBSession, song_id: UUID) -> None:
         download = db.scalar(select(SongDownload).where(SongDownload.song_id == song_id))
@@ -402,6 +405,7 @@ class SongDownloaderService:
         download.progress_message = progress_message
         download.error_message = None
         db.commit()
+        self._emit_downloads_updated(db)
 
     def _extract_thumbnail_url(self, info: dict) -> str:
         thumbnail = info.get("thumbnail")
@@ -417,6 +421,10 @@ class SongDownloaderService:
                         return candidate_url
 
         return ""
+
+    def _emit_downloads_updated(self, db: DBSession) -> None:
+        download_items = list_active_download_items(db)
+        ws_hub.broadcast_downloads_updated_threadsafe(download_items)
 
 
 # Global downloader instance

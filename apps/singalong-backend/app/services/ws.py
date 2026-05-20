@@ -9,8 +9,10 @@ from fastapi.websockets import WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from .download_queue import list_active_download_items
+from ..schemas import SongDownloadItem
 
 WEBSOCKET_CHANNELS = ("player", "admin", "guest")
+GLOBAL_DOWNLOAD_SCOPE = "__downloads__"
 ADMIN_TO_PLAYER_TYPES = {
     "queue.updated",
     "playback.play",
@@ -28,49 +30,56 @@ PLAYER_TO_ADMIN_TYPES = {
 class SessionWebSocketHub:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
+        self._event_loop: asyncio.AbstractEventLoop | None = None
         self._connections: dict[str, dict[str, set[WebSocket]]] = defaultdict(
             lambda: {channel: set() for channel in WEBSOCKET_CHANNELS}
         )
+
+    def bind_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._event_loop = loop
 
     async def run_connection(
         self,
         websocket: WebSocket,
         channel: str,
-        session_code: str,
+        session_code: str | None,
         db: Session | None = None,
     ) -> None:
+        scope = session_code or GLOBAL_DOWNLOAD_SCOPE
         await websocket.accept()
-        await self._register(websocket, channel, session_code)
+        await self._register(websocket, channel, scope)
         await self._send(
             websocket,
             {
                 "type": "connection.ready",
-                "session_code": session_code,
+                "session_code": session_code or "",
                 "payload": {"channel": channel},
             },
         )
         if channel == "admin":
             await self._send_admin_placeholder_events(websocket, session_code, db)
+        if channel == "guest":
+            await self._send_download_snapshot(websocket, session_code, db)
 
         try:
             while True:
                 incoming = await websocket.receive_json()
                 event = self._normalize_event(incoming)
                 if event is None:
-                    await self._send_error(websocket, session_code, "Invalid websocket event payload")
+                    await self._send_error(websocket, session_code or "", "Invalid websocket event payload")
                     continue
 
                 await self._route_event(
                     sender=websocket,
                     source_channel=channel,
-                    session_code=session_code,
+                    session_code=scope,
                     event_type=event["type"],
                     payload=event["payload"],
                 )
         except WebSocketDisconnect:
             return
         finally:
-            await self._unregister(websocket, channel, session_code)
+            await self._unregister(websocket, channel, scope)
 
     async def broadcast_session_ended(self, session_code: str) -> None:
         message = {
@@ -167,15 +176,16 @@ class SessionWebSocketHub:
     async def _send_admin_placeholder_events(
         self,
         websocket: WebSocket,
-        session_code: str,
+        session_code: str | None,
         db: Session | None = None,
     ) -> None:
         download_items = list_active_download_items(db) if db is not None else []
+        scoped_session_code = session_code or ""
         await self._send(
             websocket,
             {
                 "type": "queue.updated",
-                "session_code": session_code,
+                "session_code": scoped_session_code,
                 "payload": {
                     "items": [
                         {
@@ -198,10 +208,50 @@ class SessionWebSocketHub:
             websocket,
             {
                 "type": "downloads.updated",
-                "session_code": session_code,
+                "session_code": scoped_session_code,
                 "payload": {"items": [item.model_dump(mode="json") for item in download_items]},
             },
         )
+
+    async def _send_download_snapshot(
+        self,
+        websocket: WebSocket,
+        session_code: str | None,
+        db: Session | None = None,
+    ) -> None:
+        download_items = list_active_download_items(db) if db is not None else []
+        await self._send(
+            websocket,
+            {
+                "type": "downloads.updated",
+                "session_code": session_code or "",
+                "payload": {"items": [item.model_dump(mode="json") for item in download_items]},
+            },
+        )
+
+    async def broadcast_downloads_updated(self, items: list[SongDownloadItem]) -> None:
+        payload = {
+            "type": "downloads.updated",
+            "session_code": "",
+            "payload": {"items": [item.model_dump(mode="json") for item in items]},
+        }
+        await self._broadcast_all("admin", payload)
+        await self._broadcast(GLOBAL_DOWNLOAD_SCOPE, "guest", payload)
+
+    def broadcast_downloads_updated_threadsafe(self, items: list[SongDownloadItem]) -> None:
+        if self._event_loop is None:
+            return
+        asyncio.run_coroutine_threadsafe(self.broadcast_downloads_updated(items), self._event_loop)
+
+    async def _broadcast_all(self, target_channel: str, payload: dict[str, Any]) -> None:
+        async with self._lock:
+            targets = [
+                websocket
+                for channels in self._connections.values()
+                for websocket in channels.get(target_channel, set())
+            ]
+        for websocket in targets:
+            await self._send(websocket, payload)
 
     def _normalize_event(self, payload: Any) -> dict[str, Any] | None:
         if not isinstance(payload, dict):
