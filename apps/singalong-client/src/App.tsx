@@ -120,6 +120,12 @@ type SuggestUpdateResponse = {
   draft: SuggestIdentifyResponse
 }
 
+type SuggestEnhanceResponse = {
+  status: string
+  message: string
+  enhanced: SuggestIdentifyResponse
+}
+
 type SuggestMetadataSuggestionsResponse = {
   genres: string[]
   tags: string[]
@@ -549,6 +555,33 @@ async function suggestUpdate(draft: SuggestDraft, token: string): Promise<Sugges
   const normalizedGenres = normalizedGenre === '' ? [] : [normalizedGenre]
   return apiJson<SuggestUpdateResponse>(
     '/songs/suggest/update',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        source_url: draft.source_url,
+        source_id: draft.source_id,
+        source: normalizedSource === '' ? 'youtube' : normalizedSource,
+        source_thumbnail: draft.source_thumbnail,
+        title: draft.title,
+        artist: draft.artist,
+        language: draft.language,
+        is_off_vocal: draft.is_off_vocal,
+        video_has_lyrics: draft.video_has_lyrics,
+        genre: normalizedGenres,
+        tags: normalizeTagList(draft.tags),
+        lyrics: draft.lyrics,
+      }),
+    },
+    token,
+  )
+}
+
+async function suggestEnhance(draft: SuggestDraft, token: string): Promise<SuggestEnhanceResponse> {
+  const normalizedGenre = draft.genre.trim()
+  const normalizedSource = draft.source.trim()
+  const normalizedGenres = normalizedGenre === '' ? [] : [normalizedGenre]
+  return apiJson<SuggestEnhanceResponse>(
+    '/songs/suggest/enhance',
     {
       method: 'POST',
       body: JSON.stringify({
@@ -1404,6 +1437,8 @@ function SuggestUpdatePage({
   const [originalDraft] = useState(draft)
   const [errorMessage, setErrorMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isEnhancing, setIsEnhancing] = useState(false)
+  const [enhanceMessage, setEnhanceMessage] = useState('')
   const [genreInput, setGenreInput] = useState(draft.genre)
   const [tagInput, setTagInput] = useState('')
   const [metadataSuggestions, setMetadataSuggestions] = useState<SuggestMetadataSuggestionsResponse>({
@@ -1543,6 +1578,38 @@ function SuggestUpdatePage({
     window.open(draft.source_url, '_blank', 'noopener,noreferrer')
   }, [draft.source_url])
 
+  const handleEnhance = useCallback(async () => {
+    setIsEnhancing(true)
+    setEnhanceMessage('')
+    try {
+      const response = await suggestEnhance(draft, authToken)
+      if (response.status === 'success' || response.status === 'degraded') {
+        // Merge enhanced results back into draft
+        const enhanced = response.enhanced
+        updateDraft({
+          title: enhanced.title,
+          artist: enhanced.artist,
+          language: enhanced.language || '',
+          is_off_vocal: enhanced.is_off_vocal,
+          video_has_lyrics: enhanced.video_has_lyrics,
+          genre: enhanced.genre || '',
+          tags: enhanced.tags || [],
+          // Note: source fields and lyrics are not updated per enhancement rules
+        })
+        setEnhanceMessage(response.status === 'degraded' ? '✓ Enhanced (partial)' : '✓ Enhanced successfully!')
+        // Clear message after 3 seconds
+        setTimeout(() => setEnhanceMessage(''), 3000)
+      } else {
+        setEnhanceMessage('Enhancement failed')
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Enhancement failed'
+      setEnhanceMessage(`Error: ${message}`)
+    } finally {
+      setIsEnhancing(false)
+    }
+  }, [draft, authToken, updateDraft])
+
   const confirmExitUpdate = useCallback(
     (onConfirmed: () => void) => {
       const shouldLeave = window.confirm(
@@ -1597,9 +1664,20 @@ function SuggestUpdatePage({
           <button type="button" className="youtube-button" onClick={previewOnYoutube}>
             Preview on Youtube
           </button>
-          <button type="button" className="secondary" disabled title="Coming soon">
-            Enhance <span aria-hidden="true">✦</span>
+          <button
+            type="button"
+            className="secondary"
+            disabled={isEnhancing}
+            onClick={handleEnhance}
+            title={isEnhancing ? 'Enhancing...' : 'Use AI to enhance song metadata'}
+          >
+            {isEnhancing ? 'Enhancing...' : 'Enhance'} <span aria-hidden="true">✦</span>
           </button>
+          {enhanceMessage && (
+            <span className="enhance-message" style={{ color: enhanceMessage.startsWith('Error') ? '#d32f2f' : '#4caf50' }}>
+              {enhanceMessage}
+            </span>
+          )}
         </div>
         <form
           className="form top-gap"

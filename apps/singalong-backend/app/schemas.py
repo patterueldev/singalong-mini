@@ -158,3 +158,24 @@ class SongSuggestUpdateResponse(BaseModel):
 class SongSuggestSuggestionsResponse(BaseModel):
     genres: list[str]
     tags: list[str]
+
+
+class SongSuggestEnhanceRequest(BaseModel):
+    source_url: str = Field(min_length=1, max_length=1000)
+    source_id: str = Field(min_length=1, max_length=50)
+    source: str = Field(default="youtube", min_length=1, max_length=50)
+    source_thumbnail: str = Field(default="", max_length=1000)
+    title: str = Field(min_length=1, max_length=200)
+    artist: str = Field(min_length=1, max_length=200)
+    language: str = Field(default="", max_length=20)
+    is_off_vocal: bool = False
+    video_has_lyrics: bool = False
+    genre: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    lyrics: str = Field(default="", max_length=20000)
+
+
+class SongSuggestEnhanceResponse(BaseModel):
+    status: str
+    message: str
+    enhanced: SongSuggestIdentifyResponse

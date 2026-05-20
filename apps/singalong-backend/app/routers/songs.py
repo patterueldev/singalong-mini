@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import os
 import re
 
 import yt_dlp
@@ -7,11 +9,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from ..agents.orchestrator import OrchestratorAgent
 from ..db import get_db
 from ..models import User
 from ..schemas import (
     SongSuggestDownloadRequest,
     SongSuggestDownloadResponse,
+    SongSuggestEnhanceRequest,
+    SongSuggestEnhanceResponse,
     SongSuggestIdentifyRequest,
     SongSuggestIdentifyResponse,
     SongSuggestSearchItem,
@@ -272,6 +277,111 @@ def suggest_song_update(payload: SongSuggestUpdateRequest, _: User = Depends(_re
             lyrics=payload.lyrics.strip() or None,
         ),
     )
+
+
+
+
+@router.post("/suggest/enhance", response_model=SongSuggestEnhanceResponse)
+async def suggest_song_enhance(
+    payload: SongSuggestEnhanceRequest,
+    _: User = Depends(_require_songbook_user),
+):
+    """
+    Enhance song metadata using multiple AI agents.
+
+    This endpoint orchestrates several specialized agents:
+    - Title Guesser: Extracts clean title and artist from YouTube metadata
+    - Web Researcher: Researches artist verification, year, genre, tags
+    - Language Identifier: Detects language from text
+
+    Source fields (source_url, source_id, source, source_thumbnail) are always preserved.
+    Title and artist are always enhanced (agents extract/verify them).
+
+    Returns the enhanced metadata in the same canonical shape.
+    """
+    # Validate OpenAI API key is available
+    if not os.getenv("OPENAI_API_KEY"):
+        logger.warning("suggest_song_enhance called without OPENAI_API_KEY")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OPENAI_API_KEY is not configured",
+        )
+
+    try:
+        # Create orchestrator and prepare payload for enhancement
+        orchestrator = OrchestratorAgent()
+
+        # Convert request to dict for processing
+        enhancement_payload = {
+            "source_url": payload.source_url,
+            "source_id": payload.source_id,
+            "source": payload.source,
+            "source_thumbnail": payload.source_thumbnail,
+            "title": payload.title,
+            "artist": payload.artist,
+            "language": payload.language or None,
+            "is_off_vocal": payload.is_off_vocal,
+            "video_has_lyrics": payload.video_has_lyrics,
+            "genre": payload.genre[0] if payload.genre else None,
+            "tags": payload.tags or None,
+            "lyrics": payload.lyrics or None,
+        }
+
+        # Run enhancement orchestration
+        enhanced_payload = await orchestrator.enhance(enhancement_payload)
+
+        # Convert enhanced payload back to response model
+        enhanced_response = SongSuggestIdentifyResponse(
+            source_url=enhanced_payload.get("source_url", ""),
+            source_id=enhanced_payload.get("source_id", ""),
+            source=enhanced_payload.get("source", "youtube"),
+            source_thumbnail=enhanced_payload.get("source_thumbnail", ""),
+            title=enhanced_payload.get("title", payload.title),
+            artist=enhanced_payload.get("artist", payload.artist),
+            language=enhanced_payload.get("language"),
+            is_off_vocal=enhanced_payload.get("is_off_vocal", False),
+            video_has_lyrics=enhanced_payload.get("video_has_lyrics", False),
+            genre=enhanced_payload.get("genre"),
+            tags=enhanced_payload.get("tags"),
+            lyrics=enhanced_payload.get("lyrics"),
+        )
+
+        logger.info(
+            "song-enhancement-successful youtube_id=%s title=%s artist=%s",
+            payload.source_id,
+            enhanced_response.title,
+            enhanced_response.artist,
+        )
+
+        return SongSuggestEnhanceResponse(
+            status="success",
+            message="Song metadata enhanced successfully",
+            enhanced=enhanced_response,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("song-enhancement-failed: %s", e)
+        # Graceful degradation: return original payload on any error
+        return SongSuggestEnhanceResponse(
+            status="degraded",
+            message="Enhancement partially failed, returned original values",
+            enhanced=SongSuggestIdentifyResponse(
+                source_url=payload.source_url,
+                source_id=payload.source_id,
+                source=payload.source,
+                source_thumbnail=payload.source_thumbnail,
+                title=payload.title,
+                artist=payload.artist,
+                language=payload.language or None,
+                is_off_vocal=payload.is_off_vocal,
+                video_has_lyrics=payload.video_has_lyrics,
+                genre=payload.genre[0] if payload.genre else None,
+                tags=payload.tags or None,
+                lyrics=payload.lyrics or None,
+            ),
+        )
 
 
 @router.get("/suggest/suggestions", response_model=SongSuggestSuggestionsResponse)
