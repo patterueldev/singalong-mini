@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
 import {
   BrowserRouter,
   Navigate,
@@ -104,6 +104,10 @@ type SuggestIdentifyResponse = {
   artist: string
   source_url: string
   youtube_id: string
+  thumbnail_url: string
+  thumbnail_data_url: string
+  channel_name: string
+  description: string
 }
 
 type SuggestUpdateResponse = {
@@ -117,6 +121,14 @@ type SuggestDraft = {
   artist: string
   sourceUrl: string
   youtubeId: string
+  thumbnailUrl: string
+  thumbnailDataUrl: string
+  language: string
+  isOffVocal: boolean
+  hasLyrics: boolean
+  genres: string[]
+  tags: string[]
+  lyrics: string
 }
 
 type PlaybackState = {
@@ -144,6 +156,7 @@ type WSIncoming = {
 const AUTH_STORAGE_KEY = 'singalong-client-admin-auth'
 const SUGGEST_STORAGE_KEY = 'singalong-client-suggest-nickname'
 const SUGGEST_AUTH_STORAGE_KEY = 'singalong-client-suggest-auth'
+const SUGGEST_DRAFT_STORAGE_KEY = 'singalong-client-suggest-draft'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin
 const API_ROOT =
   API_BASE_URL.endsWith('/api') || API_BASE_URL.endsWith('/api/')
@@ -266,6 +279,78 @@ function clearSuggestAuth() {
   window.localStorage.removeItem(SUGGEST_AUTH_STORAGE_KEY)
 }
 
+function readSuggestDraft(): SuggestDraft | null {
+  const raw = window.localStorage.getItem(SUGGEST_DRAFT_STORAGE_KEY)
+  if (raw === null) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<SuggestDraft>
+    if (
+      typeof parsed.title === 'string' &&
+      typeof parsed.artist === 'string' &&
+      typeof parsed.sourceUrl === 'string' &&
+      typeof parsed.youtubeId === 'string' &&
+      typeof parsed.thumbnailUrl === 'string' &&
+      typeof parsed.thumbnailDataUrl === 'string' &&
+      typeof parsed.language === 'string' &&
+      typeof parsed.isOffVocal === 'boolean' &&
+      typeof parsed.hasLyrics === 'boolean' &&
+      Array.isArray(parsed.genres) &&
+      parsed.genres.every((item) => typeof item === 'string') &&
+      Array.isArray(parsed.tags) &&
+      parsed.tags.every((item) => typeof item === 'string') &&
+      typeof parsed.lyrics === 'string'
+    ) {
+      return {
+        title: parsed.title,
+        artist: parsed.artist,
+        sourceUrl: parsed.sourceUrl,
+        youtubeId: parsed.youtubeId,
+        thumbnailUrl: parsed.thumbnailUrl,
+        thumbnailDataUrl: parsed.thumbnailDataUrl,
+        language: parsed.language,
+        isOffVocal: parsed.isOffVocal,
+        hasLyrics: parsed.hasLyrics,
+        genres: parsed.genres,
+        tags: parsed.tags,
+        lyrics: parsed.lyrics,
+      }
+    }
+  } catch {
+    // Fall through to clear invalid payloads.
+  }
+
+  window.localStorage.removeItem(SUGGEST_DRAFT_STORAGE_KEY)
+  return null
+}
+
+function saveSuggestDraft(draft: SuggestDraft) {
+  window.localStorage.setItem(SUGGEST_DRAFT_STORAGE_KEY, JSON.stringify(draft))
+}
+
+function clearSuggestDraft() {
+  window.localStorage.removeItem(SUGGEST_DRAFT_STORAGE_KEY)
+}
+
+function buildInitialSuggestDraft(payload: SuggestIdentifyResponse): SuggestDraft {
+  return {
+    title: payload.title,
+    artist: payload.artist,
+    sourceUrl: payload.source_url,
+    youtubeId: payload.youtube_id,
+    thumbnailUrl: payload.thumbnail_url,
+    thumbnailDataUrl: payload.thumbnail_data_url,
+    language: '',
+    isOffVocal: false,
+    hasLyrics: false,
+    genres: [],
+    tags: [],
+    lyrics: '',
+  }
+}
+
 function normalizeSuggestQuery(query: string): { effectiveQuery: string; appendedKaraoke: boolean } {
   const trimmed = query.trim()
   if (trimmed === '') {
@@ -297,6 +382,31 @@ function parseYouTubeVideoId(input: string): string | null {
   } catch {
     return null
   }
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result
+      if (typeof result === 'string') {
+        resolve(result)
+        return
+      }
+      reject(new Error('Unable to read image file'))
+    }
+    reader.onerror = () => {
+      reject(new Error('Unable to read image file'))
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+function splitChipInput(value: string): string[] {
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '')
 }
 
 function createMockSuggestResults(query: string): SuggestResult[] {
@@ -370,6 +480,14 @@ async function suggestUpdate(draft: SuggestDraft, token: string): Promise<Sugges
         artist: draft.artist,
         source_url: draft.sourceUrl,
         youtube_id: draft.youtubeId,
+        thumbnail_url: draft.thumbnailUrl,
+        thumbnail_data_url: draft.thumbnailDataUrl,
+        language: draft.language,
+        is_off_vocal: draft.isOffVocal,
+        has_lyrics: draft.hasLyrics,
+        genres: draft.genres,
+        tags: draft.tags,
+        lyrics: draft.lyrics,
       }),
     },
     token,
@@ -607,6 +725,7 @@ type SuggestSearchPageProps = {
   authToken: string
   onCancel: () => void
   onChangeNickname: () => void
+  onIdentify: (sourceUrl: string) => void
 }
 
 function SuggestSearchPage({
@@ -614,6 +733,7 @@ function SuggestSearchPage({
   authToken,
   onCancel,
   onChangeNickname,
+  onIdentify,
 }: SuggestSearchPageProps) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -808,8 +928,10 @@ function SuggestSearchPage({
                 <button
                   type="button"
                   className="secondary"
-                  disabled
-                  title="Coming soon"
+                  onClick={() => {
+                    onIdentify(menuResult.sourceUrl)
+                    setMenuResult(null)
+                  }}
                 >
                   Identify
                 </button>
@@ -825,7 +947,7 @@ function SuggestSearchPage({
                 </button>
                 <button
                   type="button"
-                  className="secondary"
+                  className="secondary youtube-button"
                   onClick={() => window.open(menuResult.sourceUrl, '_blank', 'noopener,noreferrer')}
                 >
                   View on Youtube
@@ -835,7 +957,11 @@ function SuggestSearchPage({
           </div>
         ) : null}
         {selectedResult !== null ? (
-          <SearchResultModal result={selectedResult} onClose={() => setSelectedResult(null)} />
+          <SearchResultModal
+            result={selectedResult}
+            onClose={() => setSelectedResult(null)}
+            onIdentify={onIdentify}
+          />
         ) : null}
       </section>
     </main>
@@ -845,9 +971,10 @@ function SuggestSearchPage({
 type SearchResultModalProps = {
   result: SuggestResult
   onClose: () => void
+  onIdentify: (sourceUrl: string) => void
 }
 
-function SearchResultModal({ result, onClose }: SearchResultModalProps) {
+function SearchResultModal({ result, onClose, onIdentify }: SearchResultModalProps) {
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <div
@@ -926,11 +1053,16 @@ function SearchResultModal({ result, onClose }: SearchResultModalProps) {
         </div>
 
         <div className="row-actions modal-actions">
-          <button type="button" className="secondary" disabled title="Coming soon">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => onIdentify(result.sourceUrl)}
+          >
             Identify
           </button>
           <button
             type="button"
+            className="youtube-button"
             onClick={() => window.open(result.sourceUrl, '_blank', 'noopener,noreferrer')}
           >
             View on Youtube
@@ -957,9 +1089,65 @@ function SuggestIdentifyPage({
   onChangeNickname,
 }: SuggestIdentifyPageProps) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const autoIdentifiedUrlRef = useRef('')
   const [url, setUrl] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const runIdentify = useCallback(
+    (nextUrl: string) => {
+      const normalizedUrl = nextUrl.trim()
+      const videoId = parseYouTubeVideoId(normalizedUrl)
+      if (videoId === null) {
+        setErrorMessage('Enter a valid YouTube URL.')
+        return
+      }
+
+      setErrorMessage('')
+      setIsSubmitting(true)
+      autoIdentifiedUrlRef.current = normalizedUrl
+
+      void suggestIdentify(normalizedUrl, authToken)
+        .then((response) => {
+          onIdentify(
+            buildInitialSuggestDraft({
+              title: response.title,
+              artist: response.artist,
+              source_url: response.source_url,
+              youtube_id: response.youtube_id,
+              thumbnail_url: response.thumbnail_url,
+              thumbnail_data_url: response.thumbnail_data_url,
+              channel_name: response.channel_name,
+              description: response.description,
+            }),
+          )
+          navigate('/songbook/suggest/update', { replace: true })
+        })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : 'Identify failed'
+          setErrorMessage(message)
+        })
+        .finally(() => {
+          setIsSubmitting(false)
+        })
+    },
+    [authToken, navigate, onIdentify],
+  )
+
+  useEffect(() => {
+    const queryUrl = new URLSearchParams(location.search).get('url') ?? ''
+    if (queryUrl === '') {
+      return
+    }
+
+    setUrl(queryUrl)
+    if (queryUrl.trim() === autoIdentifiedUrlRef.current) {
+      return
+    }
+
+    runIdentify(queryUrl)
+  }, [location.search, runIdentify])
 
   return (
     <main className="app-shell">
@@ -993,31 +1181,7 @@ function SuggestIdentifyPage({
           className="form top-gap"
           onSubmit={(event) => {
             event.preventDefault()
-            const videoId = parseYouTubeVideoId(url)
-            if (videoId === null) {
-              setErrorMessage('Enter a valid YouTube URL.')
-              return
-            }
-            setErrorMessage('')
-            setIsSubmitting(true)
-            void suggestIdentify(url.trim(), authToken)
-              .then((response) => {
-                onIdentify({
-                  title: response.title,
-                  artist: response.artist,
-                  sourceUrl: response.source_url,
-                  youtubeId: response.youtube_id,
-                })
-                navigate('/songbook/suggest/update')
-              })
-              .catch((error: unknown) => {
-                const message =
-                  error instanceof Error ? error.message : 'Identify failed'
-                setErrorMessage(message)
-              })
-              .finally(() => {
-                setIsSubmitting(false)
-              })
+            runIdentify(url)
           }}
         >
           <label>
@@ -1034,7 +1198,11 @@ function SuggestIdentifyPage({
             <button type="submit" disabled={isSubmitting}>
               {isSubmitting ? 'Identifying…' : 'Identify'}
             </button>
-            <button type="button" className="secondary" onClick={() => navigate('/songbook/suggest/search')}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => navigate('/songbook/suggest/search')}
+            >
               Back to Search
             </button>
           </div>
@@ -1054,6 +1222,70 @@ type SuggestUpdatePageProps = {
   onChangeNickname: () => void
 }
 
+type ChipFieldProps = {
+  label: string
+  values: string[]
+  inputValue: string
+  placeholder: string
+  helperText?: string
+  required?: boolean
+  onInputValueChange: (value: string) => void
+  onCommitValue: () => void
+  onRemoveValue: (value: string) => void
+}
+
+function ChipField({
+  label,
+  values,
+  inputValue,
+  placeholder,
+  helperText,
+  required,
+  onInputValueChange,
+  onCommitValue,
+  onRemoveValue,
+}: ChipFieldProps) {
+  return (
+    <label>
+      {label}
+      <div className="chip-input-shell">
+        <div className="chip-list">
+          {values.length === 0 ? (
+            <span className="chip-empty">{required ? 'At least one required' : 'None yet'}</span>
+          ) : (
+            values.map((value) => (
+              <span className="chip" key={value}>
+                {value}
+                <button type="button" aria-label={`Remove ${value}`} onClick={() => onRemoveValue(value)}>
+                  ×
+                </button>
+              </span>
+            ))
+          )}
+        </div>
+        <div className="chip-input-row">
+          <input
+            value={inputValue}
+            onChange={(event) => onInputValueChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ',') {
+                event.preventDefault()
+                onCommitValue()
+              }
+            }}
+            onBlur={onCommitValue}
+            placeholder={placeholder}
+          />
+          <button type="button" className="secondary" onClick={onCommitValue}>
+            Add
+          </button>
+        </div>
+      </div>
+      {helperText !== undefined ? <span className="field-help">{helperText}</span> : null}
+    </label>
+  )
+}
+
 function SuggestUpdatePage({
   nickname,
   authToken,
@@ -1067,40 +1299,121 @@ function SuggestUpdatePage({
   const [originalDraft] = useState(draft)
   const [errorMessage, setErrorMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [genreInput, setGenreInput] = useState('')
+  const [tagInput, setTagInput] = useState('')
+  const previewUrl = draft.thumbnailDataUrl !== '' ? draft.thumbnailDataUrl : draft.thumbnailUrl
   const isDirty = useMemo(
     () =>
       draft.title !== originalDraft.title ||
       draft.artist !== originalDraft.artist ||
-      draft.sourceUrl !== originalDraft.sourceUrl,
+      draft.sourceUrl !== originalDraft.sourceUrl ||
+      draft.youtubeId !== originalDraft.youtubeId ||
+      draft.thumbnailUrl !== originalDraft.thumbnailUrl ||
+      draft.thumbnailDataUrl !== originalDraft.thumbnailDataUrl ||
+      draft.language !== originalDraft.language ||
+      draft.isOffVocal !== originalDraft.isOffVocal ||
+      draft.hasLyrics !== originalDraft.hasLyrics ||
+      draft.lyrics !== originalDraft.lyrics ||
+      draft.genres.join('|') !== originalDraft.genres.join('|') ||
+      draft.tags.join('|') !== originalDraft.tags.join('|'),
     [draft, originalDraft],
   )
 
+  const updateDraft = useCallback(
+    (patch: Partial<SuggestDraft>) => {
+      onDraftChange({ ...draft, ...patch })
+    },
+    [draft, onDraftChange],
+  )
+
+  const commitGenres = useCallback(() => {
+    const nextValues = splitChipInput(genreInput)
+    if (nextValues.length === 0) {
+      return
+    }
+
+    updateDraft({ genres: Array.from(new Set([...draft.genres, ...nextValues])) })
+    setGenreInput('')
+  }, [draft.genres, genreInput, updateDraft])
+
+  const commitTags = useCallback(() => {
+    const nextValues = splitChipInput(tagInput)
+    if (nextValues.length === 0) {
+      return
+    }
+
+    updateDraft({ tags: Array.from(new Set([...draft.tags, ...nextValues])) })
+    setTagInput('')
+  }, [draft.tags, tagInput, updateDraft])
+
+  const handleThumbnailUpload = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.currentTarget.files?.[0] ?? null
+      if (file === null) {
+        return
+      }
+
+      try {
+        const dataUrl = await readFileAsDataUrl(file)
+        updateDraft({ thumbnailDataUrl: dataUrl })
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Unable to load image file')
+      } finally {
+        event.currentTarget.value = ''
+      }
+    },
+    [updateDraft],
+  )
+
+  const openLyricsSearch = useCallback(() => {
+    const search = `${draft.title.trim()} lyrics`.trim()
+    window.open(`https://www.google.com/search?q=${encodeURIComponent(search)}`, '_blank', 'noopener,noreferrer')
+  }, [draft.title])
+
+  const previewOnYoutube = useCallback(() => {
+    window.open(draft.sourceUrl, '_blank', 'noopener,noreferrer')
+  }, [draft.sourceUrl])
+
   return (
     <main className="app-shell">
-      <section className="card">
-        <h1>Suggest · Update Details</h1>
-        <p className="subtitle">Signed in as <strong>{nickname}</strong></p>
-        <div className="row-actions top-gap">
-          <button type="button" className="secondary" onClick={onChangeNickname}>
-            Change Nickname
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => {
-              if (isDirty) {
-                const shouldLeave = window.confirm(
-                  'You have unsaved changes. Cancel and go back to songbook?',
-                )
-                if (!shouldLeave) {
-                  return
+      <section className="card suggest-update-card">
+        <div className="card-header">
+          <div>
+            <h1>Suggest · Update Details</h1>
+            <p className="subtitle">
+              Signed in as <strong>{nickname}</strong>
+            </p>
+          </div>
+          <div className="row-actions">
+            <button type="button" className="secondary" onClick={onChangeNickname}>
+              Change Nickname
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                if (isDirty) {
+                  const shouldLeave = window.confirm(
+                    'You have unsaved changes. Cancel and go back to songbook?',
+                  )
+                  if (!shouldLeave) {
+                    return
+                  }
                 }
-              }
-              onCancel()
-              navigate('/songbook')
-            }}
-          >
-            Cancel
+                onCancel()
+                navigate('/songbook')
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+        <div className="row-actions top-gap">
+          <button type="button" className="youtube-button" onClick={previewOnYoutube}>
+            Preview on Youtube
+          </button>
+          <button type="button" className="secondary" disabled title="Coming soon">
+            Enhance <span aria-hidden="true">✦</span>
           </button>
         </div>
         <form
@@ -1115,8 +1428,7 @@ function SuggestUpdatePage({
                 navigate('/songbook')
               })
               .catch((error: unknown) => {
-                const message =
-                  error instanceof Error ? error.message : 'Update failed'
+                const message = error instanceof Error ? error.message : 'Update failed'
                 setErrorMessage(message)
               })
               .finally(() => {
@@ -1124,59 +1436,165 @@ function SuggestUpdatePage({
               })
           }}
         >
-          <label>
-            Title
-            <input
-              value={draft.title}
-              onChange={(event) => onDraftChange({ ...draft, title: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            Artist
-            <input
-              value={draft.artist}
-              onChange={(event) => onDraftChange({ ...draft, artist: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            Source URL
-            <input
-              value={draft.sourceUrl}
-              onChange={(event) => onDraftChange({ ...draft, sourceUrl: event.target.value })}
-              required
-            />
-          </label>
-          <p className="subtitle">
-            YouTube ID: <code>{draft.youtubeId}</code>
-          </p>
-          <div className="row-actions">
-            <button type="button" className="secondary" disabled>
-              Enhance with AI (Coming soon)
-            </button>
+          <div className="suggest-update-layout">
+            <section className="panel thumbnail-panel">
+            <h2>Thumbnail</h2>
+            <div className="thumbnail-preview">
+              {previewUrl !== '' ? (
+                <img src={previewUrl} alt={draft.title} />
+              ) : (
+                <div className="thumbnail-placeholder">No thumbnail available</div>
+              )}
+            </div>
+            <label className="file-input-label">
+              Change thumbnail
+              <input type="file" accept="image/*" onChange={handleThumbnailUpload} />
+            </label>
             <button
               type="button"
               className="secondary"
-              onClick={() => {
-                if (isDirty) {
-                  const shouldLeave = window.confirm(
-                    'You have unsaved changes. Go back to search anyway?',
-                  )
-                  if (!shouldLeave) {
-                    return
-                  }
-                }
-                navigate('/songbook/suggest/search')
-              }}
+              onClick={() =>
+                updateDraft({
+                  thumbnailDataUrl: originalDraft.thumbnailDataUrl,
+                  thumbnailUrl: originalDraft.thumbnailUrl,
+                })
+              }
             >
-              Back
+              Reset thumbnail
             </button>
-            <button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving…' : 'Download'}
-            </button>
-          </div>
-          {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
+          </section>
+
+          <section className="panel">
+            <h2>Metadata</h2>
+            <div className="form">
+              <label>
+                Title
+                <input
+                  value={draft.title}
+                  onChange={(event) => updateDraft({ title: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Artist
+                <input
+                  value={draft.artist}
+                  onChange={(event) => updateDraft({ artist: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Language
+                <input
+                  value={draft.language}
+                  onChange={(event) => updateDraft({ language: event.target.value })}
+                  placeholder="en"
+                />
+              </label>
+              <div className="checkbox-grid">
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={draft.isOffVocal}
+                    onChange={(event) => updateDraft({ isOffVocal: event.target.checked })}
+                  />
+                  Is Off Vocal
+                </label>
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={draft.hasLyrics}
+                    onChange={(event) => updateDraft({ hasLyrics: event.target.checked })}
+                  />
+                  Video Has Lyrics
+                </label>
+              </div>
+              <p className="subtitle">
+                Source URL:{' '}
+                <a href={draft.sourceUrl} target="_blank" rel="noreferrer">
+                  {draft.sourceUrl}
+                </a>
+              </p>
+              <p className="subtitle">
+                YouTube ID: <code>{draft.youtubeId}</code>
+              </p>
+            </div>
+          </section>
+
+          <section className="panel full-span">
+            <ChipField
+              label="Genre"
+              values={draft.genres}
+              inputValue={genreInput}
+              placeholder="Pop, ballad, rock..."
+              helperText="Add at least one genre."
+              required
+              onInputValueChange={setGenreInput}
+              onCommitValue={commitGenres}
+              onRemoveValue={(value) =>
+                updateDraft({ genres: draft.genres.filter((item) => item !== value) })
+              }
+            />
+            <div className="top-gap">
+              <ChipField
+                label="Tags"
+                values={draft.tags}
+                inputValue={tagInput}
+                placeholder="romantic, duet, female vocal..."
+                helperText="Optional tags separated by commas or Enter."
+                onInputValueChange={setTagInput}
+                onCommitValue={commitTags}
+                onRemoveValue={(value) =>
+                  updateDraft({ tags: draft.tags.filter((item) => item !== value) })
+                }
+              />
+            </div>
+          </section>
+
+          <section className="panel full-span">
+            <div className="panel-header">
+              <h2>Lyrics</h2>
+              <button type="button" className="secondary" onClick={openLyricsSearch}>
+                Search Lyrics on Google
+              </button>
+            </div>
+            <label className="top-gap">
+              Lyrics
+              <textarea
+                value={draft.lyrics}
+                onChange={(event) => updateDraft({ lyrics: event.target.value })}
+                rows={10}
+                placeholder="Paste lyrics here..."
+              />
+            </label>
+          </section>
+        </div>
+        <div className="row-actions top-gap">
+          <button type="submit" disabled={isSubmitting || draft.genres.length === 0}>
+            {isSubmitting ? 'Saving…' : 'Download'}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              if (isDirty) {
+                const shouldLeave = window.confirm(
+                  'You have unsaved changes. Go back to search anyway?',
+                )
+                if (!shouldLeave) {
+                  return
+                }
+              }
+              navigate('/songbook/suggest/search')
+            }}
+          >
+            Back
+          </button>
+          {draft.genres.length === 0 ? (
+            <p className="subtitle">Add at least one genre before downloading.</p>
+          ) : null}
+        </div>
+        {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
         </form>
       </section>
     </main>
@@ -1689,6 +2107,34 @@ function SessionControlPage({
   )
 }
 
+type SuggestSearchRouteProps = {
+  nickname: string
+  authToken: string
+  onCancel: () => void
+  onChangeNickname: () => void
+}
+
+function SuggestSearchRoute({
+  nickname,
+  authToken,
+  onCancel,
+  onChangeNickname,
+}: SuggestSearchRouteProps) {
+  const navigate = useNavigate()
+
+  return (
+    <SuggestSearchPage
+      nickname={nickname}
+      authToken={authToken}
+      onCancel={onCancel}
+      onChangeNickname={onChangeNickname}
+      onIdentify={(sourceUrl) => {
+        navigate(`/songbook/suggest/identify?url=${encodeURIComponent(sourceUrl)}`)
+      }}
+    />
+  )
+}
+
 function AppShell() {
   const [auth, setAuth] = useState<StoredAuth | null>(null)
   const [isHydratingAuth, setIsHydratingAuth] = useState(true)
@@ -1704,7 +2150,7 @@ function AppShell() {
   const [sessionErrorMessage, setSessionErrorMessage] = useState('')
   const [suggestAuth, setSuggestAuth] = useState<GuestAuth | null>(null)
   const [suggestNickname, setSuggestNickname] = useState('')
-  const [suggestDraft, setSuggestDraft] = useState<SuggestDraft | null>(null)
+  const [suggestDraft, setSuggestDraft] = useState<SuggestDraft | null>(() => readSuggestDraft())
   const [songbookNotice, setSongbookNotice] = useState('')
 
   const loadSessions = useCallback(async (token: string) => {
@@ -1739,6 +2185,15 @@ function AppShell() {
 
     setSuggestNickname(readSuggestNickname())
   }, [])
+
+  useEffect(() => {
+    if (suggestDraft === null) {
+      clearSuggestDraft()
+      return
+    }
+
+    saveSuggestDraft(suggestDraft)
+  }, [suggestDraft])
 
   useEffect(() => {
     const storedAuth = readStoredAuth()
@@ -1996,7 +2451,7 @@ function AppShell() {
             !hasSuggestAuth ? (
               <Navigate to="/songbook/suggest/login" replace />
             ) : (
-              <SuggestSearchPage
+              <SuggestSearchRoute
                 nickname={suggestAuth.nickname}
                 authToken={suggestAuth.accessToken}
                 onCancel={handleCancelSuggestion}

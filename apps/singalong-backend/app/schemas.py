@@ -124,6 +124,10 @@ class SongSuggestIdentifyResponse(BaseModel):
     artist: str
     source_url: str
     youtube_id: str
+    thumbnail_url: str
+    thumbnail_data_url: str
+    channel_name: str
+    description: str
 
 
 class SongSuggestUpdateRequest(BaseModel):
@@ -131,6 +135,14 @@ class SongSuggestUpdateRequest(BaseModel):
     artist: str = Field(min_length=1, max_length=200)
     source_url: str = Field(min_length=1, max_length=1000)
     youtube_id: str = Field(min_length=1, max_length=50)
+    thumbnail_url: str = Field(default="", max_length=1000)
+    thumbnail_data_url: str = Field(default="", max_length=200000)
+    language: str = Field(default="", max_length=20)
+    is_off_vocal: bool = False
+    has_lyrics: bool = False
+    genres: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    lyrics: str = Field(default="", max_length=20000)
 
 
 class SongSuggestUpdateResponse(BaseModel):

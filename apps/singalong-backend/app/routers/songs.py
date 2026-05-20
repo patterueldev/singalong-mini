@@ -1,5 +1,8 @@
+import base64
 import logging
 import re
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 import yt_dlp
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -50,6 +53,21 @@ def _pick_thumbnail_url(entry: dict[str, object]) -> str:
                 if isinstance(candidate_url, str) and candidate_url.startswith("http"):
                     return candidate_url
     return ""
+
+
+def _download_thumbnail_data_url(thumbnail_url: str) -> str:
+    if thumbnail_url == "":
+        return ""
+
+    try:
+        request = Request(thumbnail_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(request, timeout=10) as response:
+            content_type = response.headers.get_content_type() or "image/jpeg"
+            encoded = base64.b64encode(response.read()).decode("ascii")
+        return f"data:{content_type};base64,{encoded}"
+    except (URLError, TimeoutError, OSError) as exc:
+        logger.warning("thumbnail-download-failed url=%s error=%s", thumbnail_url, exc)
+        return ""
 
 
 def _require_songbook_user(user: User = Depends(get_current_user)) -> User:
@@ -156,11 +174,32 @@ def suggest_song_identify(payload: SongSuggestIdentifyRequest, _: User = Depends
     if youtube_id is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid YouTube URL")
 
+    search_opts = {
+        "quiet": True,
+        "no_warnings": True,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(search_opts) as ydl:
+            info = ydl.extract_info(payload.url.strip(), download=False)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Identify provider error: {exc}") from exc
+
+    title = info.get("title") or f"YouTube Video {youtube_id}"
+    channel_name = info.get("channel") or info.get("uploader") or "Unknown Channel"
+    description = info.get("description") or ""
+    thumbnail_url = _pick_thumbnail_url(info)
+    thumbnail_data_url = _download_thumbnail_data_url(thumbnail_url)
+
     return SongSuggestIdentifyResponse(
-        title=f"YouTube Video {youtube_id}",
+        title=title if isinstance(title, str) else f"YouTube Video {youtube_id}",
         artist="Unknown Artist",
-        source_url=payload.url.strip(),
+        source_url=f"https://www.youtube.com/watch?v={youtube_id}",
         youtube_id=youtube_id,
+        thumbnail_url=thumbnail_url,
+        thumbnail_data_url=thumbnail_data_url,
+        channel_name=channel_name if isinstance(channel_name, str) else "Unknown Channel",
+        description=description if isinstance(description, str) else "",
     )
 
 
@@ -174,5 +213,9 @@ def suggest_song_update(payload: SongSuggestUpdateRequest, _: User = Depends(_re
             artist=payload.artist,
             source_url=payload.source_url,
             youtube_id=payload.youtube_id,
+            thumbnail_url=payload.thumbnail_url,
+            thumbnail_data_url=payload.thumbnail_data_url,
+            channel_name="",
+            description="",
         ),
     )
