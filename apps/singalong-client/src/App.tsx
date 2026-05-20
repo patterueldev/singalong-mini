@@ -5,6 +5,7 @@ import {
   Navigate,
   Route,
   Routes,
+  useLocation,
   useNavigate,
   useParams,
 } from 'react-router-dom'
@@ -615,13 +616,76 @@ function SuggestSearchPage({
   onChangeNickname,
 }: SuggestSearchPageProps) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const lastSearchedKeywordRef = useRef('')
   const [query, setQuery] = useState('')
   const [effectiveQuery, setEffectiveQuery] = useState('')
   const [queryInfo, setQueryInfo] = useState('')
   const [results, setResults] = useState<SuggestResult[]>([])
   const [selectedResult, setSelectedResult] = useState<SuggestResult | null>(null)
+  const [menuResult, setMenuResult] = useState<SuggestResult | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [isSearching, setIsSearching] = useState(false)
+
+  const executeSearch = useCallback(
+    (searchQuery: string) => {
+      const normalized = normalizeSuggestQuery(searchQuery)
+      if (normalized.effectiveQuery === '') {
+        setQueryInfo('Please enter a search query.')
+        setResults([])
+        setEffectiveQuery('')
+        lastSearchedKeywordRef.current = ''
+        return
+      }
+
+      setErrorMessage('')
+      setIsSearching(true)
+      lastSearchedKeywordRef.current = searchQuery.trim()
+
+      void suggestSearch(normalized.effectiveQuery, authToken)
+        .then((response) => {
+          setEffectiveQuery(response.effective_query)
+          setQueryInfo(
+            response.appended_karaoke ? 'Backend appended "karaoke" to the query.' : '',
+          )
+          setResults(
+            response.results.map((item) => ({
+              id: item.id,
+              title: item.title,
+              channelName: item.channel_name,
+              channelUrl: item.channel_url,
+              thumbnailUrl: item.thumbnail_url,
+              duration: item.duration,
+              description: item.description,
+              viewCount: item.view_count,
+              uploadedAt: item.uploaded_at,
+              existsInSongbook: item.exists_in_songbook,
+              sourceUrl: item.source_url,
+              youtubeId: item.youtube_id,
+            })),
+          )
+        })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : 'Search failed'
+          setErrorMessage(message)
+          setEffectiveQuery(normalized.effectiveQuery)
+          setQueryInfo('Falling back to mock search results.')
+          setResults(createMockSuggestResults(normalized.effectiveQuery))
+        })
+        .finally(() => {
+          setIsSearching(false)
+        })
+    },
+    [authToken],
+  )
+
+  useEffect(() => {
+    const keyword = new URLSearchParams(location.search).get('keyword') ?? ''
+    if (keyword !== '' && keyword.trim() !== lastSearchedKeywordRef.current) {
+      setQuery(keyword)
+      executeSearch(keyword)
+    }
+  }, [executeSearch, location.search])
 
   return (
     <main className="app-shell">
@@ -655,50 +719,18 @@ function SuggestSearchPage({
           className="form top-gap"
           onSubmit={(event) => {
             event.preventDefault()
-            setErrorMessage('')
             const normalized = normalizeSuggestQuery(query)
             if (normalized.effectiveQuery === '') {
               setQueryInfo('Please enter a search query.')
               setResults([])
+              setEffectiveQuery('')
               return
             }
-            setIsSearching(true)
-            void suggestSearch(normalized.effectiveQuery, authToken)
-              .then((response) => {
-                setEffectiveQuery(response.effective_query)
-                setQueryInfo(
-                  response.appended_karaoke
-                    ? 'Backend appended "karaoke" to the query.'
-                    : 'Backend kept your query (already contains karaoke/instrumental/off vocal).',
-                )
-                setResults(
-                  response.results.map((item) => ({
-                    id: item.id,
-                    title: item.title,
-                    channelName: item.channel_name,
-                    channelUrl: item.channel_url,
-                    thumbnailUrl: item.thumbnail_url,
-                    duration: item.duration,
-                    description: item.description,
-                    viewCount: item.view_count,
-                    uploadedAt: item.uploaded_at,
-                    existsInSongbook: item.exists_in_songbook,
-                    sourceUrl: item.source_url,
-                    youtubeId: item.youtube_id,
-                  })),
-                )
-              })
-              .catch((error: unknown) => {
-                const message =
-                  error instanceof Error ? error.message : 'Search failed'
-                setErrorMessage(message)
-                setEffectiveQuery(normalized.effectiveQuery)
-                setQueryInfo('Falling back to mock search results.')
-                setResults(createMockSuggestResults(normalized.effectiveQuery))
-              })
-              .finally(() => {
-                setIsSearching(false)
-              })
+            navigate({
+              pathname: '/songbook/suggest/search',
+              search: `?keyword=${encodeURIComponent(query.trim())}`,
+            })
+            executeSearch(query)
           }}
         >
           <label>
@@ -735,7 +767,12 @@ function SuggestSearchPage({
             <p className="empty-state">Search for a video to see results.</p>
           ) : (
             results.map((result) => (
-              <article className="search-result-row" key={result.id}>
+              <button
+                key={result.id}
+                type="button"
+                className="search-result-row"
+                onClick={() => setMenuResult(result)}
+              >
                 <img className="search-result-thumb" src={result.thumbnailUrl} alt={result.title} />
                 <div className="search-result-content">
                   <strong className="search-result-title" title={result.title}>
@@ -748,34 +785,55 @@ function SuggestSearchPage({
                     <p className="search-result-exists">✔ Already Exists</p>
                   ) : null}
                 </div>
-                <details className="search-result-actions">
-                  <summary>Actions</summary>
-                  <div className="search-result-menu">
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => {
-                        setSelectedResult(result)
-                      }}
-                    >
-                      Details
-                    </button>
-                    <button type="button" className="secondary" disabled title="Coming soon">
-                      Identify
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => window.open(result.sourceUrl, '_blank', 'noopener,noreferrer')}
-                    >
-                      View on Youtube
-                    </button>
-                  </div>
-                </details>
-              </article>
+              </button>
             ))
           )}
         </div>
+        {menuResult !== null ? (
+          <div className="modal-backdrop" role="presentation" onClick={() => setMenuResult(null)}>
+            <div
+              className="context-menu-card"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`${menuResult.title} actions`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="context-menu-header">
+                <strong title={menuResult.title}>{menuResult.title}</strong>
+                <button type="button" className="secondary" onClick={() => setMenuResult(null)}>
+                  Close
+                </button>
+              </div>
+              <div className="search-result-menu">
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled
+                  title="Coming soon"
+                >
+                  Identify
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    setSelectedResult(menuResult)
+                    setMenuResult(null)
+                  }}
+                >
+                  Details
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => window.open(menuResult.sourceUrl, '_blank', 'noopener,noreferrer')}
+                >
+                  View on Youtube
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {selectedResult !== null ? (
           <SearchResultModal result={selectedResult} onClose={() => setSelectedResult(null)} />
         ) : null}

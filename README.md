@@ -42,6 +42,8 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
   - has_lyrics (boolean; indicates if the song has lyrics embedded in the video)
   - video_file (filename of the downloaded video in `/data/media/songs/` e.g. `never_gonna_give_you_up[abc123].mp4`)
   - thumbnail_file (optional; filename of the thumbnail image in `/data/media/thumbnails/` e.g. `never_gonna_give_you_up[abc123].jpg`)
+  - genre
+  - tags (optional; a comma-separated string of tags for categorization and searchability, e.g., "pop, 80s, dance")
   - lyrics (optional; plain text)
   - metadata: <String: String> (optional; a JSON string for any additional metadata that may be useful, such as original YouTube title, description, etc.)
   - source (e.g., 'youtube', 'local', etc.)
