@@ -70,6 +70,7 @@ type SongbookSong = {
   sourceUrl: string | null
   videoFile: string | null
   lyrics: string | null
+  addedByUsername: string | null
 }
 
 type SongbookListResponse = {
@@ -632,7 +633,7 @@ async function fetchSongbook(page: number = 1, limit: number = 20): Promise<Song
       id: string; title: string; artist: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
-      video_file: string | null; lyrics: string | null
+      video_file: string | null; lyrics: string | null; added_by_username: string | null
     }>
     total: number; page: number; pages: number
   }>(`/songs?${params.toString()}`)
@@ -644,6 +645,7 @@ async function fetchSongbook(page: number = 1, limit: number = 20): Promise<Song
       thumbnailUrl: s.thumbnail_url, sourceId: s.source_id, sourceUrl: s.source_url,
       videoFile: s.video_file,
       lyrics: s.lyrics,
+      addedByUsername: s.added_by_username,
     })),
   }
 }
@@ -655,7 +657,7 @@ async function searchSongbook(q: string, page: number = 1, limit: number = 20): 
       id: string; title: string; artist: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
-      video_file: string | null; lyrics: string | null
+      video_file: string | null; lyrics: string | null; added_by_username: string | null
     }>
     total: number; page: number; pages: number
   }>(`/songs/search?${params.toString()}`)
@@ -667,6 +669,7 @@ async function searchSongbook(q: string, page: number = 1, limit: number = 20): 
       thumbnailUrl: s.thumbnail_url, sourceId: s.source_id, sourceUrl: s.source_url,
       videoFile: s.video_file,
       lyrics: s.lyrics,
+      addedByUsername: s.added_by_username,
     })),
   }
 }
@@ -676,7 +679,7 @@ async function fetchSongDetail(id: string): Promise<SongbookSong> {
     id: string; title: string; artist: string; duration: string
     language: string | null; genre: string | null; tags: string[]
     thumbnail_url: string | null; source_id: string | null; source_url: string | null
-    video_file: string | null; lyrics: string | null
+    video_file: string | null; lyrics: string | null; added_by_username: string | null
   }>(`/songs/${id}`)
   return {
     id: raw.id, title: raw.title, artist: raw.artist, duration: raw.duration,
@@ -684,6 +687,7 @@ async function fetchSongDetail(id: string): Promise<SongbookSong> {
     thumbnailUrl: raw.thumbnail_url, sourceId: raw.source_id, sourceUrl: raw.source_url,
     videoFile: raw.video_file,
     lyrics: raw.lyrics,
+    addedByUsername: raw.added_by_username,
   }
 }
 
@@ -916,6 +920,10 @@ function SongDetailPage() {
                   <div>
                     <dt>Source</dt>
                     <dd>{song.sourceUrl ? 'YouTube' : '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Added by</dt>
+                    <dd>{song.addedByUsername ?? '—'}</dd>
                   </div>
                   {song.sourceId ? (
                     <div className="song-detail-grid-wide">
@@ -1238,8 +1246,21 @@ function SuggestSearchPage({
   const [results, setResults] = useState<SuggestResult[]>([])
   const [selectedResult, setSelectedResult] = useState<SuggestResult | null>(null)
   const [menuResult, setMenuResult] = useState<SuggestResult | null>(null)
+  const [pendingIdentifyResult, setPendingIdentifyResult] = useState<SuggestResult | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [isSearching, setIsSearching] = useState(false)
+
+  const requestIdentify = useCallback(
+    (result: SuggestResult) => {
+      if (result.existsInSongbook === true) {
+        setPendingIdentifyResult(result)
+        return
+      }
+
+      onIdentify(result.sourceUrl)
+    },
+    [onIdentify],
+  )
 
   const executeSearch = useCallback(
     (searchQuery: string) => {
@@ -1398,7 +1419,7 @@ function SuggestSearchPage({
                     {result.duration} - {result.channelName}
                   </p>
                   {result.existsInSongbook === true ? (
-                    <p className="search-result-exists">✔ Already Exists</p>
+                    <p className="search-result-exists">✔ Already in songbook</p>
                   ) : null}
                 </div>
               </button>
@@ -1425,7 +1446,7 @@ function SuggestSearchPage({
                   type="button"
                   className="secondary"
                   onClick={() => {
-                    onIdentify(menuResult.sourceUrl)
+                    requestIdentify(menuResult)
                     setMenuResult(null)
                   }}
                 >
@@ -1456,7 +1477,17 @@ function SuggestSearchPage({
           <SearchResultModal
             result={selectedResult}
             onClose={() => setSelectedResult(null)}
-            onIdentify={onIdentify}
+            onIdentify={requestIdentify}
+          />
+        ) : null}
+        {pendingIdentifyResult !== null ? (
+          <IdentifyOverrideModal
+            result={pendingIdentifyResult}
+            onCancel={() => setPendingIdentifyResult(null)}
+            onConfirm={() => {
+              onIdentify(pendingIdentifyResult.sourceUrl)
+              setPendingIdentifyResult(null)
+            }}
           />
         ) : null}
       </section>
@@ -1467,7 +1498,7 @@ function SuggestSearchPage({
 type SearchResultModalProps = {
   result: SuggestResult
   onClose: () => void
-  onIdentify: (sourceUrl: string) => void
+  onIdentify: (result: SuggestResult) => void
 }
 
 function SearchResultModal({ result, onClose, onIdentify }: SearchResultModalProps) {
@@ -1537,7 +1568,7 @@ function SearchResultModal({ result, onClose, onIdentify }: SearchResultModalPro
             <p className="session-meta">
               <strong>Songbook status:</strong>{' '}
               {result.existsInSongbook === true
-                ? 'Already Exists'
+                ? 'Already in songbook'
                 : result.existsInSongbook === false
                   ? 'Not in songbook yet'
                   : 'Pending'}
@@ -1552,7 +1583,7 @@ function SearchResultModal({ result, onClose, onIdentify }: SearchResultModalPro
           <button
             type="button"
             className="secondary"
-            onClick={() => onIdentify(result.sourceUrl)}
+            onClick={() => onIdentify(result)}
           >
             Identify
           </button>
@@ -1562,6 +1593,49 @@ function SearchResultModal({ result, onClose, onIdentify }: SearchResultModalPro
             onClick={() => window.open(result.sourceUrl, '_blank', 'noopener,noreferrer')}
           >
             View on Youtube
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+type IdentifyOverrideModalProps = {
+  result: SuggestResult
+  onCancel: () => void
+  onConfirm: () => void
+}
+
+function IdentifyOverrideModal({ result, onCancel, onConfirm }: IdentifyOverrideModalProps) {
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onCancel}>
+      <div
+        className="modal-card context-menu-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${result.title} already exists`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-header">
+          <div>
+            <h2>Song already exists</h2>
+            <p className="subtitle">{result.title}</p>
+          </div>
+          <button type="button" className="secondary" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+
+        <p className="modal-description top-gap">
+          This video already exists or is currently downloading. Do you want to override it and identify again?
+        </p>
+
+        <div className="row-actions modal-actions">
+          <button type="button" className="secondary" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm}>
+            Identify
           </button>
         </div>
       </div>

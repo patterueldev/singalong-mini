@@ -229,6 +229,7 @@ def suggest_song_download(
 def suggest_song_search(
     payload: SongSuggestSearchRequest,
     keyword: str | None = Query(default=None, min_length=1, max_length=200),
+    db: Session = Depends(get_db),
     _: User = Depends(_require_songbook_user),
 ):
     query = (keyword or payload.query).strip()
@@ -253,6 +254,17 @@ def suggest_song_search(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Search provider error: {exc}") from exc
 
     results: list[SongSuggestSearchItem] = []
+    source_ids = [entry.get("id") or "" for entry in (info.get("entries") or [])[:limit]]
+    lookup_source_ids = [source_id for source_id in source_ids if source_id != ""]
+    existing_source_ids = set()
+    if lookup_source_ids:
+        existing_source_ids = {
+            source_id
+            for (source_id,) in db.query(Song.source_id)
+            .filter(Song.source_id.in_(lookup_source_ids), Song.archived_at.is_(None))
+            .all()
+            if isinstance(source_id, str) and source_id != ""
+        }
     for entry in (info.get("entries") or [])[:limit]:
         video_id = entry.get("id") or ""
         raw_url = entry.get("url") or ""
@@ -282,7 +294,7 @@ def suggest_song_search(
                 description=description if isinstance(description, str) else "",
                 view_count=view_count if isinstance(view_count, int) else None,
                 uploaded_at=uploaded_at if isinstance(uploaded_at, str) else "",
-                exists_in_songbook=None,
+                exists_in_songbook=video_id in existing_source_ids,
                 source_url=source_url,
                 youtube_id=video_id,
             )
@@ -568,7 +580,16 @@ def _parse_tags(tags_str: str | None) -> list[str]:
     return [t.strip() for t in tags_str.split(",") if t.strip()]
 
 
-def _song_to_item(song: Song) -> SongbookItem:
+def _load_added_by_usernames(db: Session, songs: list[Song]) -> dict[uuid.UUID, str]:
+    user_ids = [song.added_by for song in songs]
+    if not user_ids:
+        return {}
+
+    rows = db.query(User.id, User.username).filter(User.id.in_(user_ids)).all()
+    return {user_id: username for user_id, username in rows}
+
+
+def _song_to_item(song: Song, added_by_username: str | None = None) -> SongbookItem:
     return SongbookItem(
         id=song.id,
         title=song.title,
@@ -582,6 +603,7 @@ def _song_to_item(song: Song) -> SongbookItem:
         source_url=song.source_url,
         video_file=song.video_file,
         lyrics=song.lyrics,
+        added_by_username=added_by_username,
     )
 
 
@@ -603,8 +625,9 @@ def list_songs(
     total = base_query.count()
     pages = max(1, math.ceil(total / limit))
     items = base_query.offset((page - 1) * limit).limit(limit).all()
+    added_by_usernames = _load_added_by_usernames(db, items)
     return SongbookListResponse(
-        items=[_song_to_item(s) for s in items],
+        items=[_song_to_item(s, added_by_usernames.get(s.added_by)) for s in items],
         total=total,
         page=page,
         pages=pages,
@@ -641,8 +664,9 @@ def search_songs(
     total = base_query.count()
     pages = max(1, math.ceil(total / limit))
     items = base_query.offset((page - 1) * limit).limit(limit).all()
+    added_by_usernames = _load_added_by_usernames(db, items)
     return SongbookListResponse(
-        items=[_song_to_item(s) for s in items],
+        items=[_song_to_item(s, added_by_usernames.get(s.added_by)) for s in items],
         total=total,
         page=page,
         pages=pages,
@@ -672,4 +696,9 @@ def get_song(
     )
     if not song:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
-    return _song_to_item(song)
+    added_by_username = (
+        db.query(User.username)
+        .filter(User.id == song.added_by)
+        .scalar()
+    )
+    return _song_to_item(song, added_by_username)

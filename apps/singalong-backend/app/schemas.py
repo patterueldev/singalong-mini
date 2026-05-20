@@ -116,7 +116,7 @@ class SongSuggestSearchItem(BaseModel):
     description: str = ""
     view_count: int | None = None
     uploaded_at: str = ""
-    exists_in_songbook: bool | None = None
+    exists_in_songbook: bool = False
     source_url: str
     youtube_id: str
 
@@ -206,6 +206,7 @@ class SongbookItem(BaseModel):
     source_url: str | None
     video_file: str | None = None
     lyrics: str | None = None
+    added_by_username: str | None = None
 
 
 class SongbookListResponse(BaseModel):
