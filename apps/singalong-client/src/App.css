@@ -717,11 +717,12 @@ textarea:focus-visible {
   }
 
   .song-detail-panels {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
   }
 
   .song-detail-header-row {
-    flex-direction: column;
+    flex-direction: row;
     align-items: flex-start;
   }
 
@@ -737,6 +738,10 @@ textarea:focus-visible {
     grid-column: auto;
   }
 
+  .song-detail-lyrics-panel {
+    order: 2;
+  }
+
   .song-detail-thumbnail--small {
     width: 64px;
     height: 64px;
@@ -744,18 +749,9 @@ textarea:focus-visible {
   }
 
   .songbook-item {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .songbook-thumbnail {
-    width: 100%;
-    height: auto;
-    aspect-ratio: 16 / 9;
-  }
-
-  .songbook-info strong {
-    white-space: normal;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.6rem;
   }
 
   .checkbox-grid,
