@@ -27,5 +27,5 @@
 - Keep session views route-driven.
 - Do not reintroduce a second `/api` prefix in the client API base.
 - For SPA deep links under a subpath (`/client/*`), backend must serve `index.html` for non-asset routes and only return 404 for missing static assets (e.g. `.js`, `.css`, images).
-- Keep additional frontend surfaces mounted within the same client app route tree (`/client/guest`, `/client/suggest`) instead of separate frontend apps.
+- Keep additional frontend surfaces mounted within the same client app route tree (`/client/guest`, `/client/songbook`, `/client/songbook/suggest/*`) instead of separate frontend apps.
 - Keep the session control page split into two panels (left playback, right queue/songbook) for landscape-first operator workflows.

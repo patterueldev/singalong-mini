@@ -5,8 +5,13 @@ I want this to be a very simple and straightforward implementation of the Singal
 - Player MacOS App - Handles Playback
 - Unified Client Web App - One frontend with route-based surfaces:
   - `/client/admin` - Managing sessions, reservations, and playback controls
-  - `/client/guest` - Guest-facing songbook/reservation UI (planned)
-  - `/client/suggest` - Song suggestion UI (planned)
+  - `/client/guest` - Guest landing page
+  - `/client/songbook` - Songbook list + search
+  - `/client/songbook/suggest/*` - Song suggestion wizard
+
+Legacy frontend note:
+- `apps/singalong-admin` is deprecated and marked for archive.
+- Active frontend development should target `apps/singalong-client`.
 
 Unlike the original Singalong Karaoke system, I want this to be less restrictive, assume a one-off application (but still reusable if data is kept intact).
 

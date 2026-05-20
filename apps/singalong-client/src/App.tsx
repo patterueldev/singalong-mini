@@ -48,6 +48,28 @@ type SongQueueItem = {
   status: string
 }
 
+type SongbookSong = {
+  id: string
+  title: string
+  artist: string
+  language: string
+  duration: string
+}
+
+type SuggestResult = {
+  id: string
+  title: string
+  artist: string
+  sourceUrl: string
+}
+
+type SuggestDraft = {
+  title: string
+  artist: string
+  sourceUrl: string
+  youtubeId: string
+}
+
 type PlaybackState = {
   isPlaying: boolean
   positionSeconds: number
@@ -65,6 +87,7 @@ type WSIncoming = {
 }
 
 const AUTH_STORAGE_KEY = 'singalong-client-admin-auth'
+const SUGGEST_STORAGE_KEY = 'singalong-client-suggest-nickname'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin
 const API_ROOT =
   API_BASE_URL.endsWith('/api') || API_BASE_URL.endsWith('/api/')
@@ -77,6 +100,18 @@ const INITIAL_MOCK_QUEUE: SongQueueItem[] = [
   { id: 'mock-1', title: 'Bohemian Rhapsody', artist: 'Queen', status: 'queued' },
   { id: 'mock-2', title: 'Dancing Queen', artist: 'ABBA', status: 'queued' },
 ]
+
+const MOCK_SONGBOOK: SongbookSong[] = [
+  { id: 'song-1', title: 'Never Gonna Give You Up', artist: 'Rick Astley', language: 'en', duration: '3:33' },
+  { id: 'song-2', title: 'Mijuku DREAMER', artist: 'Aqours', language: 'jp', duration: '4:31' },
+  { id: 'song-3', title: 'Bohemian Rhapsody', artist: 'Queen', language: 'en', duration: '5:55' },
+  { id: 'song-4', title: 'Dancing Queen', artist: 'ABBA', language: 'en', duration: '3:51' },
+]
+
+const NICKNAME_REGEX = /^[A-Za-z0-9_]+$/
+const SUGGEST_KEYWORD_REGEX = /\b(karaoke|instrumental|off[\s-]?vocal)\b/i
+const YOUTUBE_URL_REGEX =
+  /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=[A-Za-z0-9_-]{6,}|youtu\.be\/[A-Za-z0-9_-]{6,})([^\s]*)$/i
 
 class ApiError extends Error {
   status: number
@@ -119,6 +154,70 @@ function saveStoredAuth(auth: StoredAuth) {
 
 function clearStoredAuth() {
   window.localStorage.removeItem(AUTH_STORAGE_KEY)
+}
+
+function isValidSuggestNickname(value: string): boolean {
+  return NICKNAME_REGEX.test(value)
+}
+
+function readSuggestNickname(): string {
+  const value = window.localStorage.getItem(SUGGEST_STORAGE_KEY) ?? ''
+  return isValidSuggestNickname(value) ? value : ''
+}
+
+function saveSuggestNickname(nickname: string) {
+  window.localStorage.setItem(SUGGEST_STORAGE_KEY, nickname)
+}
+
+function normalizeSuggestQuery(query: string): { effectiveQuery: string; appendedKaraoke: boolean } {
+  const trimmed = query.trim()
+  if (trimmed === '') {
+    return { effectiveQuery: '', appendedKaraoke: false }
+  }
+
+  if (SUGGEST_KEYWORD_REGEX.test(trimmed)) {
+    return { effectiveQuery: trimmed, appendedKaraoke: false }
+  }
+
+  return { effectiveQuery: `${trimmed} karaoke`, appendedKaraoke: true }
+}
+
+function parseYouTubeVideoId(input: string): string | null {
+  const trimmed = input.trim()
+  if (!YOUTUBE_URL_REGEX.test(trimmed)) {
+    return null
+  }
+
+  try {
+    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`)
+    if (url.hostname.includes('youtu.be')) {
+      const id = url.pathname.split('/').filter(Boolean)[0] ?? ''
+      return id !== '' ? id : null
+    }
+
+    const id = url.searchParams.get('v') ?? ''
+    return id !== '' ? id : null
+  } catch {
+    return null
+  }
+}
+
+function createMockSuggestResults(query: string): SuggestResult[] {
+  const base = query
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 12) || 'song'
+
+  return Array.from({ length: 3 }, (_, index) => {
+    const suffix = `${base}${index + 1}`.slice(0, 11)
+    return {
+      id: `mock-${suffix}`,
+      title: `${query} (Karaoke Mix ${index + 1})`,
+      artist: `Mock Channel ${index + 1}`,
+      sourceUrl: `https://www.youtube.com/watch?v=${suffix}`,
+    }
+  })
 }
 
 function authHeaders(token?: string): HeadersInit {
@@ -179,18 +278,359 @@ function LoadingView() {
   )
 }
 
-function PlaceholderPage({
-  title,
-  description,
-}: {
-  title: string
-  description: string
-}) {
+function GuestPage() {
+  const navigate = useNavigate()
+
   return (
     <main className="app-shell">
       <section className="card auth-card">
-        <h1>{title}</h1>
-        <p className="subtitle">{description}</p>
+        <h1>Singalong Guest</h1>
+        <p className="subtitle">
+          Welcome! Browse the songbook first, then suggest songs that are not yet listed.
+        </p>
+        <div className="row-actions top-gap">
+          <button type="button" onClick={() => navigate('/songbook')}>
+            Open Songbook
+          </button>
+          <button type="button" className="secondary" onClick={() => navigate('/admin/login')}>
+            Admin Login
+          </button>
+        </div>
+      </section>
+    </main>
+  )
+}
+
+type SongbookPageProps = {
+  notice: string
+  hasSuggestNickname: boolean
+}
+
+function SongbookPage({ notice, hasSuggestNickname }: SongbookPageProps) {
+  const navigate = useNavigate()
+  const [query, setQuery] = useState('')
+  const filteredSongs = useMemo(() => {
+    const trimmed = query.trim().toLowerCase()
+    if (trimmed === '') {
+      return MOCK_SONGBOOK
+    }
+
+    return MOCK_SONGBOOK.filter(
+      (song) =>
+        song.title.toLowerCase().includes(trimmed) ||
+        song.artist.toLowerCase().includes(trimmed),
+    )
+  }, [query])
+
+  return (
+    <main className="app-shell">
+      <section className="card">
+        <div className="card-header">
+          <div>
+            <h1>Songbook</h1>
+            <p className="subtitle">Search existing songs before suggesting a new one.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              navigate(
+                hasSuggestNickname
+                  ? '/songbook/suggest/search'
+                  : '/songbook/suggest/login',
+              )
+            }
+          >
+            Suggest a Song
+          </button>
+        </div>
+
+        {notice !== '' ? <p className="success-message top-gap">{notice}</p> : null}
+
+        <div className="form top-gap">
+          <label>
+            Search songbook
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search by title or artist"
+            />
+          </label>
+        </div>
+
+        <div className="queue-list top-gap">
+          {filteredSongs.length === 0 ? (
+            <p className="empty-state">No songs found. Try suggesting a new one.</p>
+          ) : (
+            filteredSongs.map((song) => (
+              <article className="queue-item" key={song.id}>
+                <strong>{song.title}</strong>
+                <p className="session-meta">
+                  {song.artist} · {song.language.toUpperCase()} · {song.duration}
+                </p>
+              </article>
+            ))
+          )}
+        </div>
+      </section>
+    </main>
+  )
+}
+
+type SuggestLoginPageProps = {
+  initialNickname: string
+  onLogin: (nickname: string) => void
+}
+
+function SuggestLoginPage({ initialNickname, onLogin }: SuggestLoginPageProps) {
+  const navigate = useNavigate()
+  const [nickname, setNickname] = useState(initialNickname)
+  const [errorMessage, setErrorMessage] = useState('')
+
+  return (
+    <main className="app-shell">
+      <section className="card auth-card">
+        <h1>Suggest Song Login</h1>
+        <p className="subtitle">Nickname must use letters, numbers, and underscore only.</p>
+        <form
+          className="form top-gap"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!isValidSuggestNickname(nickname)) {
+              setErrorMessage('Use only letters, numbers, or underscores.')
+              return
+            }
+            setErrorMessage('')
+            onLogin(nickname)
+            navigate('/songbook/suggest/search')
+          }}
+        >
+          <label>
+            Nickname
+            <input
+              value={nickname}
+              onChange={(event) => setNickname(event.target.value)}
+              placeholder="guest_user"
+              required
+            />
+          </label>
+          {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
+          <button type="submit">Continue</button>
+        </form>
+      </section>
+    </main>
+  )
+}
+
+type SuggestSearchPageProps = {
+  nickname: string
+  onSelectResult: (draft: SuggestDraft) => void
+}
+
+function SuggestSearchPage({ nickname, onSelectResult }: SuggestSearchPageProps) {
+  const navigate = useNavigate()
+  const [query, setQuery] = useState('')
+  const [effectiveQuery, setEffectiveQuery] = useState('')
+  const [queryInfo, setQueryInfo] = useState('')
+  const [results, setResults] = useState<SuggestResult[]>([])
+
+  return (
+    <main className="app-shell">
+      <section className="card">
+        <h1>Suggest · Search YouTube</h1>
+        <p className="subtitle">Signed in as <strong>{nickname}</strong></p>
+        <form
+          className="form top-gap"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const normalized = normalizeSuggestQuery(query)
+            if (normalized.effectiveQuery === '') {
+              setQueryInfo('Please enter a search query.')
+              setResults([])
+              return
+            }
+
+            setEffectiveQuery(normalized.effectiveQuery)
+            setQueryInfo(
+              normalized.appendedKaraoke
+                ? 'Mock behavior: backend would append "karaoke" to this query.'
+                : 'Mock behavior: query already includes karaoke/instrumental/off vocal.',
+            )
+            setResults(createMockSuggestResults(normalized.effectiveQuery))
+          }}
+        >
+          <label>
+            Search query
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="song title"
+              required
+            />
+          </label>
+          <div className="row-actions">
+            <button type="submit">Search</button>
+            <button type="button" className="secondary" onClick={() => navigate('/songbook/suggest/identify')}>
+              Paste URL Instead
+            </button>
+          </div>
+        </form>
+        {queryInfo !== '' ? <p className="subtitle top-gap">{queryInfo}</p> : null}
+        {effectiveQuery !== '' ? (
+          <p className="subtitle">
+            Effective query: <code>{effectiveQuery}</code>
+          </p>
+        ) : null}
+        <div className="queue-list top-gap">
+          {results.map((result) => (
+            <article className="queue-item" key={result.id}>
+              <strong>{result.title}</strong>
+              <p className="session-meta">{result.artist}</p>
+              <p className="session-meta">
+                <code>{result.sourceUrl}</code>
+              </p>
+              <button
+                type="button"
+                className="secondary top-gap"
+                onClick={() => {
+                  const videoId = parseYouTubeVideoId(result.sourceUrl) ?? 'unknown'
+                  onSelectResult({
+                    title: result.title,
+                    artist: result.artist,
+                    sourceUrl: result.sourceUrl,
+                    youtubeId: videoId,
+                  })
+                  navigate('/songbook/suggest/update')
+                }}
+              >
+                Use this video
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
+  )
+}
+
+type SuggestIdentifyPageProps = {
+  nickname: string
+  onIdentify: (draft: SuggestDraft) => void
+}
+
+function SuggestIdentifyPage({ nickname, onIdentify }: SuggestIdentifyPageProps) {
+  const navigate = useNavigate()
+  const [url, setUrl] = useState('')
+  const [errorMessage, setErrorMessage] = useState('')
+
+  return (
+    <main className="app-shell">
+      <section className="card auth-card">
+        <h1>Suggest · Identify URL</h1>
+        <p className="subtitle">Signed in as <strong>{nickname}</strong></p>
+        <form
+          className="form top-gap"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const videoId = parseYouTubeVideoId(url)
+            if (videoId === null) {
+              setErrorMessage('Enter a valid YouTube URL.')
+              return
+            }
+
+            setErrorMessage('')
+            onIdentify({
+              title: `YouTube Video ${videoId}`,
+              artist: 'Unknown Artist',
+              sourceUrl: url.trim(),
+              youtubeId: videoId,
+            })
+            navigate('/songbook/suggest/update')
+          }}
+        >
+          <label>
+            YouTube URL
+            <input
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder="https://www.youtube.com/watch?v=..."
+              required
+            />
+          </label>
+          {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
+          <div className="row-actions">
+            <button type="submit">Identify</button>
+            <button type="button" className="secondary" onClick={() => navigate('/songbook/suggest/search')}>
+              Back to Search
+            </button>
+          </div>
+        </form>
+      </section>
+    </main>
+  )
+}
+
+type SuggestUpdatePageProps = {
+  nickname: string
+  draft: SuggestDraft
+  onDraftChange: (draft: SuggestDraft) => void
+  onDownload: () => void
+}
+
+function SuggestUpdatePage({
+  nickname,
+  draft,
+  onDraftChange,
+  onDownload,
+}: SuggestUpdatePageProps) {
+  const navigate = useNavigate()
+
+  return (
+    <main className="app-shell">
+      <section className="card">
+        <h1>Suggest · Update Details</h1>
+        <p className="subtitle">Signed in as <strong>{nickname}</strong></p>
+        <form
+          className="form top-gap"
+          onSubmit={(event) => {
+            event.preventDefault()
+            onDownload()
+            navigate('/songbook')
+          }}
+        >
+          <label>
+            Title
+            <input
+              value={draft.title}
+              onChange={(event) => onDraftChange({ ...draft, title: event.target.value })}
+              required
+            />
+          </label>
+          <label>
+            Artist
+            <input
+              value={draft.artist}
+              onChange={(event) => onDraftChange({ ...draft, artist: event.target.value })}
+              required
+            />
+          </label>
+          <label>
+            Source URL
+            <input
+              value={draft.sourceUrl}
+              onChange={(event) => onDraftChange({ ...draft, sourceUrl: event.target.value })}
+              required
+            />
+          </label>
+          <p className="subtitle">
+            YouTube ID: <code>{draft.youtubeId}</code>
+          </p>
+          <div className="row-actions">
+            <button type="button" className="secondary" disabled>
+              Enhance with AI (Coming soon)
+            </button>
+            <button type="submit">Download</button>
+          </div>
+        </form>
       </section>
     </main>
   )
@@ -715,6 +1155,9 @@ function AppShell() {
   const [isSavingSession, setIsSavingSession] = useState(false)
   const [sessionMessage, setSessionMessage] = useState('')
   const [sessionErrorMessage, setSessionErrorMessage] = useState('')
+  const [suggestNickname, setSuggestNickname] = useState('')
+  const [suggestDraft, setSuggestDraft] = useState<SuggestDraft | null>(null)
+  const [songbookNotice, setSongbookNotice] = useState('')
 
   const loadSessions = useCallback(async (token: string) => {
     setIsLoadingSessions(true)
@@ -736,6 +1179,10 @@ function AppShell() {
     } finally {
       setIsLoadingSessions(false)
     }
+  }, [])
+
+  useEffect(() => {
+    setSuggestNickname(readSuggestNickname())
   }, [])
 
   useEffect(() => {
@@ -895,6 +1342,23 @@ function AppShell() {
     }
   }, [auth, loadSessions])
 
+  const hasSuggestNickname = isValidSuggestNickname(suggestNickname)
+
+  const handleSuggestLogin = useCallback((nickname: string) => {
+    const cleaned = nickname.trim()
+    setSuggestNickname(cleaned)
+    saveSuggestNickname(cleaned)
+  }, [])
+
+  const handleSelectSuggestDraft = useCallback((draft: SuggestDraft) => {
+    setSuggestDraft(draft)
+  }, [])
+
+  const handleDownloadSuggestion = useCallback(() => {
+    setSongbookNotice('Suggestion queued (mock). You can now return to browsing the songbook.')
+    setSuggestDraft(null)
+  }, [])
+
   if (isHydratingAuth) {
     return <LoadingView />
   }
@@ -904,7 +1368,7 @@ function AppShell() {
       <Routes>
         <Route
           path="/"
-          element={<Navigate to="/admin" replace />}
+          element={<Navigate to="/guest" replace />}
         />
         <Route
           path="/admin"
@@ -930,20 +1394,71 @@ function AppShell() {
         />
         <Route
           path="/guest"
+          element={<GuestPage />}
+        />
+        <Route
+          path="/songbook"
           element={
-            <PlaceholderPage
-              title="Singalong Guest"
-              description="Guest app route is ready. UI implementation is next."
+            <SongbookPage
+              notice={songbookNotice}
+              hasSuggestNickname={hasSuggestNickname}
             />
           }
         />
         <Route
-          path="/suggest"
+          path="/songbook/suggest/login"
           element={
-            <PlaceholderPage
-              title="Song Suggestions"
-              description="Suggest page route is ready. Songbook + suggestion flow is next."
-            />
+            hasSuggestNickname ? (
+              <Navigate to="/songbook/suggest/search" replace />
+            ) : (
+              <SuggestLoginPage
+                initialNickname={suggestNickname}
+                onLogin={handleSuggestLogin}
+              />
+            )
+          }
+        />
+        <Route
+          path="/songbook/suggest/search"
+          element={
+            !hasSuggestNickname ? (
+              <Navigate to="/songbook/suggest/login" replace />
+            ) : (
+              <SuggestSearchPage
+                nickname={suggestNickname}
+                onSelectResult={handleSelectSuggestDraft}
+              />
+            )
+          }
+        />
+        <Route
+          path="/songbook/suggest/identify"
+          element={
+            !hasSuggestNickname ? (
+              <Navigate to="/songbook/suggest/login" replace />
+            ) : (
+              <SuggestIdentifyPage
+                nickname={suggestNickname}
+                onIdentify={handleSelectSuggestDraft}
+              />
+            )
+          }
+        />
+        <Route
+          path="/songbook/suggest/update"
+          element={
+            !hasSuggestNickname ? (
+              <Navigate to="/songbook/suggest/login" replace />
+            ) : suggestDraft === null ? (
+              <Navigate to="/songbook/suggest/search" replace />
+            ) : (
+              <SuggestUpdatePage
+                nickname={suggestNickname}
+                draft={suggestDraft}
+                onDraftChange={setSuggestDraft}
+                onDownload={handleDownloadSuggestion}
+              />
+            )
           }
         />
         <Route
@@ -994,7 +1509,7 @@ function AppShell() {
         />
         <Route
           path="*"
-          element={<Navigate to={auth === null ? '/admin/login' : '/admin/sessions'} replace />}
+          element={<Navigate to="/guest" replace />}
         />
       </Routes>
     </BrowserRouter>
