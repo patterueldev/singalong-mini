@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: singalong
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ../../data/singalong-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d singalong"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ../../apps/singalong-backend
+      dockerfile: ../../infrastructure/development/Backend.dockerfile
+    container_name: singalong-backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/singalong
+      APP_ENV: development
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      SINGALONG_ADMIN_USERNAME: ${SINGALONG_ADMIN_USERNAME:-admin}
+      SINGALONG_ADMIN_PASSWORD: ${SINGALONG_ADMIN_PASSWORD:-password}
+      JWT_SECRET_KEY: ${SINGALONG_JWT_SECRET_KEY:-singalong-dev-jwt-secret}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${SINGALONG_JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-43200}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../apps/singalong-backend:/app
+      - ../../data/singalong-backend:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  admin:
+    build:
+      context: ../../apps/singalong-admin
+      dockerfile: ../../infrastructure/development/Admin.dockerfile
+    container_name: singalong-admin
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../../apps/singalong-admin:/app
+      - /app/node_modules
+    depends_on:
+      backend:
+        condition: service_started

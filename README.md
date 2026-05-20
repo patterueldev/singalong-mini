@@ -9,6 +9,15 @@ I want this to be a very simple and straightforward implementation of the Singal
 
 Unlike the original Singalong Karaoke system, I want this to be less restrictive, assume a one-off application (but still reusable if data is kept intact).
 
+# Compose workflows
+- Development stack: `infrastructure/development/docker-compose.yml`
+  - Run with: `docker compose -f infrastructure/development/docker-compose.yml up --build`
+- Production stack (single app container + db): root `docker-compose.yml`
+  - Run with: `docker compose up --build`
+- Backend data mount contract: `./data/singalong-backend:/data`
+  - Media root in container: `/data/media`
+  - Cookies file used by song download: `/data/cookies.txt`
+
 # Proposed Database Schema
 - Sessions
   - id (primary key)
@@ -61,8 +70,14 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
 - POST /api/songs/suggest/search - Search for a song on supported platforms (e.g., YouTube) based on a query (Admin Web App, Guest Web App, Songs Suggestion Web App)
 - POST /api/songs/suggest/identify - Accepts a URL and identifies the song details (Admin Web App, Guest Web App, Songs Suggestion Web App)
 - POST /api/songs/suggest/enhance - Accepts song details json and enhances it using OpenAI API (Admin Web App, Guest Web App, Songs Suggestion Web App)
-- POST /api/songs/suggest/download - Accepts a URL, downloads the song, and adds it to the songbook (Admin Web App, Guest Web App, Songs Suggestion Web App)
-
+- POST /api/songs/suggest/download - Accepts a YouTube URL and queues an async download via `yt-dlp` (HTTP 202 Accepted, includes `youtube_id`; uses `/data/cookies.txt` when present)
+- GET /media/{path} - Serve media file for playback from `/data/media` (Player App)
+  - Allowed prefixes only: `assets/*` and `songs/*`
+  - Example: `GET /media/assets/loop.mp4`
+  - Example: `GET /media/songs/<filename>`
+- Downloaded songs filename convention:
+  - `<normalized_title>[<youtube_id>].<ext>`
+  - `youtube_id` allows letters, numbers, `_`, and `-`
 # Flows
 
 ## Player Flow
@@ -78,4 +93,4 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
 1. Admin logs in to the Admin Web App (authentication can be simple, or even just a password prompt for simplicity).
 2. Admin can create a new session, which will automatically be detected by the Player App and joined.
 3. Admin can view the songbook, which is a list of all available songs that can be added to the session's queue.
-4. Admin can download new songs from supported platforms (e.g., YouTube) by providing a URL. The server will handle the downloading and processing of the song, and once it's ready, it will be added to the songbook.
+4. Admin can request song downloads from YouTube. The server accepts the request immediately (`202`) and processes the download asynchronously.

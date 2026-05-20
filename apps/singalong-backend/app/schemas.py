@@ -65,3 +65,13 @@ class SessionResponse(BaseModel):
 class SessionArchiveResponse(BaseModel):
     session: SessionResponse
     message: str
+
+
+class SongSuggestDownloadRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=1000)
+
+
+class SongSuggestDownloadResponse(BaseModel):
+    status: str
+    message: str
+    youtube_id: str

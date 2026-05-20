@@ -18,6 +18,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     ADMIN_STATIC_DIR=/app/static/admin
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY apps/singalong-backend/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /tmp/requirements.txt

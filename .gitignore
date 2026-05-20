@@ -1,2 +1,6 @@
 data/
 .env
+# old/
+__pycache__/
+*.py[cod]
+.DS_Store

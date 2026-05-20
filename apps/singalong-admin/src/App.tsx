@@ -405,6 +405,10 @@ function SessionControlPage({
   })
   const [wsMessage, setWsMessage] = useState('')
   const socketRef = useRef<WebSocket | null>(null)
+  const reconnectTimerRef = useRef<number | null>(null)
+  const reconnectAttemptRef = useRef(0)
+  const shouldReconnectRef = useRef(true)
+  const refreshSessionsRef = useRef(onRefreshSessions)
 
   const session = useMemo(
     () =>
@@ -414,6 +418,11 @@ function SessionControlPage({
       ) ?? null,
     [sessionCode, sessions],
   )
+  const activeSessionCode = session?.session_code ?? null
+
+  useEffect(() => {
+    refreshSessionsRef.current = onRefreshSessions
+  }, [onRefreshSessions])
 
   const sendCommand = useCallback((type: string, payload: Record<string, unknown> = {}) => {
     const socket = socketRef.current
@@ -432,91 +441,147 @@ function SessionControlPage({
   }, [sessionCode])
 
   useEffect(() => {
-    if (session === null) {
+    const clearReconnectTimer = () => {
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
+    }
+
+    const closeSocket = () => {
+      const currentSocket = socketRef.current
+      if (currentSocket !== null) {
+        currentSocket.onopen = null
+        currentSocket.onclose = null
+        currentSocket.onerror = null
+        currentSocket.onmessage = null
+        currentSocket.close()
+        socketRef.current = null
+      }
+    }
+
+    if (activeSessionCode === null) {
+      shouldReconnectRef.current = false
+      clearReconnectTimer()
+      closeSocket()
       setSocketStatus('Session not found or inactive.')
       return
     }
 
-    const wsUrl = buildWSUrl('/ws/admin', {
-      session_code: session.session_code,
-      token: auth.accessToken,
-    })
-    const socket = new WebSocket(wsUrl)
-    socketRef.current = socket
+    shouldReconnectRef.current = true
+    reconnectAttemptRef.current = 0
 
-    socket.onopen = () => {
-      setSocketStatus('Connected')
-      setWsMessage('')
-      onRefreshSessions()
+    const scheduleReconnect = () => {
+      if (!shouldReconnectRef.current) {
+        return
+      }
+      clearReconnectTimer()
+      const delaySeconds = Math.min(2 ** reconnectAttemptRef.current, 8)
+      reconnectAttemptRef.current += 1
+      setSocketStatus(`Disconnected. Reconnecting in ${delaySeconds}s...`)
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null
+        connectSocket()
+      }, delaySeconds * 1000)
     }
 
-    socket.onclose = () => {
-      setSocketStatus('Disconnected')
-    }
-
-    socket.onerror = () => {
-      setSocketStatus('Connection error')
-    }
-
-    socket.onmessage = (event) => {
-      let payload: WSIncoming
-      try {
-        payload = JSON.parse(event.data) as WSIncoming
-      } catch {
+    const connectSocket = () => {
+      if (!shouldReconnectRef.current) {
         return
       }
 
-      if (payload.type === 'queue.updated') {
-        const items = payload.payload.items
-        if (Array.isArray(items)) {
-          setQueueItems(items as SongQueueItem[])
+      const wsUrl = buildWSUrl('/ws/admin', {
+        session_code: activeSessionCode,
+        token: auth.accessToken,
+      })
+      setSocketStatus('Connecting...')
+      const socket = new WebSocket(wsUrl)
+      socketRef.current = socket
+
+      socket.onopen = () => {
+        reconnectAttemptRef.current = 0
+        setSocketStatus('Connected')
+        setWsMessage('')
+      }
+
+      socket.onclose = () => {
+        if (!shouldReconnectRef.current) {
+          setSocketStatus('Disconnected')
+          return
         }
-        return
+        scheduleReconnect()
       }
 
-      if (payload.type === 'downloads.updated') {
-        const items = payload.payload.items
-        if (Array.isArray(items)) {
-          setDownloadsCount(items.length)
+      socket.onerror = () => {
+        setSocketStatus('Connection error')
+      }
+
+      socket.onmessage = (event) => {
+        let payload: WSIncoming
+        try {
+          payload = JSON.parse(event.data) as WSIncoming
+        } catch {
+          return
         }
-        return
-      }
 
-      if (payload.type === 'playback.position') {
-        const nextPosition = Number(payload.payload.position_seconds ?? 0)
-        setPlaybackState((previous) => ({
-          ...previous,
-          positionSeconds: Number.isFinite(nextPosition) ? nextPosition : previous.positionSeconds,
-        }))
-        return
-      }
+        if (payload.type === 'queue.updated') {
+          const items = payload.payload.items
+          if (Array.isArray(items)) {
+            setQueueItems(items as SongQueueItem[])
+          }
+          return
+        }
 
-      if (payload.type === 'playback.ended') {
-        setPlaybackState((previous) => ({ ...previous, isPlaying: false }))
-        setWsMessage('Player reported playback ended.')
-        return
-      }
+        if (payload.type === 'downloads.updated') {
+          const items = payload.payload.items
+          if (Array.isArray(items)) {
+            setDownloadsCount(items.length)
+          }
+          return
+        }
 
-      if (payload.type === 'session.ended') {
-        setWsMessage('Session ended. Returning to sessions.')
-        onRefreshSessions()
-        setTimeout(() => navigate('/sessions'), 500)
-        return
-      }
+        if (payload.type === 'playback.position') {
+          const nextPosition = Number(payload.payload.position_seconds ?? 0)
+          setPlaybackState((previous) => ({
+            ...previous,
+            positionSeconds: Number.isFinite(nextPosition) ? nextPosition : previous.positionSeconds,
+          }))
+          return
+        }
 
-      if (payload.type === 'error') {
-        const message = payload.payload.message
-        if (typeof message === 'string') {
-          setWsMessage(message)
+        if (payload.type === 'playback.ended') {
+          setPlaybackState((previous) => ({ ...previous, isPlaying: false }))
+          setWsMessage('Player reported playback ended.')
+          return
+        }
+
+        if (payload.type === 'session.ended') {
+          shouldReconnectRef.current = false
+          clearReconnectTimer()
+          closeSocket()
+          setWsMessage('Session ended. Returning to sessions.')
+          refreshSessionsRef.current()
+          window.setTimeout(() => navigate('/sessions'), 500)
+          return
+        }
+
+        if (payload.type === 'error') {
+          const message = payload.payload.message
+          if (typeof message === 'string') {
+            setWsMessage(message)
+          }
         }
       }
     }
+
+    connectSocket()
 
     return () => {
-      socket.close()
-      socketRef.current = null
+      shouldReconnectRef.current = false
+      clearReconnectTimer()
+      closeSocket()
     }
-  }, [auth.accessToken, navigate, onRefreshSessions, session])
+  }, [activeSessionCode, auth.accessToken, navigate])
 
   if (session === null) {
     return (
