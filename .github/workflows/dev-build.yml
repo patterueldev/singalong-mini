@@ -103,7 +103,6 @@ jobs:
           # TODO: REMOVE THIS OVERRIDE BEFORE MERGING THIS PR
           echo "OVERRIDE: Forcing web=true and player=true for testing purposes"
           echo "web=true" >> $GITHUB_OUTPUT
-          echo "player=true" >> $GITHUB_OUTPUT
 
       - name: Output detection results
         run: |
