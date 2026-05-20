@@ -97,11 +97,16 @@ class SongSuggestSearchRequest(BaseModel):
 class SongSuggestSearchItem(BaseModel):
     id: str
     title: str
-    channel_name: str
     thumbnail_url: str
     duration: str
+    channel_name: str
+    channel_url: str = ""
+    description: str = ""
+    view_count: int | None = None
+    uploaded_at: str = ""
     exists_in_songbook: bool | None = None
     source_url: str
+    youtube_id: str
 
 
 class SongSuggestSearchResponse(BaseModel):

@@ -2,7 +2,7 @@ import logging
 import re
 
 import yt_dlp
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from ..models import User
 from ..schemas import (
@@ -22,6 +22,34 @@ from ..services.songs_download import extract_youtube_video_id, run_song_downloa
 router = APIRouter(prefix="/api/songs", tags=["songs"])
 logger = logging.getLogger(__name__)
 SUGGEST_KEYWORD_REGEX = re.compile(r"\b(karaoke|instrumental|off[\s-]?vocal)\b", re.IGNORECASE)
+
+
+def _format_duration(seconds: int | float | None) -> str:
+    if not isinstance(seconds, (int, float)):
+        return "0:00"
+
+    total_seconds = max(int(seconds), 0)
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    remaining_seconds = total_seconds % 60
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{remaining_seconds:02d}"
+    return f"{minutes:02d}:{remaining_seconds:02d}"
+
+
+def _pick_thumbnail_url(entry: dict[str, object]) -> str:
+    thumbnail = entry.get("thumbnail")
+    if isinstance(thumbnail, str) and thumbnail.startswith("http"):
+        return thumbnail
+
+    thumbnails = entry.get("thumbnails")
+    if isinstance(thumbnails, list):
+        for candidate in reversed(thumbnails):
+            if isinstance(candidate, dict):
+                candidate_url = candidate.get("url")
+                if isinstance(candidate_url, str) and candidate_url.startswith("http"):
+                    return candidate_url
+    return ""
 
 
 def _require_songbook_user(user: User = Depends(get_current_user)) -> User:
@@ -53,8 +81,12 @@ def suggest_song_download(payload: SongSuggestDownloadRequest, background_tasks:
 
 
 @router.post("/suggest/search", response_model=SongSuggestSearchResponse)
-def suggest_song_search(payload: SongSuggestSearchRequest, _: User = Depends(_require_songbook_user)):
-    query = payload.query.strip()
+def suggest_song_search(
+    payload: SongSuggestSearchRequest,
+    keyword: str | None = Query(default=None, min_length=1, max_length=200),
+    _: User = Depends(_require_songbook_user),
+):
+    query = (keyword or payload.query).strip()
     if query == "":
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Query is required")
 
@@ -85,26 +117,29 @@ def suggest_song_search(payload: SongSuggestSearchRequest, _: User = Depends(_re
             source_url = f"https://www.youtube.com/watch?v={video_id}"
         else:
             source_url = ""
-        thumbnail_url = entry.get("thumbnail") or ""
+        thumbnail_url = _pick_thumbnail_url(entry)
         title = entry.get("title") or "Untitled"
         channel_name = entry.get("channel") or entry.get("uploader") or "Unknown Channel"
+        channel_url = entry.get("channel_url") or entry.get("uploader_url") or ""
+        description = entry.get("description") or ""
         duration_seconds = entry.get("duration")
-        if isinstance(duration_seconds, int) and duration_seconds >= 0:
-            minutes = duration_seconds // 60
-            seconds = duration_seconds % 60
-            duration = f"{minutes}:{seconds:02d}"
-        else:
-            duration = "0:00"
+        view_count = entry.get("view_count")
+        uploaded_at = entry.get("upload_date") or ""
 
         results.append(
             SongSuggestSearchItem(
                 id=video_id,
                 title=title,
-                channel_name=channel_name,
                 thumbnail_url=thumbnail_url,
-                duration=duration,
+                duration=_format_duration(duration_seconds),
+                channel_name=channel_name,
+                channel_url=channel_url if isinstance(channel_url, str) else "",
+                description=description if isinstance(description, str) else "",
+                view_count=view_count if isinstance(view_count, int) else None,
+                uploaded_at=uploaded_at if isinstance(uploaded_at, str) else "",
                 exists_in_songbook=None,
                 source_url=source_url,
+                youtube_id=video_id,
             )
         )
 

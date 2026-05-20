@@ -68,10 +68,15 @@ type SuggestResult = {
   id: string
   title: string
   channelName: string
+  channelUrl: string
   thumbnailUrl: string
   duration: string
+  description: string
+  viewCount: number | null
+  uploadedAt: string
   existsInSongbook: boolean | null
   sourceUrl: string
+  youtubeId: string
 }
 
 type SuggestSearchResponse = {
@@ -81,10 +86,15 @@ type SuggestSearchResponse = {
     id: string
     title: string
     channel_name: string
+    channel_url: string
     thumbnail_url: string
     duration: string
+    description: string
+    view_count: number | null
+    uploaded_at: string
     exists_in_songbook: boolean | null
     source_url: string
+    youtube_id: string
   }>
 }
 
@@ -301,10 +311,15 @@ function createMockSuggestResults(query: string): SuggestResult[] {
       id: `mock-${suffix}`,
       title: `${query} (Karaoke Mix ${index + 1})`,
       channelName: `Mock Channel ${index + 1}`,
+      channelUrl: 'https://www.youtube.com',
       thumbnailUrl: 'https://via.placeholder.com/320x180?text=No+Thumbnail',
       duration: '0:00',
+      description: 'Mock search result.',
+      viewCount: null,
+      uploadedAt: '',
       existsInSongbook: null,
       sourceUrl: `https://www.youtube.com/watch?v=${suffix}`,
+      youtubeId: suffix,
     }
   })
 }
@@ -324,10 +339,10 @@ async function guestLoginWithNickname(nickname: string): Promise<GuestAuth> {
 
 async function suggestSearch(query: string, token: string): Promise<SuggestSearchResponse> {
   return apiJson<SuggestSearchResponse>(
-    '/songs/suggest/search',
+    `/songs/suggest/search?keyword=${encodeURIComponent(query)}&limit=20`,
     {
       method: 'POST',
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, limit: 20 }),
     },
     token,
   )
@@ -589,7 +604,6 @@ function SuggestLoginPage({ initialNickname, onLogin }: SuggestLoginPageProps) {
 type SuggestSearchPageProps = {
   nickname: string
   authToken: string
-  onSelectResult: (draft: SuggestDraft) => void
   onCancel: () => void
   onChangeNickname: () => void
 }
@@ -597,7 +611,6 @@ type SuggestSearchPageProps = {
 function SuggestSearchPage({
   nickname,
   authToken,
-  onSelectResult,
   onCancel,
   onChangeNickname,
 }: SuggestSearchPageProps) {
@@ -606,6 +619,7 @@ function SuggestSearchPage({
   const [effectiveQuery, setEffectiveQuery] = useState('')
   const [queryInfo, setQueryInfo] = useState('')
   const [results, setResults] = useState<SuggestResult[]>([])
+  const [selectedResult, setSelectedResult] = useState<SuggestResult | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [isSearching, setIsSearching] = useState(false)
 
@@ -662,10 +676,15 @@ function SuggestSearchPage({
                     id: item.id,
                     title: item.title,
                     channelName: item.channel_name,
+                    channelUrl: item.channel_url,
                     thumbnailUrl: item.thumbnail_url,
                     duration: item.duration,
+                    description: item.description,
+                    viewCount: item.view_count,
+                    uploadedAt: item.uploaded_at,
                     existsInSongbook: item.exists_in_songbook,
                     sourceUrl: item.source_url,
+                    youtubeId: item.youtube_id,
                   })),
                 )
               })
@@ -695,7 +714,11 @@ function SuggestSearchPage({
             <button type="submit" disabled={isSearching}>
               {isSearching ? 'Searching…' : 'Search'}
             </button>
-            <button type="button" className="secondary" onClick={() => navigate('/songbook/suggest/identify')}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => navigate('/songbook/suggest/identify')}
+            >
               Paste URL Instead
             </button>
           </div>
@@ -708,58 +731,155 @@ function SuggestSearchPage({
           </p>
         ) : null}
         <div className="queue-list top-gap">
-          {results.map((result) => (
-            <article className="queue-item" key={result.id}>
-              <img className="search-thumbnail" src={result.thumbnailUrl} alt={result.title} />
-              <strong>{result.title}</strong>
-              <p className="session-meta">{result.channelName}</p>
-              <p className="session-meta">Duration: {result.duration}</p>
-              <p className="session-meta">
-                {result.existsInSongbook === true
-                  ? 'Already in songbook'
-                  : result.existsInSongbook === false
-                    ? 'Not in songbook yet'
-                    : 'Songbook check pending'}
-              </p>
-              <p className="session-meta">
-                <code>{result.sourceUrl}</code>
-              </p>
-              <details className="top-gap">
-                <summary>Actions</summary>
-                <div className="row-actions top-gap">
-                  <button type="button" className="secondary" disabled>
-                    Identify (coming soon)
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => window.open(result.sourceUrl, '_blank', 'noopener,noreferrer')}
-                  >
-                    Open YouTube
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => {
-                      const videoId = parseYouTubeVideoId(result.sourceUrl) ?? 'unknown'
-                      onSelectResult({
-                        title: result.title,
-                        artist: result.channelName,
-                        sourceUrl: result.sourceUrl,
-                        youtubeId: videoId,
-                      })
-                      navigate('/songbook/suggest/update')
-                    }}
-                  >
-                    Use this result
-                  </button>
+          {results.length === 0 ? (
+            <p className="empty-state">Search for a video to see results.</p>
+          ) : (
+            results.map((result) => (
+              <article className="search-result-row" key={result.id}>
+                <img className="search-result-thumb" src={result.thumbnailUrl} alt={result.title} />
+                <div className="search-result-content">
+                  <strong className="search-result-title" title={result.title}>
+                    {result.title}
+                  </strong>
+                  <p className="search-result-meta">
+                    {result.duration} - {result.channelName}
+                  </p>
+                  {result.existsInSongbook === true ? (
+                    <p className="search-result-exists">✔ Already Exists</p>
+                  ) : null}
                 </div>
-              </details>
-            </article>
-          ))}
+                <details className="search-result-actions">
+                  <summary>Actions</summary>
+                  <div className="search-result-menu">
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => {
+                        setSelectedResult(result)
+                      }}
+                    >
+                      Details
+                    </button>
+                    <button type="button" className="secondary" disabled title="Coming soon">
+                      Identify
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => window.open(result.sourceUrl, '_blank', 'noopener,noreferrer')}
+                    >
+                      View on Youtube
+                    </button>
+                  </div>
+                </details>
+              </article>
+            ))
+          )}
         </div>
+        {selectedResult !== null ? (
+          <SearchResultModal result={selectedResult} onClose={() => setSelectedResult(null)} />
+        ) : null}
       </section>
     </main>
+  )
+}
+
+type SearchResultModalProps = {
+  result: SuggestResult
+  onClose: () => void
+}
+
+function SearchResultModal({ result, onClose }: SearchResultModalProps) {
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${result.title} details`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-header">
+          <div>
+            <h2>{result.title}</h2>
+            <p className="subtitle">
+              {result.duration} · {result.channelName}
+            </p>
+          </div>
+          <button type="button" className="secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        <div className="modal-body">
+          <div className="modal-player">
+            {result.youtubeId !== '' ? (
+              <iframe
+                title={result.title}
+                src={`https://www.youtube.com/embed/${result.youtubeId}`}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            ) : (
+              <p className="empty-state">Embedded player unavailable for this result.</p>
+            )}
+          </div>
+
+          <div className="modal-details">
+            <p className="session-meta">
+              <strong>Channel:</strong> {result.channelName}
+            </p>
+            <p className="session-meta">
+              <strong>Source:</strong>{' '}
+              <a href={result.sourceUrl} target="_blank" rel="noreferrer">
+                Open on YouTube
+              </a>
+            </p>
+            {result.channelUrl !== '' ? (
+              <p className="session-meta">
+                <strong>Channel URL:</strong>{' '}
+                <a href={result.channelUrl} target="_blank" rel="noreferrer">
+                  Open channel
+                </a>
+              </p>
+            ) : null}
+            {result.uploadedAt !== '' ? (
+              <p className="session-meta">
+                <strong>Uploaded:</strong> {result.uploadedAt}
+              </p>
+            ) : null}
+            {result.viewCount !== null ? (
+              <p className="session-meta">
+                <strong>Views:</strong> {result.viewCount.toLocaleString()}
+              </p>
+            ) : null}
+            <p className="session-meta">
+              <strong>Songbook status:</strong>{' '}
+              {result.existsInSongbook === true
+                ? 'Already Exists'
+                : result.existsInSongbook === false
+                  ? 'Not in songbook yet'
+                  : 'Pending'}
+            </p>
+            {result.description !== '' ? (
+              <p className="modal-description">{result.description}</p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="row-actions modal-actions">
+          <button type="button" className="secondary" disabled title="Coming soon">
+            Identify
+          </button>
+          <button
+            type="button"
+            onClick={() => window.open(result.sourceUrl, '_blank', 'noopener,noreferrer')}
+          >
+            View on Youtube
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1821,7 +1941,6 @@ function AppShell() {
               <SuggestSearchPage
                 nickname={suggestAuth.nickname}
                 authToken={suggestAuth.accessToken}
-                onSelectResult={handleSelectSuggestDraft}
                 onCancel={handleCancelSuggestion}
                 onChangeNickname={handleChangeSuggestNickname}
               />
