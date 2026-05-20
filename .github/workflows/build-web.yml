@@ -94,6 +94,9 @@ jobs:
     needs: [build-amd64, build-arm64]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -101,17 +104,33 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/web
+          tags: |
+            type=raw,value=${{ inputs.env }}
+            type=sha,prefix=${{ inputs.env }}-
+
       - name: Create and push manifest
         run: |
+          # Extract the SHA tag from metadata output (it will be the short SHA)
+          SHA_TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep "${{ inputs.env }}-" | grep -v "^ghcr.io.*:${{ inputs.env }}$" | head -1 | cut -d: -f2)
+          
+          echo "Creating manifest for tags:"
+          echo "  - ghcr.io/${{ github.repository }}/web:${{ inputs.env }}"
+          echo "  - ghcr.io/${{ github.repository }}/web:${SHA_TAG}"
+          
           # Create manifest for env tag
           docker buildx imagetools create -t ghcr.io/${{ github.repository }}/web:${{ inputs.env }} \
             ghcr.io/${{ github.repository }}/web:${{ inputs.env }}-amd64 \
             ghcr.io/${{ github.repository }}/web:${{ inputs.env }}-arm64
           
           # Create manifest for SHA tag
-          docker buildx imagetools create -t ghcr.io/${{ github.repository }}/web:${{ inputs.env }}-${{ github.sha }} \
-            ghcr.io/${{ github.repository }}/web:${{ inputs.env }}-${{ github.sha }}-amd64 \
-            ghcr.io/${{ github.repository }}/web:${{ inputs.env }}-${{ github.sha }}-arm64
+          docker buildx imagetools create -t ghcr.io/${{ github.repository }}/web:${SHA_TAG} \
+            ghcr.io/${{ github.repository }}/web:${SHA_TAG}-amd64 \
+            ghcr.io/${{ github.repository }}/web:${SHA_TAG}-arm64
 
       - name: Image pushed
         run: |
