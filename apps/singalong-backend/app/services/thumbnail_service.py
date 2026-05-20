@@ -8,13 +8,29 @@ from PIL import Image
 
 
 def download_thumbnail(url: str, timeout: int = 10) -> bytes:
-    """Download thumbnail from URL and return as bytes."""
+    """Download thumbnail from URL, convert to JPG, and return as bytes."""
     print(f"[THUMBNAIL] Downloading from {url}", file=sys.stderr, flush=True)
     try:
         response = requests.get(url, timeout=timeout)
         response.raise_for_status()
-        print(f"[THUMBNAIL] Downloaded {len(response.content)} bytes", file=sys.stderr, flush=True)
-        return response.content
+        raw = response.content
+        print(f"[THUMBNAIL] Downloaded {len(raw)} bytes", file=sys.stderr, flush=True)
+
+        # Always convert to JPG for consistency
+        image = Image.open(BytesIO(raw))
+        if image.mode in ("RGBA", "P"):
+            bg = Image.new("RGB", image.size, (255, 255, 255))
+            bg.paste(image, mask=image.split()[-1] if image.mode == "RGBA" else None)
+            image = bg
+        elif image.mode != "RGB":
+            image = image.convert("RGB")
+
+        jpg_buffer = BytesIO()
+        image.save(jpg_buffer, format="JPEG", quality=85, optimize=True)
+        jpg_buffer.seek(0)
+        result = jpg_buffer.getvalue()
+        print(f"[THUMBNAIL] Converted to JPG ({len(result)} bytes)", file=sys.stderr, flush=True)
+        return result
     except Exception as e:
         print(f"[THUMBNAIL] Download failed: {e}", file=sys.stderr, flush=True)
         raise

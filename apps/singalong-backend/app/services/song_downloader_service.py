@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DBSession
 
 from ..models import Song
-from ..services.ytdlp.naming import build_saved_filename
+from ..services.ytdlp.naming import build_saved_filename, normalize_song_title
 from ..services.thumbnail_service import convert_base64_to_jpg, download_thumbnail, save_thumbnail
 from ..services.ytdlp.song_downloader import YtDlpSongDownloader
 
@@ -120,37 +120,16 @@ class SongDownloaderService:
             # Step 2: Download/convert thumbnail
             thumbnail_filename = None
             try:
-                thumbnail_filename = build_saved_filename(title, source_id, "jpg")
+                thumbnail_filename = f"{normalize_song_title(title)}[{source_id}].jpg"
 
                 if source_thumbnail_data_url:
                     # Custom thumbnail: decode base64 → convert to JPG
                     print("[DOWNLOADER] Using custom thumbnail", file=sys.stderr, flush=True)
                     thumbnail_data = convert_base64_to_jpg(source_thumbnail_data_url)
                 else:
-                    # Source thumbnail: download → convert to JPG
+                    # Source thumbnail URL: download and convert to JPG
                     print("[DOWNLOADER] Downloading source thumbnail", file=sys.stderr, flush=True)
                     thumbnail_data = download_thumbnail(source_thumbnail)
-                    # Convert to JPG if needed
-                    from PIL import Image
-                    from io import BytesIO
-
-                    try:
-                        image = Image.open(BytesIO(thumbnail_data))
-                        if image.format and image.format.lower() != "jpeg":
-                            if image.mode in ("RGBA", "P"):
-                                rgb_image = Image.new("RGB", image.size, (255, 255, 255))
-                                rgb_image.paste(
-                                    image,
-                                    mask=image.split()[-1] if image.mode == "RGBA" else None,
-                                )
-                                image = rgb_image
-                            jpg_buffer = BytesIO()
-                            image.save(jpg_buffer, format="JPEG", quality=85, optimize=True)
-                            jpg_buffer.seek(0)
-                            thumbnail_data = jpg_buffer.getvalue()
-                    except Exception:
-                        # If conversion fails, use original data
-                        pass
 
                 # Save thumbnail
                 save_thumbnail(thumbnail_data, thumbnail_filename, self.media_dir)
