@@ -60,30 +60,46 @@ class TitleGuesserAgent:
             - video_has_lyrics: bool
             - confidence: float (0.0-1.0)
         """
+        import sys
         try:
+            print(f"[TITLE_GUESSER] extract() called - input_title={youtube_title[:80] if youtube_title else ''}", file=sys.stderr, flush=True)
+            logger.info("[TITLE_GUESSER] extract() called - input_title=%s", youtube_title[:80] if youtube_title else "")
+            
             # Remove common YouTube suffixes and clean up
             cleaned_title = self._clean_title(youtube_title)
+            print(f"[TITLE_GUESSER] cleaned_title={cleaned_title[:80] if cleaned_title else ''}", file=sys.stderr, flush=True)
+            logger.info("[TITLE_GUESSER] cleaned_title=%s", cleaned_title[:80] if cleaned_title else "")
 
             # Detect karaoke/off-vocal flags
             is_off_vocal = self._detect_off_vocal(cleaned_title, youtube_description)
             video_has_lyrics = self._detect_lyrics(cleaned_title, youtube_description)
+            print(f"[TITLE_GUESSER] flags detected - is_off_vocal={is_off_vocal} video_has_lyrics={video_has_lyrics}", file=sys.stderr, flush=True)
+            logger.info("[TITLE_GUESSER] flags detected - is_off_vocal=%s video_has_lyrics=%s", is_off_vocal, video_has_lyrics)
 
             # Extract artist and title using heuristics
             extracted_artist = self._extract_artist(cleaned_title)
             extracted_title = self._extract_title(cleaned_title, extracted_artist)
+            print(f"[TITLE_GUESSER] extraction - artist={extracted_artist} title={extracted_title[:80] if extracted_title else ''}", file=sys.stderr, flush=True)
+            logger.info("[TITLE_GUESSER] extraction - artist=%s title=%s", extracted_artist, extracted_title[:80] if extracted_title else "")
 
             # Calculate confidence based on patterns found
             confidence = self._calculate_confidence(cleaned_title, extracted_artist, extracted_title)
+            print(f"[TITLE_GUESSER] confidence={confidence:.2f}", file=sys.stderr, flush=True)
+            logger.info("[TITLE_GUESSER] confidence=%.2f", confidence)
 
-            return {
+            result = {
                 "extracted_title": extracted_title,
                 "extracted_artist": extracted_artist,
                 "is_off_vocal": is_off_vocal,
                 "video_has_lyrics": video_has_lyrics,
                 "confidence": confidence,
             }
+            print("[TITLE_GUESSER] extract() completed successfully", file=sys.stderr, flush=True)
+            logger.info("[TITLE_GUESSER] extract() completed successfully")
+            return result
         except Exception as e:
-            logger.exception("TitleGuesser.extract failed: %s", e)
+            print(f"[TITLE_GUESSER] extract() failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("[TITLE_GUESSER] extract() failed: %s", e)
             return {
                 "extracted_title": youtube_title,
                 "extracted_artist": None,

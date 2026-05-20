@@ -299,17 +299,26 @@ async def suggest_song_enhance(
 
     Returns the enhanced metadata in the same canonical shape.
     """
+    import sys
+    print(f"[ENHANCE] Starting enhancement request - source_id={payload.source_id} title={payload.title} artist={payload.artist}", file=sys.stderr, flush=True)
+    logger.info("[ENHANCE] Starting enhancement request - source_id=%s title=%s artist=%s", payload.source_id, payload.title, payload.artist)
+    
     # Validate OpenAI API key is available
     if not os.getenv("OPENAI_API_KEY"):
-        logger.warning("suggest_song_enhance called without OPENAI_API_KEY")
+        print("[ENHANCE] OPENAI_API_KEY not configured", file=sys.stderr, flush=True)
+        logger.warning("[ENHANCE] OPENAI_API_KEY not configured")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="OPENAI_API_KEY is not configured",
         )
+    print("[ENHANCE] OPENAI_API_KEY is available", file=sys.stderr, flush=True)
+    logger.info("[ENHANCE] OPENAI_API_KEY is available")
 
     try:
         # Create orchestrator and prepare payload for enhancement
         orchestrator = OrchestratorAgent()
+        print("[ENHANCE] OrchestratorAgent initialized", file=sys.stderr, flush=True)
+        logger.info("[ENHANCE] OrchestratorAgent initialized")
 
         # Convert request to dict for processing
         enhancement_payload = {
@@ -326,9 +335,15 @@ async def suggest_song_enhance(
             "tags": payload.tags or None,
             "lyrics": payload.lyrics or None,
         }
+        print(f"[ENHANCE] Prepared enhancement_payload: source_id={enhancement_payload['source_id']} title={enhancement_payload['title']}", file=sys.stderr, flush=True)
+        logger.info("[ENHANCE] Prepared enhancement_payload: source_id=%s title=%s", enhancement_payload["source_id"], enhancement_payload["title"])
 
         # Run enhancement orchestration
+        print("[ENHANCE] Calling orchestrator.enhance()", file=sys.stderr, flush=True)
+        logger.info("[ENHANCE] Calling orchestrator.enhance()")
         enhanced_payload = await orchestrator.enhance(enhancement_payload)
+        print(f"[ENHANCE] orchestrator.enhance() completed - title={enhanced_payload.get('title')} artist={enhanced_payload.get('artist')}", file=sys.stderr, flush=True)
+        logger.info("[ENHANCE] orchestrator.enhance() completed - title=%s artist=%s", enhanced_payload.get("title"), enhanced_payload.get("artist"))
 
         # Convert enhanced payload back to response model
         enhanced_response = SongSuggestIdentifyResponse(
@@ -347,9 +362,11 @@ async def suggest_song_enhance(
         )
 
         logger.info(
-            "song-enhancement-successful youtube_id=%s title=%s artist=%s",
+            "[ENHANCE] song-enhancement-successful youtube_id=%s title_before=%s title_after=%s artist_before=%s artist_after=%s",
             payload.source_id,
+            payload.title,
             enhanced_response.title,
+            payload.artist,
             enhanced_response.artist,
         )
 
@@ -362,7 +379,7 @@ async def suggest_song_enhance(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("song-enhancement-failed: %s", e)
+        logger.exception("[ENHANCE] song-enhancement-failed: %s", e)
         # Graceful degradation: return original payload on any error
         return SongSuggestEnhanceResponse(
             status="degraded",

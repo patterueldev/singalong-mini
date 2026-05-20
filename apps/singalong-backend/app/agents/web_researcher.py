@@ -35,7 +35,11 @@ class WebResearcherAgent:
             - tags: Optional[list[str]]
             - research_confidence: float (0.0-1.0)
         """
+        import sys
         try:
+            print(f"[WEB_RESEARCHER] research() called - title={title[:60] if title else ''} artist={artist}", file=sys.stderr, flush=True)
+            logger.info("[WEB_RESEARCHER] research() called - title=%s artist=%s", title[:60] if title else "", artist)
+            
             # In a real implementation, this would query MusicBrainz, Spotify, etc.
             # For now, we'll return empty results with the expectation that
             # real API integration happens in a future enhancement
@@ -50,11 +54,16 @@ class WebResearcherAgent:
             if artist and len(artist) > 2:
                 verified_artist = artist
                 confidence = 0.3
+                print(f"[WEB_RESEARCHER] Using provided artist as baseline - verified_artist={verified_artist} confidence={confidence:.2f}", file=sys.stderr, flush=True)
+                logger.info("[WEB_RESEARCHER] Using provided artist as baseline - verified_artist=%s confidence=%.2f", verified_artist, confidence)
 
+            print(f"[WEB_RESEARCHER] research() completed - verified_artist={verified_artist} verified_year={verified_year} genre={genre} tags={tags} confidence={confidence:.2f}", file=sys.stderr, flush=True)
             logger.info(
-                "WebResearcher.research completed title=%s artist=%s confidence=%.2f",
-                title,
-                artist,
+                "[WEB_RESEARCHER] research() completed - verified_artist=%s verified_year=%s genre=%s tags=%s confidence=%.2f",
+                verified_artist,
+                verified_year,
+                genre,
+                tags,
                 confidence,
             )
 
@@ -66,7 +75,8 @@ class WebResearcherAgent:
                 "research_confidence": confidence,
             }
         except Exception as e:
-            logger.exception("WebResearcher.research failed: %s", e)
+            print(f"[WEB_RESEARCHER] research() failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("[WEB_RESEARCHER] research() failed: %s", e)
             return {
                 "verified_artist": None,
                 "verified_year": None,

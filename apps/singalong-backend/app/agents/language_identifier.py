@@ -68,7 +68,11 @@ class LanguageIdentifierAgent:
             - language: str (ISO 639-1 code)
             - confidence: float (0.0-1.0)
         """
+        import sys
         try:
+            print(f"[LANGUAGE_IDENTIFIER] detect() called - title={title[:60] if title else ''} artist={artist} youtube_title={youtube_title[:60] if youtube_title else ''}", file=sys.stderr, flush=True)
+            logger.info("[LANGUAGE_IDENTIFIER] detect() called - title=%s artist=%s youtube_title=%s", title[:60] if title else "", artist, youtube_title[:60] if youtube_title else "")
+            
             # Combine text sources for analysis
             text_sources = [title]
             if artist:
@@ -77,16 +81,21 @@ class LanguageIdentifierAgent:
                 text_sources.append(youtube_title)
 
             combined_text = " ".join(text_sources)
+            print(f"[LANGUAGE_IDENTIFIER] combined_text for analysis={combined_text[:100]}", file=sys.stderr, flush=True)
+            logger.info("[LANGUAGE_IDENTIFIER] combined_text for analysis=%s", combined_text[:100])
 
             # Detect language using pattern matching
             detected_lang, confidence = self._detect_by_patterns(combined_text)
+            print(f"[LANGUAGE_IDENTIFIER] detection result - language={detected_lang} confidence={confidence:.2f}", file=sys.stderr, flush=True)
+            logger.info("[LANGUAGE_IDENTIFIER] detection result - language=%s confidence=%.2f", detected_lang, confidence)
 
             return {
                 "language": detected_lang,
                 "confidence": confidence,
             }
         except Exception as e:
-            logger.exception("LanguageIdentifier.detect failed: %s", e)
+            print(f"[LANGUAGE_IDENTIFIER] detect() failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("[LANGUAGE_IDENTIFIER] detect() failed: %s", e)
             return {
                 "language": "en",
                 "confidence": 0.1,
