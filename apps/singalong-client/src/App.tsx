@@ -67,7 +67,10 @@ type SongbookSong = {
 type SuggestResult = {
   id: string
   title: string
-  artist: string
+  channelName: string
+  thumbnailUrl: string
+  duration: string
+  existsInSongbook: boolean | null
   sourceUrl: string
 }
 
@@ -77,7 +80,10 @@ type SuggestSearchResponse = {
   results: Array<{
     id: string
     title: string
-    artist: string
+    channel_name: string
+    thumbnail_url: string
+    duration: string
+    exists_in_songbook: boolean | null
     source_url: string
   }>
 }
@@ -294,7 +300,10 @@ function createMockSuggestResults(query: string): SuggestResult[] {
     return {
       id: `mock-${suffix}`,
       title: `${query} (Karaoke Mix ${index + 1})`,
-      artist: `Mock Channel ${index + 1}`,
+      channelName: `Mock Channel ${index + 1}`,
+      thumbnailUrl: 'https://via.placeholder.com/320x180?text=No+Thumbnail',
+      duration: '0:00',
+      existsInSongbook: null,
       sourceUrl: `https://www.youtube.com/watch?v=${suffix}`,
     }
   })
@@ -652,7 +661,10 @@ function SuggestSearchPage({
                   response.results.map((item) => ({
                     id: item.id,
                     title: item.title,
-                    artist: item.artist,
+                    channelName: item.channel_name,
+                    thumbnailUrl: item.thumbnail_url,
+                    duration: item.duration,
+                    existsInSongbook: item.exists_in_songbook,
                     sourceUrl: item.source_url,
                   })),
                 )
@@ -698,27 +710,51 @@ function SuggestSearchPage({
         <div className="queue-list top-gap">
           {results.map((result) => (
             <article className="queue-item" key={result.id}>
+              <img className="search-thumbnail" src={result.thumbnailUrl} alt={result.title} />
               <strong>{result.title}</strong>
-              <p className="session-meta">{result.artist}</p>
+              <p className="session-meta">{result.channelName}</p>
+              <p className="session-meta">Duration: {result.duration}</p>
+              <p className="session-meta">
+                {result.existsInSongbook === true
+                  ? 'Already in songbook'
+                  : result.existsInSongbook === false
+                    ? 'Not in songbook yet'
+                    : 'Songbook check pending'}
+              </p>
               <p className="session-meta">
                 <code>{result.sourceUrl}</code>
               </p>
-              <button
-                type="button"
-                className="secondary top-gap"
-                onClick={() => {
-                  const videoId = parseYouTubeVideoId(result.sourceUrl) ?? 'unknown'
-                  onSelectResult({
-                    title: result.title,
-                    artist: result.artist,
-                    sourceUrl: result.sourceUrl,
-                    youtubeId: videoId,
-                  })
-                  navigate('/songbook/suggest/update')
-                }}
-              >
-                Use this video
-              </button>
+              <details className="top-gap">
+                <summary>Actions</summary>
+                <div className="row-actions top-gap">
+                  <button type="button" className="secondary" disabled>
+                    Identify (coming soon)
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => window.open(result.sourceUrl, '_blank', 'noopener,noreferrer')}
+                  >
+                    Open YouTube
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      const videoId = parseYouTubeVideoId(result.sourceUrl) ?? 'unknown'
+                      onSelectResult({
+                        title: result.title,
+                        artist: result.channelName,
+                        sourceUrl: result.sourceUrl,
+                        youtubeId: videoId,
+                      })
+                      navigate('/songbook/suggest/update')
+                    }}
+                  >
+                    Use this result
+                  </button>
+                </div>
+              </details>
             </article>
           ))}
         </div>

@@ -1,6 +1,7 @@
 import logging
 import re
 
+import yt_dlp
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from ..models import User
@@ -59,17 +60,53 @@ def suggest_song_search(payload: SongSuggestSearchRequest, _: User = Depends(_re
 
     appended_karaoke = SUGGEST_KEYWORD_REGEX.search(query) is None
     effective_query = query if not appended_karaoke else f"{query} karaoke"
-    normalized = re.sub(r"[^a-zA-Z0-9]+", "", effective_query).lower() or "song"
+    limit = payload.limit
 
-    results = [
-        SongSuggestSearchItem(
-            id=f"mock-{normalized[:8]}-{index + 1}",
-            title=f"{effective_query} (Karaoke Mix {index + 1})",
-            artist=f"Mock Channel {index + 1}",
-            source_url=f"https://www.youtube.com/watch?v={normalized[:6]}{index + 1}",
+    search_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": "in_playlist",
+        "default_search": "ytsearch",
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(search_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch{limit}:{effective_query}", download=False)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Search provider error: {exc}") from exc
+
+    results: list[SongSuggestSearchItem] = []
+    for entry in (info.get("entries") or [])[:limit]:
+        video_id = entry.get("id") or ""
+        raw_url = entry.get("url") or ""
+        if isinstance(raw_url, str) and raw_url.startswith("http"):
+            source_url = raw_url
+        elif video_id != "":
+            source_url = f"https://www.youtube.com/watch?v={video_id}"
+        else:
+            source_url = ""
+        thumbnail_url = entry.get("thumbnail") or ""
+        title = entry.get("title") or "Untitled"
+        channel_name = entry.get("channel") or entry.get("uploader") or "Unknown Channel"
+        duration_seconds = entry.get("duration")
+        if isinstance(duration_seconds, int) and duration_seconds >= 0:
+            minutes = duration_seconds // 60
+            seconds = duration_seconds % 60
+            duration = f"{minutes}:{seconds:02d}"
+        else:
+            duration = "0:00"
+
+        results.append(
+            SongSuggestSearchItem(
+                id=video_id,
+                title=title,
+                channel_name=channel_name,
+                thumbnail_url=thumbnail_url,
+                duration=duration,
+                exists_in_songbook=None,
+                source_url=source_url,
+            )
         )
-        for index in range(3)
-    ]
 
     return SongSuggestSearchResponse(
         effective_query=effective_query,

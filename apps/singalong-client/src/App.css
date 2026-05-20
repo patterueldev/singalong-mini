@@ -270,6 +270,16 @@ button:disabled {
   background: var(--surface-card);
 }
 
+.search-thumbnail {
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border-primary);
+  margin-bottom: 8px;
+}
+
 @media (max-width: 720px) {
   .card-header,
   .list-header,

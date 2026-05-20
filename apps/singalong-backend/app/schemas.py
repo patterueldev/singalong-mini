@@ -91,12 +91,16 @@ class SongSuggestDownloadResponse(BaseModel):
 
 class SongSuggestSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=200)
+    limit: int = Field(default=20, ge=1, le=50)
 
 
 class SongSuggestSearchItem(BaseModel):
     id: str
     title: str
-    artist: str
+    channel_name: str
+    thumbnail_url: str
+    duration: str
+    exists_in_songbook: bool | None = None
     source_url: str
 
 
