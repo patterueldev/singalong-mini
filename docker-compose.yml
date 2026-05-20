@@ -24,7 +24,7 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/singalong
       APP_ENV: production
       SINGALONG_HTTP_PORT: ${SINGALONG_HTTP_PORT:-9000}
-      CORS_ORIGINS: http://localhost:${SINGALONG_HTTP_PORT:-9000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000,https://singalong.nicenature.space}
       SINGALONG_ADMIN_USERNAME: ${SINGALONG_ADMIN_USERNAME:-admin}
       SINGALONG_ADMIN_PASSWORD: ${SINGALONG_ADMIN_PASSWORD:-password}
       JWT_SECRET_KEY: ${SINGALONG_JWT_SECRET_KEY:-singalong-prod-jwt-secret-key-longer-than-32-bytes-required}

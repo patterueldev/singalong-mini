@@ -3,10 +3,13 @@
   min-height: 100vh;
   place-items: center;
   padding: 24px;
+  width: 100%;
+  min-width: 0;
 }
 
 .card {
   width: min(920px, 100%);
+  min-width: 0;
   background: var(--surface-card);
   border: 1px solid var(--border-primary);
   border-radius: 12px;
@@ -286,6 +289,7 @@ button:disabled {
   align-items: flex-start;
   gap: 14px;
   width: 100%;
+  min-width: 0;
   padding: 12px;
   border: 1px solid var(--border-primary);
   border-radius: 12px;
@@ -371,6 +375,7 @@ button:disabled {
 
 .context-menu-card {
   width: min(420px, 100%);
+  min-width: 0;
   border: 1px solid var(--border-primary);
   border-radius: 16px;
   background: var(--surface-card);
@@ -407,6 +412,7 @@ button:disabled {
 
 .modal-card {
   width: min(960px, 100%);
+  min-width: 0;
   max-height: min(90vh, 960px);
   overflow: auto;
   border: 1px solid var(--border-primary);
@@ -659,6 +665,15 @@ textarea:focus-visible {
 }
 
 @media (max-width: 720px) {
+  .app-shell {
+    padding: 12px;
+  }
+
+  .card,
+  .modal-card {
+    padding: 16px;
+  }
+
   .card-header,
   .list-header,
   .session-row,
@@ -702,32 +717,41 @@ textarea:focus-visible {
   }
 
   .song-detail-panels {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
   }
 
   .song-detail-header-row {
-    align-items: center;
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .song-detail-title {
+    font-size: 1.25rem;
+  }
+
+  .song-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .song-detail-grid-wide {
+    grid-column: auto;
+  }
+
+  .song-detail-lyrics-panel {
+    order: 2;
   }
 
   .song-detail-thumbnail--small {
-    width: 72px;
-    height: 72px;
-    max-width: 72px;
+    width: 64px;
+    height: 64px;
+    max-width: 64px;
   }
 
   .songbook-item {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .songbook-thumbnail {
-    width: 100%;
-    height: auto;
-    aspect-ratio: 16 / 9;
-  }
-
-  .songbook-info strong {
-    white-space: normal;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.6rem;
   }
 
   .checkbox-grid,
@@ -742,6 +766,8 @@ textarea:focus-visible {
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
+  min-width: 0;
+  width: 100%;
 }
 
 .songbook-thumbnail {
@@ -921,6 +947,7 @@ button.small {
 
 .song-detail-modal {
   width: min(1120px, 100%);
+  min-width: 0;
 }
 
 .song-detail-layout {
@@ -959,6 +986,7 @@ button.small {
   border-radius: 12px;
   background: var(--surface-panel);
   padding: 14px;
+  min-width: 0;
 }
 
 .song-detail-summary-panel {
@@ -1030,4 +1058,44 @@ button.small {
 
 .secondary-link:hover {
   text-decoration: underline;
+}
+
+@media (max-width: 720px) {
+  .songbook-item {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .songbook-thumbnail {
+    width: 56px;
+    height: 56px;
+    aspect-ratio: auto;
+  }
+
+  .songbook-info strong {
+    white-space: nowrap;
+  }
+
+  .song-detail-panels {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .song-detail-header-row {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .song-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .song-detail-grid-wide {
+    grid-column: auto;
+  }
+
+  .song-detail-lyrics-panel {
+    order: 2;
+  }
 }

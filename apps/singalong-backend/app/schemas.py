@@ -116,7 +116,7 @@ class SongSuggestSearchItem(BaseModel):
     description: str = ""
     view_count: int | None = None
     uploaded_at: str = ""
-    exists_in_songbook: bool | None = None
+    exists_in_songbook: bool = False
     source_url: str
     youtube_id: str
 
@@ -206,6 +206,7 @@ class SongbookItem(BaseModel):
     source_url: str | None
     video_file: str | None = None
     lyrics: str | None = None
+    added_by_username: str | None = None
 
 
 class SongbookListResponse(BaseModel):
@@ -213,3 +214,24 @@ class SongbookListResponse(BaseModel):
     total: int
     page: int
     pages: int
+
+
+class SongDownloadItem(BaseModel):
+    song_id: UUID
+    title: str
+    artist: str
+    source_id: str | None
+    source_url: str
+    status: str
+    progress_pct: int | None = None
+    current_step: str | None = None
+    progress_message: str | None = None
+    error_message: str | None = None
+    added_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    updated_at: datetime
+
+
+class SongDownloadListResponse(BaseModel):
+    items: list[SongDownloadItem]

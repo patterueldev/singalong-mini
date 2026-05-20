@@ -1,6 +1,3 @@
-import re
-from uuid import uuid4
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,31 +20,20 @@ from ..services.auth import create_access_token, get_current_user
 from ..security import verify_password
 
 router = APIRouter(prefix="/api/users", tags=["users"])
-USERNAME_SANITIZER = re.compile(r"[^a-z0-9]+")
-
-
-def _normalize_nickname(value: str) -> str:
-    normalized = USERNAME_SANITIZER.sub("-", value.strip().lower()).strip("-")
-    return normalized or "guest"
 
 
 def suggest_guest_username(db: Session, nickname: str) -> str:
-    base = f"guest-{_normalize_nickname(nickname)}"
-    existing = set(
-        db.scalars(select(User.username).where(User.username.like(f"{base}%"))).all()
-    )
-    if base not in existing:
-        return base
+    username = nickname.strip()
+    if username == "":
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Nickname is required")
 
-    suffix = 2
-    while f"{base}-{suffix}" in existing:
-        suffix += 1
-    return f"{base}-{suffix}"
+    existing = db.scalar(select(User).where(User.username == username))
+    if existing is not None:
+        if existing.role != "guest":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nickname is already in use")
+        return existing.username
 
-
-def build_guest_login_username(nickname: str) -> str:
-    base = _normalize_nickname(nickname)
-    return f"guest-{base}-{uuid4().hex[:8]}"
+    return username
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -65,19 +51,23 @@ def login_guest(payload: GuestLoginRequest, db: Session = Depends(get_db)):
     if nickname == "":
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Nickname is required")
 
-    guest_user = User(
-        username=build_guest_login_username(nickname),
-        role="guest",
-        password_hash=None,
-    )
-    db.add(guest_user)
-    db.commit()
-    db.refresh(guest_user)
+    guest_user = db.scalar(select(User).where(User.username == nickname))
+    if guest_user is None:
+        guest_user = User(
+            username=nickname,
+            role="guest",
+            password_hash=None,
+        )
+        db.add(guest_user)
+        db.commit()
+        db.refresh(guest_user)
+    elif guest_user.role != "guest":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nickname is already in use")
 
     return GuestLoginResponse(
         access_token=create_access_token(guest_user),
         user=guest_user,
-        nickname=nickname,
+        nickname=guest_user.username,
         message="Guest login successful",
     )
 
@@ -100,10 +90,12 @@ def get_me(current_user: User = Depends(get_current_user)):
 @router.post("/guest", response_model=GuestCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_guest(payload: GuestCreateRequest, db: Session = Depends(get_db)):
     username = suggest_guest_username(db, payload.nickname)
-    guest_user = User(username=username, role="guest", password_hash=None)
-    db.add(guest_user)
-    db.commit()
-    db.refresh(guest_user)
+    guest_user = db.scalar(select(User).where(User.username == username))
+    if guest_user is None:
+        guest_user = User(username=username, role="guest", password_hash=None)
+        db.add(guest_user)
+        db.commit()
+        db.refresh(guest_user)
 
     return GuestCreateResponse(user=guest_user, message="Guest user created")
 

@@ -140,7 +140,7 @@ class YtDlpSongDownloader:
         with_audio = [path for path in candidates if self._has_audio_and_video(path)]
         return with_audio[0] if with_audio else candidates[0]
 
-    def download_to_temp(self, url: str) -> DownloadArtifact:
+    def download_to_temp(self, url: str, progress_hook=None) -> DownloadArtifact:
         tmpdir = Path(tempfile.mkdtemp(prefix="singalong_dl_"))
         output_template = str(tmpdir / "%(id)s.%(ext)s")
 
@@ -169,6 +169,9 @@ class YtDlpSongDownloader:
             "noplaylist": True,
         }
 
+        if progress_hook is not None:
+            ydl_options["progress_hooks"].append(progress_hook)
+
         cookiefile = self._runtime_cookiefile()
         if cookiefile is not None:
             ydl_options["cookiefile"] = cookiefile
@@ -186,4 +189,3 @@ class YtDlpSongDownloader:
             selected_file=selected_file,
             temp_dir=tmpdir,
         )
-

@@ -6,6 +6,9 @@ from typing import Any
 
 from fastapi import WebSocket
 from fastapi.websockets import WebSocketDisconnect
+from sqlalchemy.orm import Session
+
+from .download_queue import list_active_download_items
 
 WEBSOCKET_CHANNELS = ("player", "admin", "guest")
 ADMIN_TO_PLAYER_TYPES = {
@@ -34,6 +37,7 @@ class SessionWebSocketHub:
         websocket: WebSocket,
         channel: str,
         session_code: str,
+        db: Session | None = None,
     ) -> None:
         await websocket.accept()
         await self._register(websocket, channel, session_code)
@@ -46,7 +50,7 @@ class SessionWebSocketHub:
             },
         )
         if channel == "admin":
-            await self._send_admin_placeholder_events(websocket, session_code)
+            await self._send_admin_placeholder_events(websocket, session_code, db)
 
         try:
             while True:
@@ -160,7 +164,13 @@ class SessionWebSocketHub:
             },
         )
 
-    async def _send_admin_placeholder_events(self, websocket: WebSocket, session_code: str) -> None:
+    async def _send_admin_placeholder_events(
+        self,
+        websocket: WebSocket,
+        session_code: str,
+        db: Session | None = None,
+    ) -> None:
+        download_items = list_active_download_items(db) if db is not None else []
         await self._send(
             websocket,
             {
@@ -189,7 +199,7 @@ class SessionWebSocketHub:
             {
                 "type": "downloads.updated",
                 "session_code": session_code,
-                "payload": {"items": []},
+                "payload": {"items": [item.model_dump(mode="json") for item in download_items]},
             },
         )
 

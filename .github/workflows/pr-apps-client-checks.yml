@@ -21,6 +21,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: apps/singalong-client/package-lock.json
 
       - name: Install dependencies
         run: npm ci
