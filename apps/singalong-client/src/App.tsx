@@ -114,12 +114,6 @@ type SuggestIdentifyResponse = {
   lyrics: string | null
 }
 
-type SuggestUpdateResponse = {
-  status: string
-  message: string
-  draft: SuggestIdentifyResponse
-}
-
 type SuggestEnhanceResponse = {
   status: string
   message: string
@@ -555,12 +549,12 @@ async function suggestIdentify(url: string, token: string, enhance: boolean = fa
   )
 }
 
-async function suggestUpdate(draft: SuggestDraft, token: string): Promise<SuggestUpdateResponse> {
+async function suggestDownload(draft: SuggestDraft, token: string): Promise<{ status: string; message: string; song_id: string }> {
   const normalizedGenre = draft.genre.trim()
   const normalizedSource = draft.source.trim()
   const normalizedGenres = normalizedGenre === '' ? [] : [normalizedGenre]
-  return apiJson<SuggestUpdateResponse>(
-    '/songs/suggest/update',
+  return apiJson<{ status: string; message: string; song_id: string }>(
+    '/songs/suggest/download',
     {
       method: 'POST',
       body: JSON.stringify({
@@ -568,9 +562,10 @@ async function suggestUpdate(draft: SuggestDraft, token: string): Promise<Sugges
         source_id: draft.source_id,
         source: normalizedSource === '' ? 'youtube' : normalizedSource,
         source_thumbnail: draft.source_thumbnail,
+        source_thumbnail_data_url: draft.source_thumbnail_data_url,
         title: draft.title,
         artist: draft.artist,
-        language: draft.language,
+        language: draft.language || null,
         is_off_vocal: draft.is_off_vocal,
         video_has_lyrics: draft.video_has_lyrics,
         genre: normalizedGenres,
@@ -1707,13 +1702,17 @@ function SuggestUpdatePage({
             }
             setErrorMessage('')
             setIsSubmitting(true)
-            void suggestUpdate(draft, authToken)
+            void suggestDownload(draft, authToken)
               .then(() => {
                 onDownload()
-                navigate('/songbook')
+                clearSuggestDraft()
+                // Show success message and wait before navigating
+                setTimeout(() => {
+                  navigate('/songbook')
+                }, 2000)
               })
               .catch((error: unknown) => {
-                const message = error instanceof Error ? error.message : 'Update failed'
+                const message = error instanceof Error ? error.message : 'Download failed'
                 setErrorMessage(message)
               })
               .finally(() => {

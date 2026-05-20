@@ -131,21 +131,66 @@ def _require_songbook_user(user: User = Depends(get_current_user)) -> User:
     response_model=SongSuggestDownloadResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def suggest_song_download(payload: SongSuggestDownloadRequest, background_tasks: BackgroundTasks):
-    youtube_id = extract_youtube_video_id(payload.url.strip())
-    if youtube_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Invalid YouTube URL. Supported formats: watch, youtu.be, shorts",
+def suggest_song_download(
+    payload: SongSuggestDownloadRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    from datetime import datetime
+    from uuid import uuid4
+
+    from ..models import Song
+    from ..services.song_downloader_service import get_downloader
+
+    print(f"[ENDPOINT] /suggest/download - title={payload.title}", flush=True)
+
+    try:
+        # Create Song record with downloading status
+        song = Song(
+            id=uuid4(),
+            title=payload.title,
+            artist=payload.artist,
+            language=payload.language,
+            is_off_vocal=payload.is_off_vocal,
+            has_lyrics=payload.video_has_lyrics,
+            genre=payload.genre[0] if payload.genre else None,
+            tags=",".join(payload.tags) if payload.tags else None,
+            lyrics=payload.lyrics.strip() or None,
+            source=payload.source,
+            source_id=payload.source_id,
+            source_url=payload.source_url,
+            added_by=user.id,
+            status="downloading",
         )
 
-    background_tasks.add_task(run_song_download, payload.url.strip(), youtube_id)
-    logger.info("song-download-queued youtube_id=%s", youtube_id)
-    return SongSuggestDownloadResponse(
-        status="accepted",
-        message="Song download queued",
-        youtube_id=youtube_id,
-    )
+        db.add(song)
+        db.commit()
+        db.refresh(song)
+
+        print(f"[ENDPOINT] Song record created - song_id={song.id}", flush=True)
+
+        # Queue background download task
+        downloader = get_downloader()
+        downloader.queue_song_download(
+            song_id=str(song.id),
+            source_url=payload.source_url,
+            source_id=payload.source_id,
+            title=payload.title,
+            source_thumbnail=payload.source_thumbnail,
+            source_thumbnail_data_url=payload.source_thumbnail_data_url or None,
+        )
+
+        return SongSuggestDownloadResponse(
+            status="accepted",
+            message="Song download queued",
+            song_id=str(song.id),
+        )
+    except Exception as e:
+        print(f"[ENDPOINT] Error: {e}", flush=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to queue song download",
+        )
 
 
 @router.post("/suggest/search", response_model=SongSuggestSearchResponse)

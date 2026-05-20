@@ -149,3 +149,13 @@ def health():
 def on_startup():
     Base.metadata.create_all(bind=engine)
     seed_admin_user()
+
+    # Initialize song downloader
+    from pathlib import Path
+
+    from .config import settings
+    from .db import SessionLocal
+    from .services.song_downloader_service import initialize_downloader
+
+    media_dir = Path(settings.media_root_dir)
+    initialize_downloader(media_dir, SessionLocal, settings.ytdlp_cookies_file)

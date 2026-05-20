@@ -80,13 +80,25 @@ class SessionArchiveResponse(BaseModel):
 
 
 class SongSuggestDownloadRequest(BaseModel):
-    url: str = Field(min_length=1, max_length=1000)
+    source_url: str = Field(min_length=1, max_length=1000)
+    source_id: str = Field(min_length=1, max_length=50)
+    source: str = Field(default="youtube", min_length=1, max_length=50)
+    source_thumbnail: str = Field(default="", max_length=1000)
+    source_thumbnail_data_url: str = Field(default="", max_length=1000000)
+    title: str = Field(min_length=1, max_length=200)
+    artist: str = Field(min_length=1, max_length=200)
+    language: str | None = None
+    is_off_vocal: bool = False
+    video_has_lyrics: bool = False
+    genre: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    lyrics: str = Field(default="", max_length=20000)
 
 
 class SongSuggestDownloadResponse(BaseModel):
     status: str
     message: str
-    youtube_id: str
+    song_id: str
 
 
 class SongSuggestSearchRequest(BaseModel):

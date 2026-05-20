@@ -40,7 +40,7 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
   - language (optional; ISO 639-1 code, e.g., 'en' for English, 'zh' for Chinese, 'jp' for Japanese, etc.)
   - is_off_vocal (boolean; indicates if the song is an instrumental version without vocals)
   - has_lyrics (boolean; indicates if the song has lyrics embedded in the video)
-  - video_file (filename of the downloaded video in `/data/media/songs/` e.g. `never_gonna_give_you_up[abc123].mp4`)
+  - video_file (optional; filename of the downloaded video in `/data/media/songs/` e.g. `never_gonna_give_you_up[abc123].mp4`)
   - thumbnail_file (optional; filename of the thumbnail image in `/data/media/thumbnails/` e.g. `never_gonna_give_you_up[abc123].jpg`)
   - genre
   - tags (optional; a comma-separated string of tags for categorization and searchability, e.g., "pop, 80s, dance")
@@ -54,7 +54,9 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
   - last_modified_by (nullable; id of the user who last modified the song details, for tracking purposes)
   - created_at
   - updated_at
-  - archived_at (nullable; if not null, song is considered archived and won't be shown in the songbook for new reservations)
+  - status (e.g. `draft`, `downloading`, `published`, `archived`, `error`; error means the download failed)
+  - published_at (nullable; null by default, until the song is downloaded and video_file is available)
+  - archived_at (nullable; if not null, song is considered archived and won't be shown in the songbook for new reservations; useful when status is `error`, so we can keep the record for tracking but hide it from users, and the admin can fix it)
 - Reservations
   - id (primary key)
   - session_id (foreign key to Sessions)
