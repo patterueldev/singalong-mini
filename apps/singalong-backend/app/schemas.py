@@ -120,27 +120,31 @@ class SongSuggestIdentifyRequest(BaseModel):
 
 
 class SongSuggestIdentifyResponse(BaseModel):
+    source_url: str
+    source_id: str
+    source: str
+    source_thumbnail: str
     title: str
     artist: str
-    source_url: str
-    youtube_id: str
-    thumbnail_url: str
-    thumbnail_data_url: str
-    channel_name: str
-    description: str
+    language: str | None = None
+    is_off_vocal: bool = False
+    video_has_lyrics: bool = False
+    genre: str | None = None
+    tags: list[str] | None = None
+    lyrics: str | None = None
 
 
 class SongSuggestUpdateRequest(BaseModel):
+    source_url: str = Field(min_length=1, max_length=1000)
+    source_id: str = Field(min_length=1, max_length=50)
+    source: str = Field(default="youtube", min_length=1, max_length=50)
+    source_thumbnail: str = Field(default="", max_length=1000)
     title: str = Field(min_length=1, max_length=200)
     artist: str = Field(min_length=1, max_length=200)
-    source_url: str = Field(min_length=1, max_length=1000)
-    youtube_id: str = Field(min_length=1, max_length=50)
-    thumbnail_url: str = Field(default="", max_length=1000)
-    thumbnail_data_url: str = Field(default="", max_length=200000)
     language: str = Field(default="", max_length=20)
     is_off_vocal: bool = False
-    has_lyrics: bool = False
-    genres: list[str] = Field(default_factory=list)
+    video_has_lyrics: bool = False
+    genre: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     lyrics: str = Field(default="", max_length=20000)
 
@@ -149,3 +153,8 @@ class SongSuggestUpdateResponse(BaseModel):
     status: str
     message: str
     draft: SongSuggestIdentifyResponse
+
+
+class SongSuggestSuggestionsResponse(BaseModel):
+    genres: list[str]
+    tags: list[str]

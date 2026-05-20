@@ -65,7 +65,8 @@ label {
   color: var(--text-primary);
 }
 
-input {
+input,
+select {
   border: 1px solid var(--border-primary);
   border-radius: 8px;
   padding: 10px 12px;
@@ -78,7 +79,8 @@ input::placeholder {
   color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
 }
 
-input:focus-visible {
+input:focus-visible,
+select:focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 1px;
   border-color: var(--border-strong);
@@ -478,6 +480,23 @@ button:disabled {
   background: var(--surface-input);
 }
 
+.thumbnail-upload-trigger {
+  padding: 0;
+  border: 1px solid var(--border-primary);
+  background: var(--surface-input);
+  display: block;
+  cursor: pointer;
+}
+
+.thumbnail-upload-trigger:hover {
+  background: var(--surface-input);
+}
+
+.thumbnail-upload-trigger:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 .thumbnail-preview img {
   display: block;
   width: 100%;
@@ -492,14 +511,8 @@ button:disabled {
   color: var(--text-secondary);
 }
 
-.file-input-label {
-  gap: 8px;
-}
-
-.file-input-label input {
-  padding: 8px 0 0;
-  border: 0;
-  background: transparent;
+.thumbnail-file-input {
+  display: none;
 }
 
 .checkbox-grid {
@@ -559,6 +572,25 @@ button:disabled {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
+}
+
+.chip-suggestion-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip-suggestion {
+  border: 1px solid var(--border-primary);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--surface-button-secondary);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.chip-suggestion:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-button-secondary) 82%, white 18%);
 }
 
 .field-help {

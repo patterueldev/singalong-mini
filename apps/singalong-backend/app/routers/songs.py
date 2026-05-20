@@ -1,12 +1,13 @@
-import base64
 import logging
 import re
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
 import yt_dlp
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
+from ..db import get_db
 from ..models import User
 from ..schemas import (
     SongSuggestDownloadRequest,
@@ -16,6 +17,7 @@ from ..schemas import (
     SongSuggestSearchItem,
     SongSuggestSearchRequest,
     SongSuggestSearchResponse,
+    SongSuggestSuggestionsResponse,
     SongSuggestUpdateRequest,
     SongSuggestUpdateResponse,
 )
@@ -55,19 +57,62 @@ def _pick_thumbnail_url(entry: dict[str, object]) -> str:
     return ""
 
 
-def _download_thumbnail_data_url(thumbnail_url: str) -> str:
-    if thumbnail_url == "":
-        return ""
+def _extract_distinct_genres(db: Session, query: str | None, limit: int) -> list[str]:
+    where_clause = ""
+    params: dict[str, object] = {"limit": limit}
+    if query:
+        where_clause = "AND LOWER(BTRIM(genre::text)) LIKE :pattern"
+        params["pattern"] = f"%{query.lower()}%"
 
-    try:
-        request = Request(thumbnail_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urlopen(request, timeout=10) as response:
-            content_type = response.headers.get_content_type() or "image/jpeg"
-            encoded = base64.b64encode(response.read()).decode("ascii")
-        return f"data:{content_type};base64,{encoded}"
-    except (URLError, TimeoutError, OSError) as exc:
-        logger.warning("thumbnail-download-failed url=%s error=%s", thumbnail_url, exc)
-        return ""
+    sql = text(
+        f"""
+        SELECT DISTINCT BTRIM(genre::text) AS value
+        FROM songs
+        WHERE genre IS NOT NULL
+          AND BTRIM(genre::text) <> ''
+          {where_clause}
+        ORDER BY value
+        LIMIT :limit
+        """
+    )
+    return [value for value in db.execute(sql, params).scalars().all() if isinstance(value, str)]
+
+
+def _extract_distinct_tags(db: Session, query: str | None, limit: int) -> list[str]:
+    where_clause = ""
+    params: dict[str, object] = {"limit": limit}
+    if query:
+        where_clause = "AND LOWER(BTRIM(tag_value)) LIKE :pattern"
+        params["pattern"] = f"%{query.lower()}%"
+
+    sql = text(
+        f"""
+        SELECT DISTINCT BTRIM(tag_value) AS value
+        FROM songs
+        CROSS JOIN LATERAL UNNEST(STRING_TO_ARRAY(COALESCE(tags::text, ''), ',')) AS tag_value
+        WHERE BTRIM(tag_value) <> ''
+          {where_clause}
+        ORDER BY value
+        LIMIT :limit
+        """
+    )
+    return [value for value in db.execute(sql, params).scalars().all() if isinstance(value, str)]
+
+
+def _normalize_entries(values: list[str], lowercase: bool = False) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        entry = value.strip()
+        if entry == "":
+            continue
+        if lowercase:
+            entry = entry.lower()
+        if entry in seen:
+            continue
+        seen.add(entry)
+        normalized.append(entry)
+    return normalized
 
 
 def _require_songbook_user(user: User = Depends(get_current_user)) -> User:
@@ -186,36 +231,63 @@ def suggest_song_identify(payload: SongSuggestIdentifyRequest, _: User = Depends
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Identify provider error: {exc}") from exc
 
     title = info.get("title") or f"YouTube Video {youtube_id}"
-    channel_name = info.get("channel") or info.get("uploader") or "Unknown Channel"
-    description = info.get("description") or ""
     thumbnail_url = _pick_thumbnail_url(info)
-    thumbnail_data_url = _download_thumbnail_data_url(thumbnail_url)
 
     return SongSuggestIdentifyResponse(
+        source_url=f"https://www.youtube.com/watch?v={youtube_id}",
+        source_id=youtube_id,
+        source="youtube",
+        source_thumbnail=thumbnail_url,
         title=title if isinstance(title, str) else f"YouTube Video {youtube_id}",
         artist="Unknown Artist",
-        source_url=f"https://www.youtube.com/watch?v={youtube_id}",
-        youtube_id=youtube_id,
-        thumbnail_url=thumbnail_url,
-        thumbnail_data_url=thumbnail_data_url,
-        channel_name=channel_name if isinstance(channel_name, str) else "Unknown Channel",
-        description=description if isinstance(description, str) else "",
+        language=None,
+        is_off_vocal=False,
+        video_has_lyrics=False,
+        genre=None,
+        tags=None,
+        lyrics=None,
     )
 
 
 @router.post("/suggest/update", response_model=SongSuggestUpdateResponse)
 def suggest_song_update(payload: SongSuggestUpdateRequest, _: User = Depends(_require_songbook_user)):
+    normalized_genre = _normalize_entries(payload.genre)
+    normalized_tags = _normalize_entries(payload.tags, lowercase=True)
+    normalized_source = payload.source.strip().lower()
     return SongSuggestUpdateResponse(
         status="accepted",
         message="Song suggestion details accepted",
         draft=SongSuggestIdentifyResponse(
+            source_url=payload.source_url,
+            source_id=payload.source_id,
+            source=normalized_source if normalized_source else "youtube",
+            source_thumbnail=payload.source_thumbnail,
             title=payload.title,
             artist=payload.artist,
-            source_url=payload.source_url,
-            youtube_id=payload.youtube_id,
-            thumbnail_url=payload.thumbnail_url,
-            thumbnail_data_url=payload.thumbnail_data_url,
-            channel_name="",
-            description="",
+            language=payload.language.strip() or None,
+            is_off_vocal=payload.is_off_vocal,
+            video_has_lyrics=payload.video_has_lyrics,
+            genre=normalized_genre[0] if normalized_genre else None,
+            tags=normalized_tags or None,
+            lyrics=payload.lyrics.strip() or None,
         ),
     )
+
+
+@router.get("/suggest/suggestions", response_model=SongSuggestSuggestionsResponse)
+def suggest_metadata_suggestions(
+    keyword: str | None = Query(default=None, min_length=1, max_length=100),
+    limit: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+    _: User = Depends(_require_songbook_user),
+):
+    query = keyword.strip() if keyword else None
+    try:
+        genres = _extract_distinct_genres(db, query, limit)
+        tags = _extract_distinct_tags(db, query, limit)
+    except SQLAlchemyError as exc:
+        logger.warning("song-suggestions-query-failed error=%s", exc)
+        genres = []
+        tags = []
+
+    return SongSuggestSuggestionsResponse(genres=genres, tags=tags)
