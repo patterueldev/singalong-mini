@@ -1,0 +1,54 @@
+name: PR / Conventional commits and PR body
+
+on:
+  workflow_call:
+
+jobs:
+  validate-pr:
+    name: Validate PR title and body
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title and body
+        env:
+          PR_TITLE: "${{ github.event.pull_request.title }}"
+          PR_BODY: "${{ github.event.pull_request.body }}"
+        run: |
+          echo "PR title: '$PR_TITLE'"
+
+          if [ -z "$PR_TITLE" ]; then
+            echo "❌ PR title is empty"
+            exit 1
+          fi
+
+          echo "Checking conventional commit format for title..."
+          if ! echo "$PR_TITLE" | grep -E -q '^(feat|fix|docs|style|refactor|perf|test|chore|build|ci|revert)(\([^)]+\))?(!)?: .+'; then
+            echo "❌ PR title does not follow Conventional Commits format."
+            echo "Expected: type(scope)?(!)?: subject"
+            echo "Examples: feat(login): add remember-me option"
+            exit 1
+          fi
+          echo "✅ Title matches Conventional Commits pattern."
+
+          if [ -z "$PR_BODY" ]; then
+            echo "❌ PR body is empty. Please include the required headers."
+            exit 1
+          fi
+
+          echo "Checking required PR body headers..."
+          MISSING=0
+          for header in "## Summary" "## Motivation" "## Testing"; do
+            if ! echo "$PR_BODY" | grep -q "^${header}"; then
+              echo "Missing header: ${header}"
+              MISSING=1
+            fi
+          done
+
+          if [ "$MISSING" -eq 1 ]; then
+            echo "❌ PR body is missing required headers. Please include:"
+            echo "  - ## Summary"
+            echo "  - ## Motivation"
+            echo "  - ## Testing"
+            exit 1
+          fi
+
+          echo "✅ PR body contains required headers."
