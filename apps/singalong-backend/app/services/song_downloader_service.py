@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DBSession
 
 from ..models import Song
-from ..services.file_naming import generate_song_filename
+from ..services.ytdlp.naming import build_saved_filename
 from ..services.thumbnail_service import convert_base64_to_jpg, download_thumbnail, save_thumbnail
 from ..services.ytdlp.song_downloader import YtDlpSongDownloader
 
@@ -75,7 +75,7 @@ class SongDownloaderService:
                         file=sys.stderr,
                         flush=True,
                     )
-                    video_filename = generate_song_filename(title, source_id, "mp4")
+                    video_filename = build_saved_filename(title, source_id, "mp4")
                     video_file_path = self.media_dir / "songs" / video_filename
 
                     # Download using yt_dlp
@@ -120,7 +120,7 @@ class SongDownloaderService:
             # Step 2: Download/convert thumbnail
             thumbnail_filename = None
             try:
-                thumbnail_filename = generate_song_filename(title, source_id, "jpg")
+                thumbnail_filename = build_saved_filename(title, source_id, "jpg")
 
                 if source_thumbnail_data_url:
                     # Custom thumbnail: decode base64 → convert to JPG
