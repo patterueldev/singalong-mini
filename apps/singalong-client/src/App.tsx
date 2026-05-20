@@ -538,9 +538,15 @@ async function suggestSearch(query: string, token: string): Promise<SuggestSearc
   )
 }
 
-async function suggestIdentify(url: string, token: string): Promise<SuggestIdentifyResponse> {
+async function suggestIdentify(url: string, token: string, enhance: boolean = false): Promise<SuggestIdentifyResponse> {
+  const queryParams = new URLSearchParams()
+  if (enhance) {
+    queryParams.append('enhance', 'true')
+  }
+  const queryString = queryParams.toString()
+  const endpoint = `/songs/suggest/identify${queryString ? `?${queryString}` : ''}`
   return apiJson<SuggestIdentifyResponse>(
-    '/songs/suggest/identify',
+    endpoint,
     {
       method: 'POST',
       body: JSON.stringify({ url }),
@@ -1229,7 +1235,7 @@ function SuggestIdentifyPage({
       setIsSubmitting(true)
       autoIdentifiedUrlRef.current = normalizedUrl
 
-      void suggestIdentify(normalizedUrl, authToken)
+      void suggestIdentify(normalizedUrl, authToken, true)
         .then((response) => {
           onIdentify(buildInitialSuggestDraft(response))
           navigate('/songbook/suggest/update', { replace: true })
@@ -1445,6 +1451,8 @@ function SuggestUpdatePage({
     genres: [],
     tags: [],
   })
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const thumbnailFileInputRef = useRef<HTMLInputElement>(null)
   const previewUrl =
     draft.source_thumbnail_data_url !== '' ? draft.source_thumbnail_data_url : draft.source_thumbnail
 
@@ -1564,6 +1572,7 @@ function SuggestUpdatePage({
         setErrorMessage(error instanceof Error ? error.message : 'Unable to load image file')
       } finally {
         event.currentTarget.value = ''
+        setContextMenu(null)
       }
     },
     [updateDraft],
@@ -1639,6 +1648,7 @@ function SuggestUpdatePage({
             <button
               type="button"
               className="secondary"
+              disabled={isEnhancing || isSubmitting}
               onClick={() => {
                 confirmExitUpdate(() => {
                   onChangeNickname()
@@ -1650,6 +1660,7 @@ function SuggestUpdatePage({
             <button
               type="button"
               className="secondary"
+              disabled={isEnhancing || isSubmitting}
               onClick={() => {
                 confirmExitUpdate(() => {
                   navigate('/songbook')
@@ -1661,13 +1672,18 @@ function SuggestUpdatePage({
           </div>
         </div>
         <div className="row-actions top-gap">
-          <button type="button" className="youtube-button" onClick={previewOnYoutube}>
+          <button 
+            type="button" 
+            className="youtube-button" 
+            disabled={isEnhancing || isSubmitting}
+            onClick={previewOnYoutube}
+          >
             Preview on Youtube
           </button>
           <button
             type="button"
             className="secondary"
-            disabled={isEnhancing}
+            disabled={isEnhancing || isSubmitting}
             onClick={handleEnhance}
             title={isEnhancing ? 'Enhancing...' : 'Use AI to enhance song metadata'}
           >
@@ -1708,33 +1724,132 @@ function SuggestUpdatePage({
           <div className="suggest-update-layout">
             <section className="panel thumbnail-panel">
             <h2>Thumbnail</h2>
-            <div className="thumbnail-preview">
+            <div 
+              className="thumbnail-preview"
+              onClick={(e) => {
+                const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+                setContextMenu({ x: rect.left, y: rect.top + rect.height })
+              }}
+              style={{ cursor: 'pointer', position: 'relative' }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+                  setContextMenu({ x: rect.left, y: rect.top + rect.height })
+                }
+              }}
+            >
               {previewUrl !== '' ? (
                 <img src={previewUrl} alt={draft.title} />
               ) : (
                 <div className="thumbnail-placeholder">No thumbnail available</div>
               )}
+              <div style={{ position: 'absolute', bottom: 8, right: 8 }}>
+                <div style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: '50%',
+                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: 20,
+                }}>
+                  📷
+                </div>
+              </div>
             </div>
-            <label className="file-input-label">
-              Change thumbnail
-              <input type="file" accept="image/*" onChange={handleThumbnailUpload} />
-            </label>
-            <button
-              type="button"
-              className="secondary"
-                onClick={() =>
-                  updateDraft({
-                    source_thumbnail_data_url: originalDraft.source_thumbnail_data_url,
-                    source_thumbnail: originalDraft.source_thumbnail,
-                  })
-                }
-            >
-              Reset thumbnail
-            </button>
+            
+            {contextMenu && (
+              <div 
+                style={{
+                  position: 'fixed',
+                  top: contextMenu.y,
+                  left: contextMenu.x,
+                  backgroundColor: 'var(--surface-secondary)',
+                  border: '1px solid var(--border-primary)',
+                  borderRadius: 8,
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+                  zIndex: 1000,
+                  minWidth: 180,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    thumbnailFileInputRef.current?.click()
+                    setContextMenu(null)
+                  }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '10px 16px',
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--surface-input)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  Upload Thumbnail
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateDraft({
+                      source_thumbnail_data_url: originalDraft.source_thumbnail_data_url,
+                      source_thumbnail: originalDraft.source_thumbnail,
+                    })
+                    setContextMenu(null)
+                  }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '10px 16px',
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    borderTop: '1px solid var(--border-primary)',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--surface-input)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  Reset Thumbnail
+                </button>
+              </div>
+            )}
+            {contextMenu && (
+              <div 
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 999,
+                }}
+                onClick={() => setContextMenu(null)}
+              />
+            )}
+            
+            <input
+              ref={thumbnailFileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleThumbnailUpload}
+              style={{ display: 'none' }}
+            />
           </section>
 
           <section className="panel">
-            <h2>Metadata</h2>
+            <h2>Song Details</h2>
             <div className="form">
               <label>
                 Title
@@ -1886,13 +2001,14 @@ function SuggestUpdatePage({
           <button
             type="submit"
             data-action="download"
-            disabled={isSubmitting || draft.genre.trim() === ''}
+            disabled={isSubmitting || draft.genre.trim() === '' || isEnhancing}
           >
             {isSubmitting ? 'Saving…' : 'Download'}
           </button>
           <button
             type="button"
             className="secondary"
+            disabled={isEnhancing || isSubmitting}
             onClick={() => {
               confirmExitUpdate(() => {
                 navigate('/songbook/suggest/search')
@@ -1907,6 +2023,51 @@ function SuggestUpdatePage({
         </div>
         {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
         </form>
+        
+        {(isEnhancing || isSubmitting) && (
+          <div 
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 2000,
+              backdropFilter: 'blur(2px)',
+            }}
+          >
+            <div 
+              style={{
+                backgroundColor: 'var(--surface-secondary)',
+                border: '1px solid var(--border-primary)',
+                borderRadius: 12,
+                padding: 32,
+                textAlign: 'center',
+                minWidth: 280,
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+              }}
+            >
+              <div 
+                style={{
+                  width: 48,
+                  height: 48,
+                  border: '4px solid var(--border-primary)',
+                  borderTop: '4px solid var(--accent-primary)',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite',
+                  margin: '0 auto 16px',
+                }}
+              />
+              <p style={{ margin: 0, fontSize: 16, fontWeight: 500 }}>
+                {isEnhancing ? 'Enhancing song details...' : 'Saving song...'}
+              </p>
+            </div>
+          </div>
+        )}
       </section>
     </main>
   )

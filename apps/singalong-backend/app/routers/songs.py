@@ -219,7 +219,11 @@ def suggest_song_search(
 
 
 @router.post("/suggest/identify", response_model=SongSuggestIdentifyResponse)
-def suggest_song_identify(payload: SongSuggestIdentifyRequest, _: User = Depends(_require_songbook_user)):
+async def suggest_song_identify(
+    payload: SongSuggestIdentifyRequest,
+    enhance: bool = False,
+    _: User = Depends(_require_songbook_user),
+):
     youtube_id = extract_youtube_video_id(payload.url.strip())
     if youtube_id is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid YouTube URL")
@@ -236,9 +240,11 @@ def suggest_song_identify(payload: SongSuggestIdentifyRequest, _: User = Depends
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Identify provider error: {exc}") from exc
 
     title = info.get("title") or f"YouTube Video {youtube_id}"
+    description = info.get("description") or ""
     thumbnail_url = _pick_thumbnail_url(info)
 
-    return SongSuggestIdentifyResponse(
+    # Build initial response
+    identify_result = SongSuggestIdentifyResponse(
         source_url=f"https://www.youtube.com/watch?v={youtube_id}",
         source_id=youtube_id,
         source="youtube",
@@ -252,6 +258,48 @@ def suggest_song_identify(payload: SongSuggestIdentifyRequest, _: User = Depends
         tags=None,
         lyrics=None,
     )
+
+    # If enhance=true, apply enhancement
+    if enhance:
+        try:
+            orchestrator = OrchestratorAgent()
+            enhancement_payload = {
+                "source_url": identify_result.source_url,
+                "source_id": identify_result.source_id,
+                "source": identify_result.source,
+                "source_thumbnail": identify_result.source_thumbnail,
+                "title": identify_result.title,
+                "artist": identify_result.artist,
+                "language": identify_result.language or None,
+                "is_off_vocal": identify_result.is_off_vocal,
+                "video_has_lyrics": identify_result.video_has_lyrics,
+                "genre": identify_result.genre,
+                "tags": identify_result.tags,
+                "lyrics": identify_result.lyrics,
+                "_youtube_description": description,
+            }
+            enhanced_payload = await orchestrator.enhance(enhancement_payload)
+            
+            # Return enhanced result
+            identify_result = SongSuggestIdentifyResponse(
+                source_url=enhanced_payload.get("source_url", identify_result.source_url),
+                source_id=enhanced_payload.get("source_id", identify_result.source_id),
+                source=enhanced_payload.get("source", identify_result.source),
+                source_thumbnail=enhanced_payload.get("source_thumbnail", identify_result.source_thumbnail),
+                title=enhanced_payload.get("title", identify_result.title),
+                artist=enhanced_payload.get("artist", identify_result.artist),
+                language=enhanced_payload.get("language"),
+                is_off_vocal=enhanced_payload.get("is_off_vocal", False),
+                video_has_lyrics=enhanced_payload.get("video_has_lyrics", False),
+                genre=enhanced_payload.get("genre"),
+                tags=enhanced_payload.get("tags"),
+                lyrics=enhanced_payload.get("lyrics"),
+            )
+        except Exception as e:
+            logger.warning("[IDENTIFY] Enhancement failed, returning raw result: %s", e)
+            # If enhancement fails, return raw result without error
+
+    return identify_result
 
 
 @router.post("/suggest/update", response_model=SongSuggestUpdateResponse)
