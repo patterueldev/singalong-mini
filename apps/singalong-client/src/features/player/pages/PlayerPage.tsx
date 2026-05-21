@@ -469,6 +469,22 @@ export function PlayerPage() {
     }
   }, [songSrc])
 
+  // When the main video should no longer be shown (idle or transitioning),
+  // explicitly pause it and clear its source so audio doesn't leak in the background.
+  // When going idle, also ensure the loop video is playing (autoplay may have been blocked).
+  useEffect(() => {
+    const mainVideo = videoRef.current
+    if (!showMainVideo && mainVideo !== null) {
+      mainVideo.pause()
+      mainVideo.removeAttribute('src')
+      mainVideo.load()
+    }
+    const loopVideo = loopVideoRef.current
+    if (!showMainVideo && loopVideo !== null && loopVideo.paused) {
+      void loopVideo.play().catch(() => undefined)
+    }
+  }, [showMainVideo])
+
   // Retry play when WS connects (or reconnects) and a song is available.
   // Covers: (1) page refresh where browser autoplay may block the first attempt,
   // (2) WS reconnect where songSrc hasn't changed so the resume effect won't re-run.
