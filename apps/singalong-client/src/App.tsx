@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, FormEvent, ReactNode } from 'react'
+import type { ChangeEvent, DragEvent, FormEvent, ReactNode } from 'react'
 import {
   BrowserRouter,
   Navigate,
@@ -56,6 +56,7 @@ type SessionQueueListResponse = {
     id: string
     session_id: string
     song_id: string
+    thumbnail_url: string | null
     title: string
     artist: string
     duration: string | null
@@ -71,6 +72,7 @@ type SongQueueItem = {
   id: string
   sessionId: string
   songId: string
+  thumbnailUrl: string | null
   title: string
   artist: string
   duration: string | null
@@ -991,6 +993,10 @@ function normalizeSessionQueueItems(payload: unknown): SongQueueItem[] {
         id: raw.id,
         sessionId: raw.session_id,
         songId: raw.song_id,
+        thumbnailUrl:
+          typeof raw.thumbnail_url === 'string' && raw.thumbnail_url !== ''
+            ? raw.thumbnail_url
+            : null,
         title: raw.title,
         artist: raw.artist,
         duration: typeof raw.duration === 'string' && raw.duration !== '' ? raw.duration : null,
@@ -1034,27 +1040,6 @@ function formatDownloadStatus(status: DownloadProgressItem['status']): string {
     return 'Downloading'
   }
   return 'Error'
-}
-
-function formatQueueStatus(status: SongQueueItem['status']): string {
-  if (status === 'pending') {
-    return 'Pending'
-  }
-  if (status === 'finished') {
-    return 'Finished'
-  }
-  return 'Skipped'
-}
-
-function formatQueueTimestamp(value: string | null): string | null {
-  if (typeof value !== 'string' || value === '') {
-    return null
-  }
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return null
-  }
-  return parsed.toLocaleString()
 }
 
 type SongbookListItemProps = {
@@ -1120,6 +1105,73 @@ function SongbookListItem({
         </div>
       ) : null}
     </div>
+  )
+}
+
+type ReservationListItemProps = {
+  item: SongQueueItem
+  onClick?: () => void
+  showPlayingIcon?: boolean
+  draggable?: boolean
+  onDragStart?: (event: DragEvent<HTMLElement>) => void
+  onDragOver?: (event: DragEvent<HTMLElement>) => void
+  onDrop?: (event: DragEvent<HTMLElement>) => void
+  onDragEnd?: () => void
+  className?: string
+}
+
+function ReservationListItem({
+  item,
+  onClick,
+  showPlayingIcon = false,
+  draggable = false,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  className = '',
+}: ReservationListItemProps) {
+  return (
+    <article
+      className={`queue-item reservation-item ${className}`.trim()}
+      role={onClick !== undefined ? 'button' : undefined}
+      tabIndex={onClick !== undefined ? 0 : undefined}
+      draggable={draggable}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (onClick !== undefined && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault()
+          onClick()
+        }
+      }}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+    >
+      {item.thumbnailUrl ? (
+        <img className="songbook-thumbnail" src={item.thumbnailUrl} alt={item.title} loading="lazy" />
+      ) : (
+        <div className="songbook-thumbnail songbook-thumbnail--placeholder" />
+      )}
+      <div className="songbook-info reservation-info">
+        <div className="songbook-item-header">
+          <strong>{item.title}</strong>
+          {showPlayingIcon ? (
+            <span className="material-symbols-outlined reservation-playing-icon" aria-hidden="true">
+              graphic_eq
+            </span>
+          ) : null}
+        </div>
+        <p className="session-meta">
+          {item.artist}
+          {item.duration ? ` · ${item.duration}` : ''}
+        </p>
+        <p className="session-meta reservation-reserved-by">
+          Reserved by {item.reservedByUsername ?? 'unknown'}
+        </p>
+      </div>
+    </article>
   )
 }
 
@@ -3279,9 +3331,13 @@ function SessionControlPage({
   const [sessionTitleInput, setSessionTitleInput] = useState('')
   const [vibesInput, setVibesInput] = useState('')
   const [isSessionEditorOpen, setIsSessionEditorOpen] = useState(false)
-  const [showQueueHistory, setShowQueueHistory] = useState(false)
   const [mobileRightPanel, setMobileRightPanel] = useState<'songbook' | 'participants' | null>(null)
   const [activeSongMenuId, setActiveSongMenuId] = useState<string | null>(null)
+  const [isReservationsHistoryOpen, setIsReservationsHistoryOpen] = useState(false)
+  const [isReservationsReorderOpen, setIsReservationsReorderOpen] = useState(false)
+  const [reservationReorderDraft, setReservationReorderDraft] = useState<SongQueueItem[]>([])
+  const [reservationDragSongId, setReservationDragSongId] = useState<string | null>(null)
+  const [isSavingReservationOrder, setIsSavingReservationOrder] = useState(false)
   const [editingSong, setEditingSong] = useState<SongbookSong | null>(null)
   const [editingSongThumbnailDataUrl, setEditingSongThumbnailDataUrl] = useState<string | null>(null)
   const [, setWsMessage] = useState('')
@@ -3502,11 +3558,17 @@ function SessionControlPage({
     [queueItems],
   )
   const historyQueueItems = useMemo(
-    () => queueItems.filter((item) => item.status !== 'pending').sort((a, b) => b.queueOrder - a.queueOrder),
+    () =>
+      queueItems
+        .filter((item) => item.status !== 'pending')
+        .sort((a, b) => {
+          const left = a.playedAt ?? a.reservedAt
+          const right = b.playedAt ?? b.reservedAt
+          return new Date(right).getTime() - new Date(left).getTime()
+        }),
     [queueItems],
   )
   const currentQueueSong = pendingQueueItems[0] ?? null
-  const visibleQueueItems = showQueueHistory ? historyQueueItems : pendingQueueItems
 
   const closeSongEditor = useCallback(() => {
     if (isSavingSongMeta) {
@@ -3525,6 +3587,72 @@ function SessionControlPage({
       setActiveSongMenuId(null)
     }
   }, [activeSongMenu, activeSongMenuId])
+
+  const openReservationsReorderModal = useCallback(() => {
+    setReservationReorderDraft(pendingQueueItems.slice(1))
+    setReservationDragSongId(null)
+    setIsReservationsReorderOpen(true)
+  }, [pendingQueueItems])
+
+  const closeReservationsReorderModal = useCallback(() => {
+    if (isSavingReservationOrder) {
+      return
+    }
+    setIsReservationsReorderOpen(false)
+    setReservationDragSongId(null)
+  }, [isSavingReservationOrder])
+
+  const saveReservationsReorder = useCallback(async () => {
+    if (activeSessionCode === null) {
+      return
+    }
+
+    setIsSavingReservationOrder(true)
+    try {
+      for (let index = 0; index < reservationReorderDraft.length; index += 1) {
+        const item = reservationReorderDraft[index]
+        await apiJson<{ message: string }>(`/sessions/${activeSessionCode}/queue/${item.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            action: 'reorder',
+            target_order: index + 2,
+          }),
+        }, auth.accessToken)
+      }
+      await refreshQueue()
+      setIsReservationsReorderOpen(false)
+      setReservationDragSongId(null)
+      setWsMessage('Reservation order updated.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update reservation order'
+      setWsMessage(message)
+    } finally {
+      setIsSavingReservationOrder(false)
+    }
+  }, [activeSessionCode, auth.accessToken, refreshQueue, reservationReorderDraft])
+
+  const handleReservationDragStart = useCallback((songId: string) => {
+    setReservationDragSongId(songId)
+  }, [])
+
+  const handleReservationDrop = useCallback((targetSongId: string) => {
+    setReservationReorderDraft((current) => {
+      const sourceIndex = current.findIndex((item) => item.songId === reservationDragSongId)
+      const targetIndex = current.findIndex((item) => item.songId === targetSongId)
+      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+        return current
+      }
+      const next = [...current]
+      const [moved] = next.splice(sourceIndex, 1)
+      next.splice(targetIndex, 0, moved)
+      return next
+    })
+    setReservationDragSongId(null)
+  }, [reservationDragSongId])
+
+  const closeReservationsHistoryModal = useCallback(() => {
+    setIsReservationsHistoryOpen(false)
+  }, [])
 
   useEffect(() => {
     const clearReconnectTimer = () => {
@@ -3795,14 +3923,24 @@ function SessionControlPage({
 
           <section className="panel workspace-panel queue-panel">
             <div className="panel-header queue-panel-header">
-              <h2>Queue</h2>
+              <h2>Reservations</h2>
               <div className="row-actions">
                 <button
                   type="button"
                   className="icon-control-button"
-                  onClick={() => setShowQueueHistory((value) => !value)}
-                  title={showQueueHistory ? 'Hide history' : 'Show history'}
-                  aria-label={showQueueHistory ? 'Hide history' : 'Show history'}
+                  onClick={openReservationsReorderModal}
+                  title="Re-arrange"
+                  aria-label="Re-arrange reservations"
+                  disabled={pendingQueueItems.length <= 1}
+                >
+                  <span className="material-symbols-outlined">swap_vert</span>
+                </button>
+                <button
+                  type="button"
+                  className="icon-control-button"
+                  onClick={() => setIsReservationsHistoryOpen(true)}
+                  title="History"
+                  aria-label="Open reservation history"
                 >
                   <span className="material-symbols-outlined">history</span>
                 </button>
@@ -3810,26 +3948,17 @@ function SessionControlPage({
             </div>
             <div className="queue-body">
               <div className="queue-scrollframe">
-                <div className="queue-list">
-                  {visibleQueueItems.length === 0 ? (
-                    <p className="empty-state">{showQueueHistory ? 'No history yet.' : 'No queued songs.'}</p>
+                <div className="queue-list reservations-list">
+                  {pendingQueueItems.length === 0 ? (
+                    <p className="empty-state">No reservations yet.</p>
                   ) : (
-                    visibleQueueItems.map((song) => (
-                      <article className="queue-item" key={song.id}>
-                        <strong>#{song.queueOrder} · {song.title}</strong>
-                        <p className="session-meta">
-                          {song.artist}
-                          {song.duration ? ` · ${song.duration}` : ''}
-                          {' · '}
-                          {formatQueueStatus(song.status)}
-                        </p>
-                        <p className="session-meta queue-item-details">
-                          Reserved by {song.reservedByUsername ?? 'unknown'}
-                          {' · '}
-                          Reserved: {formatQueueTimestamp(song.reservedAt) ?? 'n/a'}
-                          {song.playedAt !== null ? ` · Played: ${formatQueueTimestamp(song.playedAt) ?? 'n/a'}` : ''}
-                        </p>
-                      </article>
+                    pendingQueueItems.map((song, index) => (
+                      <ReservationListItem
+                        key={song.id}
+                        item={song}
+                        showPlayingIcon={index === 0}
+                        onClick={() => void handleOpenSongEditor(song.songId)}
+                      />
                     ))
                   )}
                 </div>
@@ -3992,8 +4121,102 @@ function SessionControlPage({
         />
       </section>
 
+      {isReservationsReorderOpen ? (
+        <div className="modal-backdrop song-detail-backdrop" role="presentation" onClick={closeReservationsReorderModal}>
+          <section
+            className="modal-card reservations-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Re-arrange reservations"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h2>Re-arrange Reservations</h2>
+                <p className="subtitle">Drag the upcoming songs into the order you want next.</p>
+              </div>
+              <button type="button" className="secondary" onClick={closeReservationsReorderModal} disabled={isSavingReservationOrder}>
+                Close
+              </button>
+            </div>
+            <div className="queue-body top-gap">
+              <div className="queue-scrollframe">
+                <div className="queue-list reservation-reorder-list">
+                  {reservationReorderDraft.length === 0 ? (
+                    <p className="empty-state">Nothing to re-arrange after the current song.</p>
+                  ) : (
+                    reservationReorderDraft.map((item) => (
+                      <ReservationListItem
+                        key={item.id}
+                        item={item}
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = 'move'
+                          event.dataTransfer.setData('text/plain', item.songId)
+                          handleReservationDragStart(item.songId)
+                        }}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault()
+                          handleReservationDrop(item.songId)
+                        }}
+                        className={reservationDragSongId === item.songId ? 'is-dragging' : ''}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="row-actions top-gap">
+              <button type="button" onClick={() => void saveReservationsReorder()} disabled={isSavingReservationOrder || reservationReorderDraft.length === 0}>
+                {isSavingReservationOrder ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isReservationsHistoryOpen ? (
+        <div className="modal-backdrop song-detail-backdrop" role="presentation" onClick={closeReservationsHistoryModal}>
+          <section
+            className="modal-card reservations-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Reservation history"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h2>Reservation History</h2>
+                <p className="subtitle">Previously played songs in this session.</p>
+              </div>
+              <button type="button" className="secondary" onClick={closeReservationsHistoryModal}>
+                Close
+              </button>
+            </div>
+            <div className="queue-body top-gap">
+              <div className="queue-scrollframe">
+                <div className="queue-list reservations-list">
+                  {historyQueueItems.length === 0 ? (
+                    <p className="empty-state">No history yet.</p>
+                  ) : (
+                    historyQueueItems.map((item) => (
+                      <ReservationListItem
+                        key={item.id}
+                        item={item}
+                        onClick={() => void handleOpenSongEditor(item.songId)}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {isSessionEditorOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => setIsSessionEditorOpen(false)}>
+      <div className="modal-backdrop" role="presentation" onClick={() => setIsSessionEditorOpen(false)}>
           <section className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h2>Session Editor</h2>

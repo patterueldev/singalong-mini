@@ -406,6 +406,45 @@ button:disabled {
   background: var(--surface-card);
 }
 
+.reservation-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  min-width: 0;
+  width: 100%;
+  cursor: pointer;
+  transition: background 0.15s ease-in-out, transform 0.15s ease-in-out;
+}
+
+.reservation-item:hover {
+  background: color-mix(in srgb, var(--surface-card) 84%, white 16%);
+}
+
+.reservation-item.is-dragging {
+  opacity: 0.75;
+  transform: scale(0.995);
+}
+
+.reservation-item .songbook-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.reservation-reserved-by {
+  color: var(--text-secondary);
+}
+
+.reservation-playing-icon {
+  margin-left: auto;
+  color: var(--accent-primary);
+}
+
+.reservations-list,
+.reservation-reorder-list {
+  min-height: 0;
+}
+
 .queue-item-details {
   font-size: 0.85rem;
 }
@@ -1435,6 +1474,15 @@ button.small {
   box-shadow: none;
 }
 
+.song-editor-input--title {
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.song-editor-input--artist {
+  font-size: 1rem;
+}
+
 .song-editor-input:focus-visible {
   outline: none;
   border-bottom-color: var(--accent-primary);
@@ -1446,6 +1494,10 @@ button.small {
   padding-left: 0;
   padding-right: 0;
   background: transparent;
+}
+
+.reservations-modal-card {
+  width: min(1120px, 100%);
 }
 
 .downloads-modal-card {

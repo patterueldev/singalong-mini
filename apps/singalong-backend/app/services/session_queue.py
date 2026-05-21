@@ -51,7 +51,7 @@ def _pending_rows_for_update(db: Session, session_id: UUID) -> list[SongQueue]:
 
 def _queue_items_query(session_id: UUID):
     return (
-        select(SongQueue, Song.title, Song.artist, Song.duration, User.username)
+        select(SongQueue, Song.thumbnail_url, Song.title, Song.artist, Song.duration, User.username)
         .join(Song, Song.id == SongQueue.song_id)
         .outerjoin(User, User.id == SongQueue.reserved_by)
         .where(SongQueue.session_id == session_id)
@@ -65,6 +65,7 @@ def _queue_items_query(session_id: UUID):
 
 def _to_queue_item(
     queue: SongQueue,
+    thumbnail_url: str | None,
     title: str,
     artist: str,
     duration_seconds: int | None,
@@ -74,6 +75,7 @@ def _to_queue_item(
         id=queue.id,
         session_id=queue.session_id,
         song_id=queue.song_id,
+        thumbnail_url=thumbnail_url,
         title=title,
         artist=artist,
         duration=_format_duration(duration_seconds),
@@ -94,10 +96,11 @@ def list_session_queue_items(db: Session, session_code: str) -> list[SessionQueu
     return [
         _to_queue_item(
             queue=row[0],
-            title=row[1],
-            artist=row[2],
-            duration_seconds=row[3],
-            reserved_by_username=row[4],
+            thumbnail_url=row[1],
+            title=row[2],
+            artist=row[3],
+            duration_seconds=row[4],
+            reserved_by_username=row[5],
         )
         for row in rows
     ]
@@ -110,10 +113,11 @@ def get_session_queue_item(db: Session, session_code: str, queue_id: UUID) -> Se
         raise SessionQueueNotFoundError("Queue record not found")
     return _to_queue_item(
         queue=row[0],
-        title=row[1],
-        artist=row[2],
-        duration_seconds=row[3],
-        reserved_by_username=row[4],
+        thumbnail_url=row[1],
+        title=row[2],
+        artist=row[3],
+        duration_seconds=row[4],
+        reserved_by_username=row[5],
     )
 
 

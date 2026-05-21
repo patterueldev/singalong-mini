@@ -90,6 +90,7 @@ class SessionQueueItem(BaseModel):
     id: UUID
     session_id: UUID
     song_id: UUID
+    thumbnail_url: str | None = None
     title: str
     artist: str
     duration: str | None = None
