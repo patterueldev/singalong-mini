@@ -95,11 +95,14 @@ class SessionQueueItem(BaseModel):
     artist: str
     duration: str | None = None
     queue_order: int
-    status: Literal["pending", "finished", "skipped"]
+    status: Literal["playing", "pending", "finished", "skipped"]
     reserved_by: UUID
     reserved_by_username: str | None = None
     reserved_at: datetime
     played_at: datetime | None = None
+    playback_position_seconds: float | None = None
+    playback_volume_pct: int | None = None
+    playback_is_playing: bool | None = None
     created_at: datetime
     updated_at: datetime
 

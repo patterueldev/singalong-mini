@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -10,7 +10,7 @@ from .db import Base
 USER_ROLES = ("admin", "guest", "player")
 SONG_STATUSES = ("draft", "downloading", "published", "archived", "error")
 SONG_DOWNLOAD_STATUSES = ("pending", "downloading", "error")
-SONG_QUEUE_STATUSES = ("pending", "finished", "skipped")
+SONG_QUEUE_STATUSES = ("playing", "pending", "finished", "skipped")
 
 
 class User(Base):
@@ -182,6 +182,9 @@ class SongQueue(Base):
         server_default=func.now(),
     )
     played_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    playback_position_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    playback_volume_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    playback_is_playing: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
