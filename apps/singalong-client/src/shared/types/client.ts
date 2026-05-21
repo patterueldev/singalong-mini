@@ -1,0 +1,240 @@
+export type UserRole = 'admin' | 'guest' | 'player'
+
+export type UserProfile = {
+  id: string
+  username: string
+  role: UserRole
+  created_at: string
+  updated_at: string
+}
+
+export type LoginResponse = {
+  access_token: string
+  token_type: 'bearer'
+  user: UserProfile
+  message: string
+}
+
+export type GuestLoginResponse = {
+  access_token: string
+  token_type: 'bearer'
+  user: UserProfile
+  nickname: string
+  message: string
+}
+
+export type SessionRecord = {
+  id: string
+  session_code: string
+  name: string
+  vibes?: string | null
+  archived_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type SessionArchiveResponse = {
+  session: SessionRecord
+  message: string
+}
+
+export type SessionQueueListResponse = {
+  items: Array<{
+    id: string
+    session_id: string
+    song_id: string
+    thumbnail_url: string | null
+    title: string
+    artist: string
+    duration: string | null
+    queue_order: number
+    status: 'playing' | 'pending' | 'finished' | 'skipped'
+    reserved_by_username: string | null
+    reserved_at: string
+    played_at: string | null
+    playback_position_seconds: number | null
+    playback_volume_pct: number | null
+    playback_is_playing: boolean | null
+  }>
+}
+
+export type SongQueueItem = {
+  id: string
+  sessionId: string
+  songId: string
+  thumbnailUrl: string | null
+  title: string
+  artist: string
+  duration: string | null
+  queueOrder: number
+  status: 'playing' | 'pending' | 'finished' | 'skipped'
+  reservedByUsername: string | null
+  reservedAt: string
+  playedAt: string | null
+  playbackPositionSeconds: number | null
+  playbackVolumePct: number | null
+  playbackIsPlaying: boolean | null
+}
+
+export type DownloadProgressItem = {
+  songId: string
+  title: string
+  artist: string
+  duration: string | null
+  addedByUsername: string | null
+  sourceThumbnail: string | null
+  status: 'pending' | 'downloading' | 'error'
+  progressPct: number | null
+  progressMessage: string | null
+  errorMessage: string | null
+}
+
+export type SongDownloadRetryResponse = {
+  status: string
+  message: string
+  song_id: string
+}
+
+export type SongbookSong = {
+  id: string
+  title: string
+  artist: string
+  language: string | null
+  duration: string
+  genre: string | null
+  tags: string[]
+  thumbnailUrl: string | null
+  sourceId: string | null
+  sourceUrl: string | null
+  videoFile: string | null
+  lyrics: string | null
+  addedByUsername: string | null
+  queuedCountInSession: number
+  wasQueuedInSession: boolean
+}
+
+export type SessionParticipant = {
+  userId: string
+  username: string
+  pendingCount: number
+  finishedCount: number
+  skippedCount: number
+  totalCount: number
+  isOnline: boolean
+}
+
+export type SessionWorkspace = {
+  session: SessionRecord
+  websocketStatus: string
+  playerConnected: boolean
+  adminConnectedCount: number
+  guestConnectedCount: number
+}
+
+export type SongbookListResponse = {
+  items: SongbookSong[]
+  total: number
+  page: number
+  pages: number
+}
+
+export type SuggestResult = {
+  id: string
+  title: string
+  channelName: string
+  channelUrl: string
+  thumbnailUrl: string
+  duration: string
+  description: string
+  viewCount: number | null
+  uploadedAt: string
+  existsInSongbook: boolean | null
+  sourceUrl: string
+  youtubeId: string
+}
+
+export type SuggestSearchResponse = {
+  effective_query: string
+  appended_karaoke: boolean
+  results: Array<{
+    id: string
+    title: string
+    channel_name: string
+    channel_url: string
+    thumbnail_url: string
+    duration: string
+    description: string
+    view_count: number | null
+    uploaded_at: string
+    exists_in_songbook: boolean | null
+    source_url: string
+    youtube_id: string
+  }>
+}
+
+export type SuggestIdentifyResponse = {
+  source_url: string
+  source_id: string
+  source: string
+  source_thumbnail: string
+  title: string
+  artist: string
+  language: string | null
+  is_off_vocal: boolean
+  video_has_lyrics: boolean
+  genre: string | null
+  tags: string[] | null
+  lyrics: string | null
+}
+
+export type SuggestEnhanceResponse = {
+  status: string
+  message: string
+  enhanced: SuggestIdentifyResponse
+}
+
+export type SuggestMetadataSuggestionsResponse = {
+  genres: string[]
+  tags: string[]
+}
+
+export type SuggestDraft = {
+  source_url: string
+  source_id: string
+  source: string
+  source_thumbnail: string
+  title: string
+  artist: string
+  language: string
+  is_off_vocal: boolean
+  video_has_lyrics: boolean
+  genre: string
+  tags: string[]
+  lyrics: string
+  source_thumbnail_data_url: string
+}
+
+export type LanguageCode = 'en' | 'ja' | 'ko' | 'zh' | 'other'
+
+export type PlaybackState = {
+  isPlaying: boolean
+  positionSeconds: number
+  durationSeconds: number
+}
+
+export type StoredAuth = {
+  accessToken: string
+  user: UserProfile
+}
+
+export type GuestAuth = {
+  accessToken: string
+  nickname: string
+  user: UserProfile
+}
+
+export type WSIncoming = {
+  type: string
+  session_code: string
+  payload: Record<string, unknown>
+}
