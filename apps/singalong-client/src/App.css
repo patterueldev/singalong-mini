@@ -1367,6 +1367,31 @@ textarea:focus-visible {
   z-index: 9999;
 }
 
+.context-menu-item {
+  background: none;
+  border: none;
+  color: #e0e0f0;
+  text-align: left;
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  width: 100%;
+  display: block;
+  user-select: none;
+  outline: none;
+}
+
+.context-menu-item:hover,
+.context-menu-item[data-highlighted] {
+  background: rgba(255,255,255,0.08);
+}
+
+.context-menu-item[data-disabled] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 /* ── Change Nickname outside card ───────────────────────── */
 .change-nickname-outside {
   text-align: center;

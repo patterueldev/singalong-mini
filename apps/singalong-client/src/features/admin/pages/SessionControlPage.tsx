@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, DragEvent, ReactNode } from 'react'
+import type { CSSProperties, DragEvent } from 'react'
 import QRCode from 'qrcode'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAdminService } from '../hooks/useAdminService'
@@ -17,6 +17,7 @@ import { buildWSUrl } from '../../../shared/api/ws'
 import { formatDownloadStatus, formatDurationClock } from '../../../shared/lib/format'
 import { readFileAsDataUrl } from '../../../shared/lib/files'
 import { splitChipInput } from '../../../shared/lib/suggest'
+import { SongbookListItem } from '../../songbook/components/SongbookListItem'
 import type {
   DownloadProgressItem,
   PlaybackState,
@@ -28,72 +29,6 @@ import type {
   StoredAuth,
   WSIncoming,
 } from '../../../shared/types/client'
-
-type SongbookListItemProps = {
-  song: SongbookSong
-  onClick: () => void
-  badge?: ReactNode
-  isMenuOpen?: boolean
-  onReserve?: () => void
-  onEditDetails?: () => void
-}
-
-function SongbookListItem({
-  song,
-  onClick,
-  badge,
-  isMenuOpen = false,
-  onReserve,
-  onEditDetails,
-}: SongbookListItemProps) {
-  return (
-    <div className="songbook-item-shell">
-      <article
-        className="queue-item songbook-item"
-        role="button"
-        tabIndex={0}
-        onClick={onClick}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            onClick()
-          }
-        }}
-      >
-        {song.thumbnailUrl ? (
-          <img
-            className="songbook-thumbnail"
-            src={song.thumbnailUrl}
-            alt={song.title}
-            loading="lazy"
-          />
-        ) : (
-          <div className="songbook-thumbnail songbook-thumbnail--placeholder" />
-        )}
-        <div className="songbook-info">
-          <div className="songbook-item-header">
-            <strong>{song.title}</strong>
-            {badge !== undefined ? badge : null}
-          </div>
-          <p className="session-meta">
-            {song.artist}
-            {song.duration ? ` · ${song.duration}` : ''}
-          </p>
-        </div>
-      </article>
-      {isMenuOpen ? (
-        <div className="context-menu songbook-context-menu" onClick={(event) => event.stopPropagation()} role="menu">
-          <button type="button" onClick={onReserve} disabled={onReserve === undefined} role="menuitem">
-            Reserve
-          </button>
-          <button type="button" onClick={onEditDetails} disabled={onEditDetails === undefined} role="menuitem">
-            Edit Details
-          </button>
-        </div>
-      ) : null}
-    </div>
-  )
-}
 
 type ReservationListItemProps = {
   item: SongQueueItem
@@ -1189,6 +1124,9 @@ export function SessionControlPage({
                         setActiveSongMenuId((current) => (current === song.id ? null : song.id))
                       }}
                       isMenuOpen={activeSongMenuId === song.id}
+                      onMenuOpenChange={(open) => {
+                        setActiveSongMenuId(open ? song.id : null)
+                      }}
                       onReserve={() => {
                         setActiveSongMenuId(null)
                         void handleReserveSong(song.id)
