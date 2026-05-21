@@ -440,9 +440,12 @@ export function PlayerPage() {
     }
   }, [activeSessionCode, songSrc])
 
+  // Play the song only when both the song URL is known AND the transition has finished
+  // (showMainVideo = true). When either condition is false, the video src is '' so the
+  // browser stops playback naturally — no need for imperative src clearing.
   useEffect(() => {
     const video = videoRef.current
-    if (video === null) {
+    if (video === null || !showMainVideo || songSrc === '') {
       return
     }
 
@@ -467,7 +470,7 @@ export function PlayerPage() {
     return () => {
       video.removeEventListener('loadedmetadata', applyResume)
     }
-  }, [songSrc])
+  }, [songSrc, showMainVideo])
 
   // Ensure loop video starts playing on mount (belt-and-suspenders for autoplay policy).
   useEffect(() => {
@@ -477,25 +480,21 @@ export function PlayerPage() {
     }
   }, [])
 
-  // When the main video should no longer be shown (idle or transitioning),
-  // explicitly pause it and clear its source so audio doesn't leak in the background.
-  // When going idle, also ensure the loop video is playing (autoplay may have been blocked).
+  // When not showing the main video, ensure the loop video is playing.
   useEffect(() => {
-    const mainVideo = videoRef.current
-    if (!showMainVideo && mainVideo !== null) {
-      mainVideo.pause()
-      mainVideo.removeAttribute('src')
-      mainVideo.load()
+    if (showMainVideo) {
+      return
     }
     const loopVideo = loopVideoRef.current
-    if (!showMainVideo && loopVideo !== null && loopVideo.paused) {
+    if (loopVideo !== null && loopVideo.paused) {
       void loopVideo.play().catch(() => undefined)
     }
   }, [showMainVideo])
 
-  // Retry play when WS connects (or reconnects) and a song is available.
+  // Retry play when WS connects (or reconnects) and a song is visible.
   // Covers: (1) page refresh where browser autoplay may block the first attempt,
-  // (2) WS reconnect where songSrc hasn't changed so the resume effect won't re-run.
+  // (2) WS reconnect where songSrc + showMainVideo haven't changed so the resume
+  //     effect won't re-run.
   useEffect(() => {
     if (socketStatus !== 'Connected' || currentSong === null) {
       return
@@ -505,12 +504,12 @@ export function PlayerPage() {
       return
     }
     const timer = window.setTimeout(() => {
-      if (resumeIsPlayingRef.current && video.paused) {
+      if (resumeIsPlayingRef.current && showMainVideo && video.paused && video.src !== '') {
         void video.play().catch(() => undefined)
       }
     }, 500)
     return () => window.clearTimeout(timer)
-  }, [socketStatus, currentSong])
+  }, [socketStatus, currentSong, showMainVideo])
 
   useEffect(() => {
     const video = videoRef.current
@@ -695,11 +694,12 @@ export function PlayerPage() {
         controls={false}
       />
 
-      {/* Main song player — shown only when a song is active and not transitioning */}
+      {/* Main song player — shown only when a song is active and not transitioning.
+          src is '' when hidden so the browser stops playback without imperative calls. */}
       <video
         ref={videoRef}
         className={`player-video${showMainVideo ? '' : ' player-video--hidden'}`}
-        src={songSrc}
+        src={showMainVideo ? songSrc : ''}
         autoPlay
         playsInline
         controls={false}
