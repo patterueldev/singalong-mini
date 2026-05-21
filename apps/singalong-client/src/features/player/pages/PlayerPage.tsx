@@ -469,6 +469,25 @@ export function PlayerPage() {
     }
   }, [songSrc])
 
+  // Retry play when WS connects (or reconnects) and a song is available.
+  // Covers: (1) page refresh where browser autoplay may block the first attempt,
+  // (2) WS reconnect where songSrc hasn't changed so the resume effect won't re-run.
+  useEffect(() => {
+    if (socketStatus !== 'Connected' || currentSong === null) {
+      return
+    }
+    const video = videoRef.current
+    if (video === null) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      if (resumeIsPlayingRef.current && video.paused) {
+        void video.play().catch(() => undefined)
+      }
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [socketStatus, currentSong])
+
   useEffect(() => {
     const video = videoRef.current
     if (video === null) {
@@ -629,7 +648,16 @@ export function PlayerPage() {
   }
 
   return (
-    <main className="player-screen" ref={playerContainerRef}>
+    <main
+      className="player-screen"
+      ref={playerContainerRef}
+      onClick={() => {
+        const video = videoRef.current
+        if (video !== null && resumeIsPlayingRef.current && video.paused) {
+          void video.play().catch(() => undefined)
+        }
+      }}
+    >
       {/* Background loop player — always on, never controlled by admin */}
       <video
         ref={loopVideoRef}
