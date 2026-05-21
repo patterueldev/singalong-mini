@@ -1363,10 +1363,8 @@ textarea:focus-visible {
 }
 
 .songbook-context-menu {
-  right: 0.5rem;
-  top: calc(100% + 0.35rem);
   min-width: 168px;
-  z-index: 20;
+  z-index: 9999;
 }
 
 /* ── Change Nickname outside card ───────────────────────── */
