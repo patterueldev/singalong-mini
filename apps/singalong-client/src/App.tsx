@@ -3915,18 +3915,13 @@ function SessionControlPage({
                   title="Guest join QR"
                   aria-label="Guest join QR"
                 >
-                  <span className="material-symbols-outlined">qr_code_2</span>
+                  <span className="material-symbols-outlined">qr_code_scanner</span>
                 </button>
               </div>
             </div>
             <p className="subtitle">
               WebSocket: {socketStatus} · Player: {workspace?.playerConnected ? 'Connected' : 'Disconnected'}
             </p>
-            {guestJoinQrDataUrl !== null ? (
-              <div className="playback-qr-overlay" title="Guests can scan to join this session">
-                <img src={guestJoinQrDataUrl} alt="Guest join QR code" />
-              </div>
-            ) : null}
             {currentQueueSong ? (
               <p className="session-meta">
                 Now queued next: <strong>{currentQueueSong.title}</strong> · {currentQueueSong.artist}

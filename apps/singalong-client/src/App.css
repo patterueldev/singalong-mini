@@ -305,26 +305,6 @@ button:disabled {
   margin: 0;
 }
 
-.playback-qr-overlay {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 78px;
-  height: 78px;
-  padding: 6px;
-  border-radius: 10px;
-  border: 1px solid var(--border-primary);
-  background: color-mix(in srgb, var(--surface-panel) 84%, black 16%);
-  opacity: 0.9;
-}
-
-.playback-qr-overlay img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-}
-
 .queue-panel {
   flex: 1 1 auto;
   min-height: 0;
@@ -1541,7 +1521,7 @@ button.small {
 }
 
 .guest-qr-modal-card {
-  width: min(520px, 100%);
+  width: min(760px, 100%);
 }
 
 .guest-qr-modal-content {
@@ -1550,8 +1530,8 @@ button.small {
 }
 
 .guest-qr-code-shell {
-  width: 280px;
-  height: 280px;
+  width: min(440px, 100%);
+  height: min(440px, 100vw - 120px);
   max-width: 100%;
   margin: 0 auto;
   display: grid;
