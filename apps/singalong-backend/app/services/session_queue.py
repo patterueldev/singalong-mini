@@ -31,6 +31,12 @@ def _format_duration(seconds: int | None) -> str | None:
     return f"{minutes}:{remaining:02d}"
 
 
+def _build_thumbnail_url(thumbnail_file: str | None) -> str | None:
+    if not thumbnail_file:
+        return None
+    return f"/media/thumbnails/{thumbnail_file}"
+
+
 def _require_active_session(db: Session, session_code: str) -> KaraokeSession:
     active_session = get_active_session_by_code(db, session_code)
     if active_session is None:
@@ -51,7 +57,7 @@ def _pending_rows_for_update(db: Session, session_id: UUID) -> list[SongQueue]:
 
 def _queue_items_query(session_id: UUID):
     return (
-        select(SongQueue, Song.thumbnail_url, Song.title, Song.artist, Song.duration, User.username)
+        select(SongQueue, Song.thumbnail_file, Song.title, Song.artist, Song.duration, User.username)
         .join(Song, Song.id == SongQueue.song_id)
         .outerjoin(User, User.id == SongQueue.reserved_by)
         .where(SongQueue.session_id == session_id)
@@ -65,7 +71,7 @@ def _queue_items_query(session_id: UUID):
 
 def _to_queue_item(
     queue: SongQueue,
-    thumbnail_url: str | None,
+    thumbnail_file: str | None,
     title: str,
     artist: str,
     duration_seconds: int | None,
@@ -75,7 +81,7 @@ def _to_queue_item(
         id=queue.id,
         session_id=queue.session_id,
         song_id=queue.song_id,
-        thumbnail_url=thumbnail_url,
+        thumbnail_url=_build_thumbnail_url(thumbnail_file),
         title=title,
         artist=artist,
         duration=_format_duration(duration_seconds),
@@ -96,7 +102,7 @@ def list_session_queue_items(db: Session, session_code: str) -> list[SessionQueu
     return [
         _to_queue_item(
             queue=row[0],
-            thumbnail_url=row[1],
+            thumbnail_file=row[1],
             title=row[2],
             artist=row[3],
             duration_seconds=row[4],
@@ -113,7 +119,7 @@ def get_session_queue_item(db: Session, session_code: str, queue_id: UUID) -> Se
         raise SessionQueueNotFoundError("Queue record not found")
     return _to_queue_item(
         queue=row[0],
-        thumbnail_url=row[1],
+        thumbnail_file=row[1],
         title=row[2],
         artist=row[3],
         duration_seconds=row[4],
