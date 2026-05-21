@@ -948,6 +948,13 @@ button.small {
 .song-detail-modal {
   width: min(1120px, 100%);
   min-width: 0;
+  max-height: min(92vh, 1040px);
+}
+
+.song-detail-backdrop {
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(3px);
+  z-index: 70;
 }
 
 .song-detail-layout {
@@ -1050,6 +1057,10 @@ button.small {
   overflow: auto;
 }
 
+.song-detail-actions {
+  margin-top: 12px;
+}
+
 .downloads-modal-card {
   width: min(840px, 100%);
 }
@@ -1094,9 +1105,42 @@ button.small {
   gap: 10px;
 }
 
+.downloads-progress-bar-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .downloads-progress-bar {
   width: 100%;
   height: 10px;
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.downloads-progress-bar::-webkit-progress-bar {
+  background: color-mix(in srgb, var(--surface-input) 84%, white);
+  border-radius: 999px;
+}
+
+.downloads-progress-bar::-webkit-progress-value {
+  background: linear-gradient(90deg, var(--accent-primary), #7ab8f0);
+  border-radius: 999px;
+}
+
+.downloads-progress-bar::-moz-progress-bar {
+  background: linear-gradient(90deg, var(--accent-primary), #7ab8f0);
+  border-radius: 999px;
+}
+
+.downloads-progress-pct {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  min-width: 2.7rem;
+  text-align: right;
 }
 
 .downloads-actions {

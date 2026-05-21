@@ -175,6 +175,8 @@ type SuggestDraft = {
   source_thumbnail_data_url: string
 }
 
+type LanguageCode = 'en' | 'ja' | 'ko' | 'zh' | 'other'
+
 type PlaybackState = {
   isPlaying: boolean
   positionSeconds: number
@@ -217,7 +219,14 @@ const INITIAL_MOCK_QUEUE: SongQueueItem[] = [
 
 
 const NICKNAME_REGEX = /^[A-Za-z0-9_]+$/
-const SUGGEST_KEYWORD_REGEX = /\b(karaoke|instrumental|off[\s-]?vocal)\b/i
+const SUGGEST_KEYWORD_REGEX = /\b(karaoke|instrumental|off[\s-]?vocal)\b|カラオケ/i
+const LANGUAGE_OPTIONS: Array<{ code: LanguageCode; label: string }> = [
+  { code: 'en', label: 'English' },
+  { code: 'ja', label: 'Japanese' },
+  { code: 'ko', label: 'Korean' },
+  { code: 'zh', label: 'Chinese' },
+  { code: 'other', label: 'Others' },
+]
 const YOUTUBE_URL_REGEX =
   /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=[A-Za-z0-9_-]{6,}|youtu\.be\/[A-Za-z0-9_-]{6,})([^\s]*)$/i
 
@@ -228,6 +237,24 @@ class ApiError extends Error {
     super(message)
     this.status = status
   }
+}
+
+function normalizeLanguageCodeForUi(language: string | null | undefined): LanguageCode | '' {
+  if (typeof language !== 'string' || language.trim() === '') {
+    return ''
+  }
+  const normalized = language.trim().toLowerCase()
+  return LANGUAGE_OPTIONS.some((option) => option.code === normalized as LanguageCode)
+    ? (normalized as LanguageCode)
+    : 'other'
+}
+
+function formatLanguageLabel(language: string | null | undefined): string {
+  const normalized = normalizeLanguageCodeForUi(language)
+  if (normalized === '') {
+    return '—'
+  }
+  return LANGUAGE_OPTIONS.find((option) => option.code === normalized)?.label ?? 'Others'
 }
 
 function readStoredAuth(): StoredAuth | null {
@@ -511,32 +538,6 @@ function splitChipInput(value: string, transform?: (entry: string) => string): s
     .filter((entry) => entry !== '')
 }
 
-function createMockSuggestResults(query: string): SuggestResult[] {
-  const base = query
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 12) || 'song'
-
-  return Array.from({ length: 3 }, (_, index) => {
-    const suffix = `${base}${index + 1}`.slice(0, 11)
-    return {
-      id: `mock-${suffix}`,
-      title: `${query} (Karaoke Mix ${index + 1})`,
-      channelName: `Mock Channel ${index + 1}`,
-      channelUrl: 'https://www.youtube.com',
-      thumbnailUrl: 'https://via.placeholder.com/320x180?text=No+Thumbnail',
-      duration: '0:00',
-      description: 'Mock search result.',
-      viewCount: null,
-      uploadedAt: '',
-      existsInSongbook: null,
-      sourceUrl: `https://www.youtube.com/watch?v=${suffix}`,
-      youtubeId: suffix,
-    }
-  })
-}
-
 async function guestLoginWithNickname(nickname: string): Promise<GuestAuth> {
   const payload = await apiJson<GuestLoginResponse>('/users/guest/login', {
     method: 'POST',
@@ -772,6 +773,35 @@ function normalizeDownloadProgressItems(payload: unknown): DownloadProgressItem[
   })
 }
 
+function mergeDownloadProgressItems(
+  previous: DownloadProgressItem[],
+  incoming: DownloadProgressItem[],
+): DownloadProgressItem[] {
+  const previousBySongId = new Map(previous.map((item) => [item.songId, item]))
+  return incoming.map((item) => {
+    const previousItem = previousBySongId.get(item.songId)
+    if (previousItem === undefined) {
+      return item
+    }
+
+    return {
+      ...item,
+      progressPct: item.progressPct ?? previousItem.progressPct,
+      duration: item.duration ?? previousItem.duration,
+    }
+  })
+}
+
+function formatDownloadStatus(status: DownloadProgressItem['status']): string {
+  if (status === 'pending') {
+    return 'Pending'
+  }
+  if (status === 'downloading') {
+    return 'Downloading'
+  }
+  return 'Error'
+}
+
 async function apiJson<T>(
   path: string,
   init: RequestInit = {},
@@ -973,7 +1003,7 @@ function SongDetailPage() {
                 <dl className="song-detail-grid top-gap">
                   <div>
                     <dt>Language</dt>
-                    <dd>{song.language ?? '—'}</dd>
+                    <dd>{formatLanguageLabel(song.language)}</dd>
                   </div>
                   <div>
                     <dt>Genre</dt>
@@ -1000,7 +1030,7 @@ function SongDetailPage() {
                 </dl>
 
                 <div className="song-detail-chips top-gap">
-                  {song.language ? <span className="chip-badge">{song.language.toUpperCase()}</span> : null}
+                  {song.language ? <span className="chip-badge">{formatLanguageLabel(song.language)}</span> : null}
                   {song.genre ? <span className="chip-badge">{song.genre}</span> : null}
                   {song.duration ? <span className="chip-badge">{song.duration}</span> : null}
                   {song.tags.map((t) => (
@@ -1009,15 +1039,14 @@ function SongDetailPage() {
                 </div>
 
                 {song.sourceUrl ? (
-                  <div className="top-gap">
-                    <a
-                      href={song.sourceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="secondary-link"
+                  <div className="row-actions song-detail-actions">
+                    <button
+                      type="button"
+                      className="youtube-button"
+                      onClick={() => window.open(song.sourceUrl!, '_blank', 'noopener,noreferrer')}
                     >
-                      View on YouTube ↗
-                    </a>
+                      View on Youtube
+                    </button>
                   </div>
                 ) : null}
               </div>
@@ -1036,8 +1065,6 @@ function SongDetailPage() {
   )
 }
 
-type SongContextMenu = { song: SongbookSong; x: number; y: number } | null
-
 type SongbookPageProps = {
   notice: string
   guestNickname: string | null
@@ -1052,7 +1079,6 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
   const [isLoading, setIsLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
-  const [contextMenu, setContextMenu] = useState<SongContextMenu>(null)
   const [isDownloadsModalOpen, setIsDownloadsModalOpen] = useState(false)
   const [downloadItems, setDownloadItems] = useState<DownloadProgressItem[]>([])
   const [downloadsSocketStatus, setDownloadsSocketStatus] = useState('Disconnected')
@@ -1086,14 +1112,6 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
   useEffect(() => {
     setPage(1)
   }, [debouncedQuery])
-
-  // Close context menu on outside click
-  useEffect(() => {
-    if (contextMenu === null) return
-    const close = () => setContextMenu(null)
-    window.addEventListener('click', close)
-    return () => window.removeEventListener('click', close)
-  }, [contextMenu])
 
   const clearDownloadsReconnectTimer = useCallback(() => {
     if (downloadsReconnectTimerRef.current !== null) {
@@ -1172,7 +1190,8 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
         if (payload.type !== 'downloads.updated') {
           return
         }
-        setDownloadItems(normalizeDownloadProgressItems(payload.payload.items))
+        const incoming = normalizeDownloadProgressItems(payload.payload.items)
+        setDownloadItems((previous) => mergeDownloadProgressItems(previous, incoming))
       }
     }
 
@@ -1184,10 +1203,8 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
     }
   }, [isDownloadsModalOpen, clearDownloadsReconnectTimer, closeDownloadsSocket])
 
-  const handleSongClick = (event: React.MouseEvent, song: SongbookSong) => {
-    event.stopPropagation()
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    setContextMenu({ song, x: rect.left, y: rect.bottom + window.scrollY })
+  const handleSongClick = (song: SongbookSong) => {
+    navigate(`/songbook/song/${song.id}`)
   }
 
   const handleRetryDownload = useCallback((songId: string) => {
@@ -1270,7 +1287,7 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
               <article
                 className="queue-item songbook-item"
                 key={song.id}
-                onClick={(e) => handleSongClick(e, song)}
+                onClick={() => handleSongClick(song)}
                 style={{ cursor: 'pointer' }}
               >
                 {song.thumbnailUrl ? (
@@ -1328,35 +1345,6 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
         </div>
       ) : null}
 
-      {contextMenu !== null ? (
-        <div
-          className="context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            onClick={() => {
-              navigate(`/songbook/song/${contextMenu.song.id}`)
-              setContextMenu(null)
-            }}
-          >
-            Details
-          </button>
-          {contextMenu.song.sourceUrl ? (
-            <button
-              type="button"
-              onClick={() => {
-                window.open(contextMenu.song.sourceUrl!, '_blank', 'noopener,noreferrer')
-                setContextMenu(null)
-              }}
-            >
-              View on YouTube
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-
       {isDownloadsModalOpen ? (
         <div
           className="modal-backdrop"
@@ -1392,8 +1380,9 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
                   const statusText =
                     item.status === 'error'
                       ? item.errorMessage ?? 'Download failed'
-                      : item.progressMessage ??
-                        (item.status === 'pending' ? 'Waiting in queue' : 'Downloading')
+                      : item.status === 'pending'
+                        ? 'Waiting in queue'
+                        : 'Downloading video'
 
                   return (
                     <article key={item.songId} className="downloads-progress-item">
@@ -1410,20 +1399,22 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
                       <div className="downloads-progress-content">
                         <strong>{item.title}</strong>
                         <p className="session-meta">
-                          {(item.duration ?? '--:--') +
-                            ' * ' +
-                            item.artist +
-                            ' * ' +
-                            (item.addedByUsername ?? '—')}
+                          {item.artist}
+                          {' \u00b7 '}
+                          {item.duration ?? '--:--'}
                         </p>
+                        <p className="session-meta">{item.addedByUsername ?? '—'}</p>
                         <div className="downloads-progress-row">
-                          <progress
-                            className="downloads-progress-bar"
-                            max={100}
-                            value={progressValue}
-                          />
+                          <div className="downloads-progress-bar-group">
+                            <progress
+                              className="downloads-progress-bar"
+                              max={100}
+                              value={progressValue}
+                            />
+                            <span className="downloads-progress-pct">{progressValue}%</span>
+                          </div>
                           <span className={`badge download-status-badge ${item.status}`}>
-                            {item.status}
+                            {formatDownloadStatus(item.status)}
                           </span>
                         </div>
                         <p className="session-meta">{statusText}</p>
@@ -1532,7 +1523,6 @@ function SuggestSearchPage({
   const [queryInfo, setQueryInfo] = useState('')
   const [results, setResults] = useState<SuggestResult[]>([])
   const [selectedResult, setSelectedResult] = useState<SuggestResult | null>(null)
-  const [menuResult, setMenuResult] = useState<SuggestResult | null>(null)
   const [pendingIdentifyResult, setPendingIdentifyResult] = useState<SuggestResult | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [isSearching, setIsSearching] = useState(false)
@@ -1591,8 +1581,8 @@ function SuggestSearchPage({
           const message = error instanceof Error ? error.message : 'Search failed'
           setErrorMessage(message)
           setEffectiveQuery(normalized.effectiveQuery)
-          setQueryInfo('Falling back to mock search results.')
-          setResults(createMockSuggestResults(normalized.effectiveQuery))
+          setQueryInfo('')
+          setResults([])
         })
         .finally(() => {
           setIsSearching(false)
@@ -1695,7 +1685,7 @@ function SuggestSearchPage({
                 key={result.id}
                 type="button"
                 className="search-result-row"
-                onClick={() => setMenuResult(result)}
+                onClick={() => setSelectedResult(result)}
               >
                 <img className="search-result-thumb" src={result.thumbnailUrl} alt={result.title} />
                 <div className="search-result-content">
@@ -1713,53 +1703,6 @@ function SuggestSearchPage({
             ))
           )}
         </div>
-        {menuResult !== null ? (
-          <div className="modal-backdrop" role="presentation" onClick={() => setMenuResult(null)}>
-            <div
-              className="context-menu-card"
-              role="dialog"
-              aria-modal="true"
-              aria-label={`${menuResult.title} actions`}
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="context-menu-header">
-                <strong title={menuResult.title}>{menuResult.title}</strong>
-                <button type="button" className="secondary" onClick={() => setMenuResult(null)}>
-                  Close
-                </button>
-              </div>
-              <div className="search-result-menu">
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    requestIdentify(menuResult)
-                    setMenuResult(null)
-                  }}
-                >
-                  Identify
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    setSelectedResult(menuResult)
-                    setMenuResult(null)
-                  }}
-                >
-                  Details
-                </button>
-                <button
-                  type="button"
-                  className="secondary youtube-button"
-                  onClick={() => window.open(menuResult.sourceUrl, '_blank', 'noopener,noreferrer')}
-                >
-                  View on Youtube
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
         {selectedResult !== null ? (
           <SearchResultModal
             result={selectedResult}
@@ -2065,7 +2008,6 @@ type SuggestUpdatePageProps = {
   onDraftChange: (draft: SuggestDraft) => void
   onDownload: (title: string) => void
   onCancel: () => void
-  onChangeNickname: () => void
 }
 
 type ChipFieldProps = {
@@ -2167,7 +2109,6 @@ function SuggestUpdatePage({
   onDraftChange,
   onDownload,
   onCancel,
-  onChangeNickname,
 }: SuggestUpdatePageProps) {
   const navigate = useNavigate()
   const [originalDraft] = useState(draft)
@@ -2381,18 +2322,6 @@ function SuggestUpdatePage({
               disabled={isEnhancing || isSubmitting}
               onClick={() => {
                 confirmExitUpdate(() => {
-                  onChangeNickname()
-                })
-              }}
-            >
-              Change Nickname
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              disabled={isEnhancing || isSubmitting}
-              onClick={() => {
-                confirmExitUpdate(() => {
                   navigate('/songbook')
                 })
               }}
@@ -2599,11 +2528,16 @@ function SuggestUpdatePage({
               </label>
               <label>
                 Language
-                <input
-                  value={draft.language}
+                <select
+                  value={normalizeLanguageCodeForUi(draft.language) || 'other'}
                   onChange={(event) => updateDraft({ language: event.target.value })}
-                  placeholder="en"
-                />
+                >
+                  {LANGUAGE_OPTIONS.map((option) => (
+                    <option key={option.code} value={option.code}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <div className="checkbox-grid">
                 <label className="checkbox-field">
@@ -3655,7 +3589,6 @@ function AppShell() {
                 onDraftChange={setSuggestDraft}
                 onDownload={handleDownloadSuggestion}
                 onCancel={handleCancelSuggestion}
-                onChangeNickname={handleChangeSuggestNickname}
               />
             )
           }
