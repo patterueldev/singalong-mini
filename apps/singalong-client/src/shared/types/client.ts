@@ -89,6 +89,28 @@ export type DownloadProgressItem = {
   errorMessage: string | null
 }
 
+export type SongDownloadListResponse = {
+  items: Array<{
+    song_id: string
+    title: string
+    artist: string
+    duration: string | null
+    added_by_username: string | null
+    source_thumbnail: string | null
+    source_id: string | null
+    source_url: string
+    status: string
+    progress_pct: number | null
+    current_step: string | null
+    progress_message: string | null
+    error_message: string | null
+    added_at: string
+    started_at: string | null
+    completed_at: string | null
+    updated_at: string
+  }>
+}
+
 export type SongDownloadRetryResponse = {
   status: string
   message: string

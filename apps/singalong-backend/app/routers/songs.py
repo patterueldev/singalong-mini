@@ -35,7 +35,7 @@ from ..schemas import (
     SongSuggestUpdateRequest,
     SongSuggestUpdateResponse,
 )
-from ..services.auth import get_current_user, require_admin_user
+from ..services.auth import get_current_user, require_admin_or_guest_user, require_admin_user
 from ..services.download_queue import list_active_download_items
 from ..services.thumbnail_service import convert_base64_to_jpg, save_thumbnail
 from ..services.ytdlp.naming import normalize_song_title
@@ -244,7 +244,7 @@ def suggest_song_download(
 @router.get("/downloads", response_model=SongDownloadListResponse)
 def list_song_downloads(
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin_user),
+    _: User = Depends(require_admin_or_guest_user),
 ):
     return SongDownloadListResponse(items=list_active_download_items(db))
 

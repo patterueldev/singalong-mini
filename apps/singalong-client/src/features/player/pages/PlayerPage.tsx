@@ -7,8 +7,6 @@ import { buildGuestJoinUrl } from '../../guest/services/guestService'
 import { normalizeSessionQueueItems } from '../../shared/services/queueTransforms'
 import {
   PLAYER_ENCOURAGEMENTS,
-  PLAYER_QR_DOMAIN_LABEL,
-  SINGALONG_BASE_URL,
 } from '../../../shared/config/client'
 import { buildWSUrl } from '../../../shared/api/ws'
 import { formatDurationClock } from '../../../shared/lib/format'
@@ -68,7 +66,7 @@ export function PlayerPage() {
   )
   const currentQueueItem = pendingQueueItems[0] ?? null
   const guestJoinUrl = useMemo(
-    () => buildGuestJoinUrl(SINGALONG_BASE_URL, activeSessionCode),
+    () => buildGuestJoinUrl(window.location.origin, activeSessionCode),
     [activeSessionCode],
   )
   const songSrc =
@@ -775,7 +773,7 @@ export function PlayerPage() {
             {guestQrDataUrl ? <img src={guestQrDataUrl} alt="Guest join QR code" /> : null}
             {isGeneratingGuestQr ? <span className="subtitle">Generating QR…</span> : null}
           </div>
-          <p className="player-qr-domain">{PLAYER_QR_DOMAIN_LABEL}</p>
+          <p className="player-qr-domain">{window.location.hostname}</p>
         </article>
       </section>
 
