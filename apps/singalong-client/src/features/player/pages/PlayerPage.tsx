@@ -469,6 +469,14 @@ export function PlayerPage() {
     }
   }, [songSrc])
 
+  // Ensure loop video starts playing on mount (belt-and-suspenders for autoplay policy).
+  useEffect(() => {
+    const loopVideo = loopVideoRef.current
+    if (loopVideo !== null) {
+      void loopVideo.play().catch(() => undefined)
+    }
+  }, [])
+
   // When the main video should no longer be shown (idle or transitioning),
   // explicitly pause it and clear its source so audio doesn't leak in the background.
   // When going idle, also ensure the loop video is playing (autoplay may have been blocked).
@@ -674,13 +682,15 @@ export function PlayerPage() {
         }
       }}
     >
-      {/* Background loop player — always on, never controlled by admin */}
+      {/* Background loop player — always on, never controlled by admin.
+          muted is required for browser autoplay policy without user interaction. */}
       <video
         ref={loopVideoRef}
         className="player-loop-video"
         src="/media/assets/loop.mp4"
         autoPlay
         loop
+        muted
         playsInline
         controls={false}
       />
