@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0,0');
+
 .app-shell {
   display: grid;
   min-height: 100vh;
@@ -240,7 +242,98 @@ button:disabled {
 }
 
 .session-control-card {
-  width: min(1200px, 100%);
+  width: min(1560px, 100%);
+}
+
+.admin-session-shell {
+  max-width: 100%;
+  place-items: stretch;
+  padding: 12px;
+}
+
+.session-workspace {
+  min-height: 600px;
+  height: max(calc(100vh - 24px), 600px);
+  box-sizing: border-box;
+  width: min(1560px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.workspace-column {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workspace-column-right {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workspace-panel {
+  min-width: 0;
+  min-height: 0;
+}
+
+.playback-panel {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.queue-panel {
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.songbook-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.participants-panel {
+  flex: 0 0 250px;
+  overflow: auto;
+}
+
+.songbook-panel-header {
+  align-items: center;
+}
+
+.songbook-header-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.songbook-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column; 
+}
+
+.songbook-scrollframe {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.songbook-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .control-layout {
@@ -258,6 +351,8 @@ button:disabled {
 }
 
 .panel-header {
+  flex-shrink: 0; 
+  padding: 1rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -266,9 +361,13 @@ button:disabled {
 
 .playback-actions {
   margin-top: 14px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.playback-actions.compact {
+  justify-content: flex-start;
 }
 
 .queue-list {
@@ -282,6 +381,81 @@ button:disabled {
   border-radius: 8px;
   padding: 10px;
   background: var(--surface-card);
+}
+
+.queue-item-details {
+  font-size: 0.85rem;
+}
+
+.mobile-only {
+  display: none;
+}
+
+.mobile-hidden {
+}
+
+.mobile-visible {
+}
+
+.grow {
+  flex: 1;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 8px;
+}
+
+.icon-control-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 6px;
+  min-width: 36px;
+  min-height: 36px;
+}
+
+.icon-control-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-button-secondary) 70%, white 30%);
+}
+
+.session-heading {
+  font-size: 1.15rem;
+  line-height: 1.3;
+}
+
+.material-symbols-outlined {
+  font-variation-settings:
+    'FILL' 0,
+    'wght' 400,
+    'GRAD' 0,
+    'opsz' 24;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.volume-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.volume-row input[type='range'] {
+  width: min(260px, 56%);
+}
+
+.playback-seek {
+  display: block;
+  width: 100%;
 }
 
 .search-result-row {
@@ -690,11 +864,62 @@ textarea:focus-visible {
   .playback-actions {
     width: 100%;
     grid-template-columns: 1fr;
-    display: grid;
+    display: flex;
   }
 
   .control-layout {
     grid-template-columns: 1fr;
+  }
+
+  .session-workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    min-height: 600px;
+    height: max(calc(100vh - 24px), 600px);
+    position: relative;
+  }
+
+  .workspace-column {
+    display: contents;
+  }
+
+  .playback-panel {
+    flex-basis: auto;
+    overflow: visible;
+  }
+
+  .queue-panel,
+  .songbook-panel,
+  .participants-panel {
+    flex-basis: auto;
+    overflow: visible;
+  }
+
+  .mobile-right-panel-open {
+    position: fixed;
+    inset: 10px;
+    z-index: 60;
+    margin: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-card);
+  }
+
+  .mobile-only {
+    display: inline-flex;
+  }
+
+  .mobile-hidden {
+    display: none;
+  }
+
+  .queue-panel .row-actions {
+    flex-wrap: wrap;
+  }
+
+  .playback-actions.compact {
+    justify-content: flex-start;
   }
 
   .search-result-row {
@@ -768,6 +993,12 @@ textarea:focus-visible {
   padding: 0.5rem 0.75rem;
   min-width: 0;
   width: 100%;
+  cursor: pointer;
+  transition: background 0.15s ease-in-out;
+}
+
+.songbook-item:hover {
+  background: color-mix(in srgb, var(--surface-card) 84%, white 16%);
 }
 
 .songbook-thumbnail {
@@ -790,10 +1021,44 @@ textarea:focus-visible {
   min-width: 0;
 }
 
+.songbook-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
 .songbook-info strong {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.songbook-search-input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border-primary);
+  background: transparent;
+  padding: 10px 0 8px;
+  box-shadow: none;
+}
+
+.songbook-search-input:focus-visible {
+  outline: none;
+  border-bottom-color: var(--accent-primary);
+  border-bottom-width: 2px;
+}
+
+.songbook-list {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+
+.songbook-pagination {
+  padding-top: 10px;
+  flex-shrink: 0;
 }
 
 /* ── Context menu ───────────────────────────────────────── */

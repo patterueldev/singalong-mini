@@ -5,6 +5,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import WebSocketException, status
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from .bootstrap import seed_admin_user
@@ -112,9 +113,15 @@ async def websocket_player(
     token: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    _ = _authenticate_ws_channel(websocket, db, token, {"player", "admin"})
+    user = _authenticate_ws_channel(websocket, db, token, {"player", "admin"})
     _require_active_session(db, session_code)
-    await ws_hub.run_connection(websocket=websocket, channel="player", session_code=session_code, db=db)
+    await ws_hub.run_connection(
+        websocket=websocket,
+        channel="player",
+        session_code=session_code,
+        db=db,
+        username=user.username,
+    )
 
 
 @app.websocket("/ws/admin")
@@ -124,9 +131,15 @@ async def websocket_admin(
     token: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    _ = _authenticate_ws_channel(websocket, db, token, {"admin"})
+    user = _authenticate_ws_channel(websocket, db, token, {"admin"})
     _require_active_session(db, session_code)
-    await ws_hub.run_connection(websocket=websocket, channel="admin", session_code=session_code, db=db)
+    await ws_hub.run_connection(
+        websocket=websocket,
+        channel="admin",
+        session_code=session_code,
+        db=db,
+        username=user.username,
+    )
 
 
 @app.websocket("/ws/guest")
@@ -136,7 +149,7 @@ async def websocket_guest(
     token: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    _ = authenticate_websocket_user_optional(
+    user = authenticate_websocket_user_optional(
         websocket=websocket,
         db=db,
         token_query=token,
@@ -144,7 +157,13 @@ async def websocket_guest(
     )
     if session_code is not None:
         _require_active_session(db, session_code)
-    await ws_hub.run_connection(websocket=websocket, channel="guest", session_code=session_code, db=db)
+    await ws_hub.run_connection(
+        websocket=websocket,
+        channel="guest",
+        session_code=session_code,
+        db=db,
+        username=user.username if user is not None else None,
+    )
 
 
 @app.get("/health")
@@ -155,6 +174,12 @@ def health():
 @app.on_event("startup")
 async def on_startup():
     Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+    if inspector.has_table("sessions"):
+        session_columns = {column["name"] for column in inspector.get_columns("sessions")}
+        if "vibes" not in session_columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE sessions ADD COLUMN vibes TEXT"))
     seed_admin_user()
     ws_hub.bind_event_loop(asyncio.get_running_loop())
 

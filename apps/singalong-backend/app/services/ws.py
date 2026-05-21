@@ -9,7 +9,8 @@ from fastapi.websockets import WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from .download_queue import list_active_download_items
-from ..schemas import SongDownloadItem
+from .session_queue import list_session_queue_items
+from ..schemas import SessionQueueItem, SongDownloadItem
 
 WEBSOCKET_CHANNELS = ("player", "admin", "guest")
 GLOBAL_DOWNLOAD_SCOPE = "__downloads__"
@@ -34,6 +35,9 @@ class SessionWebSocketHub:
         self._connections: dict[str, dict[str, set[WebSocket]]] = defaultdict(
             lambda: {channel: set() for channel in WEBSOCKET_CHANNELS}
         )
+        self._connection_users: dict[str, dict[str, dict[WebSocket, str | None]]] = defaultdict(
+            lambda: {channel: {} for channel in WEBSOCKET_CHANNELS}
+        )
 
     def bind_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._event_loop = loop
@@ -44,10 +48,11 @@ class SessionWebSocketHub:
         channel: str,
         session_code: str | None,
         db: Session | None = None,
+        username: str | None = None,
     ) -> None:
         scope = session_code or GLOBAL_DOWNLOAD_SCOPE
         await websocket.accept()
-        await self._register(websocket, channel, scope)
+        await self._register(websocket, channel, scope, username)
         await self._send(
             websocket,
             {
@@ -128,9 +133,16 @@ class SessionWebSocketHub:
             await self._send_error(sender, session_code, "Guest websocket is receive-only in this phase")
             return
 
-    async def _register(self, websocket: WebSocket, channel: str, session_code: str) -> None:
+    async def _register(
+        self,
+        websocket: WebSocket,
+        channel: str,
+        session_code: str,
+        username: str | None = None,
+    ) -> None:
         async with self._lock:
             self._connections[session_code][channel].add(websocket)
+            self._connection_users[session_code][channel][websocket] = username
 
     async def _unregister(self, websocket: WebSocket, channel: str, session_code: str) -> None:
         async with self._lock:
@@ -139,8 +151,12 @@ class SessionWebSocketHub:
                 return
 
             session_connections[channel].discard(websocket)
+            session_users = self._connection_users.get(session_code)
+            if session_users is not None:
+                session_users[channel].pop(websocket, None)
             if all(len(channel_connections) == 0 for channel_connections in session_connections.values()):
                 self._connections.pop(session_code, None)
+                self._connection_users.pop(session_code, None)
 
     async def _broadcast(
         self,
@@ -180,28 +196,19 @@ class SessionWebSocketHub:
         db: Session | None = None,
     ) -> None:
         download_items = list_active_download_items(db) if db is not None else []
+        queue_items: list[SessionQueueItem] = []
+        if db is not None and session_code is not None and session_code != "":
+            try:
+                queue_items = list_session_queue_items(db, session_code)
+            except Exception:
+                queue_items = []
         scoped_session_code = session_code or ""
         await self._send(
             websocket,
             {
                 "type": "queue.updated",
                 "session_code": scoped_session_code,
-                "payload": {
-                    "items": [
-                        {
-                            "id": "mock-song-1",
-                            "title": "Bohemian Rhapsody",
-                            "artist": "Queen",
-                            "status": "queued",
-                        },
-                        {
-                            "id": "mock-song-2",
-                            "title": "Dancing Queen",
-                            "artist": "ABBA",
-                            "status": "queued",
-                        },
-                    ]
-                },
+                "payload": {"items": [item.model_dump(mode="json") for item in queue_items]},
             },
         )
         await self._send(
@@ -237,6 +244,39 @@ class SessionWebSocketHub:
         }
         await self._broadcast_all("admin", payload)
         await self._broadcast(GLOBAL_DOWNLOAD_SCOPE, "guest", payload)
+
+    async def broadcast_queue_updated(self, session_code: str, items: list[SessionQueueItem]) -> None:
+        payload = {
+            "type": "queue.updated",
+            "session_code": session_code,
+            "payload": {"items": [item.model_dump(mode="json") for item in items]},
+        }
+        await self._broadcast(session_code, "admin", payload)
+        await self._broadcast(session_code, "guest", payload)
+
+    async def get_presence_snapshot(self, session_code: str) -> dict[str, Any]:
+        async with self._lock:
+            channels = self._connections.get(session_code)
+            user_channels = self._connection_users.get(session_code)
+            if channels is None:
+                return {
+                    "player_connected": False,
+                    "admin_connected_count": 0,
+                    "guest_connected_count": 0,
+                    "online_usernames": set(),
+                }
+            online_usernames = set()
+            if user_channels is not None:
+                for channel_map in user_channels.values():
+                    online_usernames.update(
+                        username for username in channel_map.values() if isinstance(username, str) and username != ""
+                    )
+            return {
+                "player_connected": len(channels.get("player", set())) > 0,
+                "admin_connected_count": len(channels.get("admin", set())),
+                "guest_connected_count": len(channels.get("guest", set())),
+                "online_usernames": online_usernames,
+            }
 
     def broadcast_downloads_updated_threadsafe(self, items: list[SongDownloadItem]) -> None:
         if self._event_loop is None:

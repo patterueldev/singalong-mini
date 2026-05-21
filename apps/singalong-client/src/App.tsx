@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, FormEvent } from 'react'
+import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import {
   BrowserRouter,
   Navigate,
@@ -40,6 +40,7 @@ type SessionRecord = {
   id: string
   session_code: string
   name: string
+  vibes?: string | null
   archived_at: string | null
   created_at: string
   updated_at: string
@@ -50,11 +51,34 @@ type SessionArchiveResponse = {
   message: string
 }
 
+type SessionQueueListResponse = {
+  items: Array<{
+    id: string
+    session_id: string
+    song_id: string
+    title: string
+    artist: string
+    duration: string | null
+    queue_order: number
+    status: 'pending' | 'finished' | 'skipped'
+    reserved_by_username: string | null
+    reserved_at: string
+    played_at: string | null
+  }>
+}
+
 type SongQueueItem = {
   id: string
+  sessionId: string
+  songId: string
   title: string
   artist: string
-  status: string
+  duration: string | null
+  queueOrder: number
+  status: 'pending' | 'finished' | 'skipped'
+  reservedByUsername: string | null
+  reservedAt: string
+  playedAt: string | null
 }
 
 type DownloadProgressItem = {
@@ -90,6 +114,26 @@ type SongbookSong = {
   videoFile: string | null
   lyrics: string | null
   addedByUsername: string | null
+  queuedCountInSession: number
+  wasQueuedInSession: boolean
+}
+
+type SessionParticipant = {
+  userId: string
+  username: string
+  pendingCount: number
+  finishedCount: number
+  skippedCount: number
+  totalCount: number
+  isOnline: boolean
+}
+
+type SessionWorkspace = {
+  session: SessionRecord
+  websocketStatus: string
+  playerConnected: boolean
+  adminConnectedCount: number
+  guestConnectedCount: number
 }
 
 type SongbookListResponse = {
@@ -210,13 +254,6 @@ const API_ROOT =
     : `${API_BASE_URL.replace(/\/$/, '')}/api`
 const HTTP_BASE = API_ROOT.replace(/\/api$/, '')
 const WS_BASE = HTTP_BASE.replace(/^http/i, 'ws')
-
-const INITIAL_MOCK_QUEUE: SongQueueItem[] = [
-  { id: 'mock-1', title: 'Bohemian Rhapsody', artist: 'Queen', status: 'queued' },
-  { id: 'mock-2', title: 'Dancing Queen', artist: 'ABBA', status: 'queued' },
-]
-
-
 
 const NICKNAME_REGEX = /^[A-Za-z0-9_]+$/
 const SUGGEST_KEYWORD_REGEX = /\b(karaoke|instrumental|off[\s-]?vocal)\b|カラオケ/i
@@ -646,14 +683,26 @@ async function suggestMetadataSuggestions(
   return apiJson<SuggestMetadataSuggestionsResponse>(`/songs/suggest/suggestions?${params.toString()}`, {}, token)
 }
 
-async function fetchSongbook(page: number = 1, limit: number = 20): Promise<SongbookListResponse> {
+async function fetchSongbook(
+  page: number = 1,
+  limit: number = 20,
+  sessionCode?: string,
+  sessionId?: string,
+): Promise<SongbookListResponse> {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+  if (typeof sessionId === 'string' && sessionId !== '') {
+    params.set('sessionId', sessionId)
+  }
+  if (typeof sessionCode === 'string' && sessionCode !== '') {
+    params.set('session_code', sessionCode)
+  }
   const raw = await apiJson<{
     items: Array<{
       id: string; title: string; artist: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
+      queued_count_in_session?: number; was_queued_in_session?: boolean
     }>
     total: number; page: number; pages: number
   }>(`/songs?${params.toString()}`)
@@ -666,18 +715,33 @@ async function fetchSongbook(page: number = 1, limit: number = 20): Promise<Song
       videoFile: s.video_file,
       lyrics: s.lyrics,
       addedByUsername: s.added_by_username,
+      queuedCountInSession: typeof s.queued_count_in_session === 'number' ? s.queued_count_in_session : 0,
+      wasQueuedInSession: s.was_queued_in_session === true,
     })),
   }
 }
 
-async function searchSongbook(q: string, page: number = 1, limit: number = 20): Promise<SongbookListResponse> {
+async function searchSongbook(
+  q: string,
+  page: number = 1,
+  limit: number = 20,
+  sessionCode?: string,
+  sessionId?: string,
+): Promise<SongbookListResponse> {
   const params = new URLSearchParams({ q, page: String(page), limit: String(limit) })
+  if (typeof sessionId === 'string' && sessionId !== '') {
+    params.set('sessionId', sessionId)
+  }
+  if (typeof sessionCode === 'string' && sessionCode !== '') {
+    params.set('session_code', sessionCode)
+  }
   const raw = await apiJson<{
     items: Array<{
       id: string; title: string; artist: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
+      queued_count_in_session?: number; was_queued_in_session?: boolean
     }>
     total: number; page: number; pages: number
   }>(`/songs/search?${params.toString()}`)
@@ -690,17 +754,28 @@ async function searchSongbook(q: string, page: number = 1, limit: number = 20): 
       videoFile: s.video_file,
       lyrics: s.lyrics,
       addedByUsername: s.added_by_username,
+      queuedCountInSession: typeof s.queued_count_in_session === 'number' ? s.queued_count_in_session : 0,
+      wasQueuedInSession: s.was_queued_in_session === true,
     })),
   }
 }
 
-async function fetchSongDetail(id: string): Promise<SongbookSong> {
+async function fetchSongDetail(id: string, sessionCode?: string, sessionId?: string): Promise<SongbookSong> {
+  const params = new URLSearchParams()
+  if (typeof sessionId === 'string' && sessionId !== '') {
+    params.set('sessionId', sessionId)
+  }
+  if (typeof sessionCode === 'string' && sessionCode !== '') {
+    params.set('session_code', sessionCode)
+  }
+  const suffix = params.toString()
   const raw = await apiJson<{
     id: string; title: string; artist: string; duration: string
     language: string | null; genre: string | null; tags: string[]
     thumbnail_url: string | null; source_id: string | null; source_url: string | null
     video_file: string | null; lyrics: string | null; added_by_username: string | null
-  }>(`/songs/${id}`)
+    queued_count_in_session?: number; was_queued_in_session?: boolean
+  }>(`/songs/${id}${suffix ? `?${suffix}` : ''}`)
   return {
     id: raw.id, title: raw.title, artist: raw.artist, duration: raw.duration,
     language: raw.language, genre: raw.genre, tags: raw.tags,
@@ -708,7 +783,140 @@ async function fetchSongDetail(id: string): Promise<SongbookSong> {
     videoFile: raw.video_file,
     lyrics: raw.lyrics,
     addedByUsername: raw.added_by_username,
+    queuedCountInSession: typeof raw.queued_count_in_session === 'number' ? raw.queued_count_in_session : 0,
+    wasQueuedInSession: raw.was_queued_in_session === true,
   }
+}
+
+async function fetchSessionQueue(sessionCode: string, token: string): Promise<SongQueueItem[]> {
+  const payload = await apiJson<SessionQueueListResponse>(`/sessions/${sessionCode}/queue`, {}, token)
+  return normalizeSessionQueueItems(payload.items)
+}
+
+async function fetchSessionWorkspace(sessionCode: string, token: string): Promise<SessionWorkspace> {
+  const raw = await apiJson<{
+    session: SessionRecord
+    websocket_status: string
+    player_connected: boolean
+    admin_connected_count: number
+    guest_connected_count: number
+  }>(`/sessions/${sessionCode}/workspace`, {}, token)
+  return {
+    session: raw.session,
+    websocketStatus: raw.websocket_status,
+    playerConnected: raw.player_connected,
+    adminConnectedCount: raw.admin_connected_count,
+    guestConnectedCount: raw.guest_connected_count,
+  }
+}
+
+async function fetchSessionParticipants(sessionCode: string, token: string): Promise<SessionParticipant[]> {
+  const raw = await apiJson<{
+    items: Array<{
+      user_id: string
+      username: string
+      pending_count: number
+      finished_count: number
+      skipped_count: number
+      total_count: number
+      is_online: boolean
+    }>
+  }>(`/sessions/${sessionCode}/participants`, {}, token)
+  return raw.items.map((item) => ({
+    userId: item.user_id,
+    username: item.username,
+    pendingCount: item.pending_count,
+    finishedCount: item.finished_count,
+    skippedCount: item.skipped_count,
+    totalCount: item.total_count,
+    isOnline: item.is_online,
+  }))
+}
+
+async function updateSessionMetadata(
+  sessionId: string,
+  token: string,
+  payload: { name?: string; vibes?: string },
+): Promise<SessionRecord> {
+  return apiJson<SessionRecord>(`/sessions/${sessionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }, token)
+}
+
+async function updateSongAdminDetails(
+  songId: string,
+  token: string,
+  payload: {
+    title: string
+    artist: string
+    language: string | null
+    genre: string | null
+    tags: string[]
+    lyrics: string | null
+    source_thumbnail_data_url?: string | null
+  },
+): Promise<SongbookSong> {
+  const raw = await apiJson<{
+    item: {
+      id: string; title: string; artist: string; duration: string
+      language: string | null; genre: string | null; tags: string[]
+      thumbnail_url: string | null; source_id: string | null; source_url: string | null
+      video_file: string | null; lyrics: string | null; added_by_username: string | null
+      queued_count_in_session?: number; was_queued_in_session?: boolean
+    }
+    message: string
+  }>(`/songs/${songId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  }, token)
+  const item = raw.item
+  return {
+    id: item.id,
+    title: item.title,
+    artist: item.artist,
+    duration: item.duration,
+    language: item.language,
+    genre: item.genre,
+    tags: item.tags,
+    thumbnailUrl: item.thumbnail_url,
+    sourceId: item.source_id,
+    sourceUrl: item.source_url,
+    videoFile: item.video_file,
+    lyrics: item.lyrics,
+    addedByUsername: item.added_by_username,
+    queuedCountInSession: typeof item.queued_count_in_session === 'number' ? item.queued_count_in_session : 0,
+    wasQueuedInSession: item.was_queued_in_session === true,
+  }
+}
+
+async function reserveSessionQueueSong(sessionCode: string, songId: string, token: string): Promise<void> {
+  await apiJson<{ message: string }>(`/sessions/${sessionCode}/queue`, {
+    method: 'POST',
+    body: JSON.stringify({ song_id: songId }),
+  }, token)
+}
+
+async function updateSessionQueueItem(
+  sessionCode: string,
+  queueId: string,
+  action: 'skip' | 'finish' | 'reorder',
+  token: string,
+  targetOrder?: number,
+): Promise<void> {
+  await apiJson<{ message: string }>(`/sessions/${sessionCode}/queue/${queueId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      action,
+      target_order: action === 'reorder' ? targetOrder : undefined,
+    }),
+  }, token)
+}
+
+async function cancelSessionQueueItem(sessionCode: string, queueId: string, token: string): Promise<void> {
+  await apiJson<{ message: string }>(`/sessions/${sessionCode}/queue/${queueId}`, {
+    method: 'DELETE',
+  }, token)
 }
 
 function authHeaders(token?: string): HeadersInit {
@@ -773,6 +981,54 @@ function normalizeDownloadProgressItems(payload: unknown): DownloadProgressItem[
   })
 }
 
+function normalizeSessionQueueItems(payload: unknown): SongQueueItem[] {
+  if (!Array.isArray(payload)) {
+    return []
+  }
+
+  return payload.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null) {
+      return []
+    }
+    const raw = entry as Record<string, unknown>
+    const status =
+      raw.status === 'pending' || raw.status === 'finished' || raw.status === 'skipped'
+        ? raw.status
+        : null
+    if (
+      typeof raw.id !== 'string' ||
+      typeof raw.session_id !== 'string' ||
+      typeof raw.song_id !== 'string' ||
+      typeof raw.title !== 'string' ||
+      typeof raw.artist !== 'string' ||
+      typeof raw.queue_order !== 'number' ||
+      status === null ||
+      typeof raw.reserved_at !== 'string'
+    ) {
+      return []
+    }
+
+    return [
+      {
+        id: raw.id,
+        sessionId: raw.session_id,
+        songId: raw.song_id,
+        title: raw.title,
+        artist: raw.artist,
+        duration: typeof raw.duration === 'string' && raw.duration !== '' ? raw.duration : null,
+        queueOrder: raw.queue_order,
+        status,
+        reservedByUsername:
+          typeof raw.reserved_by_username === 'string' && raw.reserved_by_username !== ''
+            ? raw.reserved_by_username
+            : null,
+        reservedAt: raw.reserved_at,
+        playedAt: typeof raw.played_at === 'string' && raw.played_at !== '' ? raw.played_at : null,
+      },
+    ]
+  })
+}
+
 function mergeDownloadProgressItems(
   previous: DownloadProgressItem[],
   incoming: DownloadProgressItem[],
@@ -800,6 +1056,182 @@ function formatDownloadStatus(status: DownloadProgressItem['status']): string {
     return 'Downloading'
   }
   return 'Error'
+}
+
+function formatQueueStatus(status: SongQueueItem['status']): string {
+  if (status === 'pending') {
+    return 'Pending'
+  }
+  if (status === 'finished') {
+    return 'Finished'
+  }
+  return 'Skipped'
+}
+
+function formatQueueTimestamp(value: string | null): string | null {
+  if (typeof value !== 'string' || value === '') {
+    return null
+  }
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return null
+  }
+  return parsed.toLocaleString()
+}
+
+type SongbookListItemProps = {
+  song: SongbookSong
+  onClick: () => void
+  badge?: ReactNode
+}
+
+function SongbookListItem({ song, onClick, badge }: SongbookListItemProps) {
+  return (
+    <article
+      className="queue-item songbook-item"
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onClick()
+        }
+      }}
+    >
+      {song.thumbnailUrl ? (
+        <img
+          className="songbook-thumbnail"
+          src={song.thumbnailUrl}
+          alt={song.title}
+          loading="lazy"
+        />
+      ) : (
+        <div className="songbook-thumbnail songbook-thumbnail--placeholder" />
+      )}
+      <div className="songbook-info">
+        <div className="songbook-item-header">
+          <strong>{song.title}</strong>
+          {badge !== undefined ? badge : null}
+        </div>
+        <p className="session-meta">
+          {song.artist}
+          {song.duration ? ` · ${song.duration}` : ''}
+        </p>
+      </div>
+    </article>
+  )
+}
+
+type DownloadProgressModalProps = {
+  isOpen: boolean
+  status: string
+  items: DownloadProgressItem[]
+  retryingSongIds: string[]
+  onClose: () => void
+  onRetryDownload: (songId: string) => void
+}
+
+function DownloadProgressModal({
+  isOpen,
+  status,
+  items,
+  retryingSongIds,
+  onClose,
+  onRetryDownload,
+}: DownloadProgressModalProps) {
+  if (!isOpen) {
+    return null
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} role="presentation">
+      <section
+        className="modal-card downloads-modal-card"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="modal-header">
+          <div>
+            <h2>Download Progress</h2>
+            <p className="subtitle">Status: {status}</p>
+          </div>
+          <button type="button" className="secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        <div className="downloads-modal-list top-gap">
+          {items.length === 0 ? (
+            <p className="empty-state">No active downloads.</p>
+          ) : (
+            items.map((item) => {
+              const isRetrying = retryingSongIds.includes(item.songId)
+              const progressValue =
+                item.progressPct !== null ? Math.max(0, Math.min(100, item.progressPct)) : 0
+              const statusText =
+                item.status === 'error'
+                  ? item.errorMessage ?? 'Download failed'
+                  : item.status === 'pending'
+                    ? 'Waiting in queue'
+                    : 'Downloading video'
+
+              return (
+                <article key={item.songId} className="downloads-progress-item">
+                  {item.sourceThumbnail ? (
+                    <img
+                      className="downloads-progress-thumb"
+                      src={item.sourceThumbnail}
+                      alt={item.title}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="downloads-progress-thumb downloads-progress-thumb--placeholder" />
+                  )}
+                  <div className="downloads-progress-content">
+                    <strong>{item.title}</strong>
+                    <p className="session-meta">
+                      {item.artist}
+                      {' · '}
+                      {item.duration ?? '--:--'}
+                    </p>
+                    <p className="session-meta">{item.addedByUsername ?? '—'}</p>
+                    <div className="downloads-progress-row">
+                      <div className="downloads-progress-bar-group">
+                        <progress
+                          className="downloads-progress-bar"
+                          max={100}
+                          value={progressValue}
+                        />
+                        <span className="downloads-progress-pct">{progressValue}%</span>
+                      </div>
+                      <span className={`badge download-status-badge ${item.status}`}>
+                        {formatDownloadStatus(item.status)}
+                      </span>
+                    </div>
+                    <p className="session-meta">{statusText}</p>
+                    {item.status === 'error' ? (
+                      <div className="downloads-actions">
+                        <button
+                          type="button"
+                          className="secondary small"
+                          onClick={() => onRetryDownload(item.songId)}
+                          disabled={isRetrying}
+                        >
+                          {isRetrying ? 'Retrying…' : 'Retry'}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </article>
+              )
+            })
+          )}
+        </div>
+      </section>
+    </div>
+  )
 }
 
 async function apiJson<T>(
@@ -1283,32 +1715,7 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
           ) : songs.length === 0 ? (
             <p className="empty-state">No songs found. Try suggesting a new one.</p>
           ) : (
-            songs.map((song) => (
-              <article
-                className="queue-item songbook-item"
-                key={song.id}
-                onClick={() => handleSongClick(song)}
-                style={{ cursor: 'pointer' }}
-              >
-                {song.thumbnailUrl ? (
-                  <img
-                    className="songbook-thumbnail"
-                    src={song.thumbnailUrl}
-                    alt={song.title}
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="songbook-thumbnail songbook-thumbnail--placeholder" />
-                )}
-                <div className="songbook-info">
-                  <strong>{song.title}</strong>
-                  <p className="session-meta">
-                    {song.artist}
-                    {song.duration ? ` · ${song.duration}` : ''}
-                  </p>
-                </div>
-              </article>
-            ))
+            songs.map((song) => <SongbookListItem key={song.id} song={song} onClick={() => handleSongClick(song)} />)
           )}
         </div>
 
@@ -1345,100 +1752,14 @@ function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageP
         </div>
       ) : null}
 
-      {isDownloadsModalOpen ? (
-        <div
-          className="modal-backdrop"
-          onClick={() => setIsDownloadsModalOpen(false)}
-          role="presentation"
-        >
-          <section
-            className="modal-card downloads-modal-card"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="modal-header">
-              <div>
-                <h2>Download Progress</h2>
-                <p className="subtitle">Status: {downloadsSocketStatus}</p>
-              </div>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setIsDownloadsModalOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="downloads-modal-list top-gap">
-              {downloadItems.length === 0 ? (
-                <p className="empty-state">No active downloads.</p>
-              ) : (
-                downloadItems.map((item) => {
-                  const isRetrying = retryingSongIds.includes(item.songId)
-                  const progressValue =
-                    item.progressPct !== null ? Math.max(0, Math.min(100, item.progressPct)) : 0
-                  const statusText =
-                    item.status === 'error'
-                      ? item.errorMessage ?? 'Download failed'
-                      : item.status === 'pending'
-                        ? 'Waiting in queue'
-                        : 'Downloading video'
-
-                  return (
-                    <article key={item.songId} className="downloads-progress-item">
-                      {item.sourceThumbnail ? (
-                        <img
-                          className="downloads-progress-thumb"
-                          src={item.sourceThumbnail}
-                          alt={item.title}
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="downloads-progress-thumb downloads-progress-thumb--placeholder" />
-                      )}
-                      <div className="downloads-progress-content">
-                        <strong>{item.title}</strong>
-                        <p className="session-meta">
-                          {item.artist}
-                          {' \u00b7 '}
-                          {item.duration ?? '--:--'}
-                        </p>
-                        <p className="session-meta">{item.addedByUsername ?? '—'}</p>
-                        <div className="downloads-progress-row">
-                          <div className="downloads-progress-bar-group">
-                            <progress
-                              className="downloads-progress-bar"
-                              max={100}
-                              value={progressValue}
-                            />
-                            <span className="downloads-progress-pct">{progressValue}%</span>
-                          </div>
-                          <span className={`badge download-status-badge ${item.status}`}>
-                            {formatDownloadStatus(item.status)}
-                          </span>
-                        </div>
-                        <p className="session-meta">{statusText}</p>
-                        {item.status === 'error' ? (
-                          <div className="downloads-actions">
-                            <button
-                              type="button"
-                              className="secondary small"
-                              onClick={() => handleRetryDownload(item.songId)}
-                              disabled={isRetrying}
-                            >
-                              {isRetrying ? 'Retrying…' : 'Retry'}
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    </article>
-                  )
-                })
-              )}
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <DownloadProgressModal
+        isOpen={isDownloadsModalOpen}
+        status={downloadsSocketStatus}
+        items={downloadItems}
+        retryingSongIds={retryingSongIds}
+        onClose={() => setIsDownloadsModalOpen(false)}
+        onRetryDownload={handleRetryDownload}
+      />
     </main>
   )
 }
@@ -2913,13 +3234,34 @@ function SessionControlPage({
   const params = useParams<{ sessionCode: string }>()
   const sessionCode = params.sessionCode ?? ''
   const [socketStatus, setSocketStatus] = useState('Connecting...')
-  const [queueItems, setQueueItems] = useState<SongQueueItem[]>(INITIAL_MOCK_QUEUE)
+  const [queueItems, setQueueItems] = useState<SongQueueItem[]>([])
   const [downloadsCount, setDownloadsCount] = useState(0)
+  const [downloadItems, setDownloadItems] = useState<DownloadProgressItem[]>([])
+  const [isDownloadsModalOpen, setIsDownloadsModalOpen] = useState(false)
+  const [retryingDownloadSongIds, setRetryingDownloadSongIds] = useState<string[]>([])
+  const [songbookItems, setSongbookItems] = useState<SongbookSong[]>([])
+  const [songbookQuery, setSongbookQuery] = useState('')
+  const [songbookPage, setSongbookPage] = useState(1)
+  const [songbookPages, setSongbookPages] = useState(1)
+  const [selectedSongId, setSelectedSongId] = useState('')
+  const [isMutatingQueue, setIsMutatingQueue] = useState(false)
+  const [isSavingSessionMeta, setIsSavingSessionMeta] = useState(false)
+  const [isSavingSongMeta, setIsSavingSongMeta] = useState(false)
+  const [volumePct, setVolumePct] = useState(70)
   const [playbackState, setPlaybackState] = useState<PlaybackState>({
     isPlaying: false,
     positionSeconds: 0,
   })
-  const [wsMessage, setWsMessage] = useState('')
+  const [workspace, setWorkspace] = useState<SessionWorkspace | null>(null)
+  const [participants, setParticipants] = useState<SessionParticipant[]>([])
+  const [sessionTitleInput, setSessionTitleInput] = useState('')
+  const [vibesInput, setVibesInput] = useState('')
+  const [isSessionEditorOpen, setIsSessionEditorOpen] = useState(false)
+  const [showQueueHistory, setShowQueueHistory] = useState(false)
+  const [mobileRightPanel, setMobileRightPanel] = useState<'songbook' | 'participants' | null>(null)
+  const [editingSong, setEditingSong] = useState<SongbookSong | null>(null)
+  const [editingSongThumbnailDataUrl, setEditingSongThumbnailDataUrl] = useState<string | null>(null)
+  const [, setWsMessage] = useState('')
   const socketRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
   const reconnectAttemptRef = useRef(0)
@@ -2935,6 +3277,7 @@ function SessionControlPage({
     [sessionCode, sessions],
   )
   const activeSessionCode = session?.session_code ?? null
+  const activeSessionId = session?.id ?? null
 
   useEffect(() => {
     refreshSessionsRef.current = onRefreshSessions
@@ -2955,6 +3298,240 @@ function SessionControlPage({
       }),
     )
   }, [sessionCode])
+
+  const refreshWorkspace = useCallback(async () => {
+    if (activeSessionCode === null) {
+      return
+    }
+    try {
+      const payload = await fetchSessionWorkspace(activeSessionCode, auth.accessToken)
+      setWorkspace(payload)
+      setSessionTitleInput(payload.session.name)
+      setVibesInput(payload.session.vibes ?? '')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load workspace metadata'
+      setWsMessage(message)
+    }
+  }, [activeSessionCode, auth.accessToken])
+
+  const refreshParticipants = useCallback(async () => {
+    if (activeSessionCode === null) {
+      return
+    }
+    try {
+      const payload = await fetchSessionParticipants(activeSessionCode, auth.accessToken)
+      setParticipants(payload)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load participants'
+      setWsMessage(message)
+    }
+  }, [activeSessionCode, auth.accessToken])
+
+  const refreshQueue = useCallback(async () => {
+    if (activeSessionCode === null) {
+      return
+    }
+    try {
+      const items = await fetchSessionQueue(activeSessionCode, auth.accessToken)
+      setQueueItems(items)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load session queue'
+      setWsMessage(message)
+    }
+  }, [activeSessionCode, auth.accessToken])
+
+  const loadSongbook = useCallback(async () => {
+    if (activeSessionCode === null || activeSessionId === null) {
+      return
+    }
+    try {
+      const response =
+        songbookQuery.trim() === ''
+          ? await fetchSongbook(songbookPage, 10, undefined, activeSessionId)
+          : await searchSongbook(songbookQuery.trim(), songbookPage, 10, undefined, activeSessionId)
+      setSongbookItems(response.items)
+      setSongbookPages(response.pages)
+      setSelectedSongId((current) => {
+        if (current !== '' && response.items.some((item) => item.id === current)) {
+          return current
+        }
+        return response.items[0]?.id ?? ''
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load songbook'
+      setWsMessage(message)
+    }
+  }, [activeSessionCode, activeSessionId, songbookPage, songbookQuery])
+
+  useEffect(() => {
+    if (activeSessionCode === null) {
+      return
+    }
+    void refreshQueue()
+    void loadSongbook()
+    void refreshWorkspace()
+    void refreshParticipants()
+  }, [activeSessionCode, refreshQueue, loadSongbook, refreshWorkspace, refreshParticipants])
+
+  const handleReserveSong = useCallback(async (songIdOverride?: string) => {
+    const songId = songIdOverride ?? selectedSongId
+    if (activeSessionCode === null || songId === '') {
+      return
+    }
+    setIsMutatingQueue(true)
+    setWsMessage('')
+    try {
+      await reserveSessionQueueSong(activeSessionCode, songId, auth.accessToken)
+      await refreshQueue()
+      await loadSongbook()
+      await refreshParticipants()
+      setWsMessage('Song reserved.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to reserve song'
+      setWsMessage(message)
+    } finally {
+      setIsMutatingQueue(false)
+    }
+  }, [activeSessionCode, auth.accessToken, loadSongbook, refreshParticipants, refreshQueue, selectedSongId])
+
+  const handleQueueAction = useCallback(
+    async (item: SongQueueItem, action: 'cancel' | 'skip' | 'finish' | 'move_up' | 'move_down') => {
+      if (activeSessionCode === null) {
+        return
+      }
+
+      setIsMutatingQueue(true)
+      setWsMessage('')
+      try {
+        if (action === 'cancel') {
+          await cancelSessionQueueItem(activeSessionCode, item.id, auth.accessToken)
+        } else if (action === 'skip' || action === 'finish') {
+          await updateSessionQueueItem(activeSessionCode, item.id, action, auth.accessToken)
+        } else {
+          const targetOrder = action === 'move_up' ? item.queueOrder - 1 : item.queueOrder + 1
+          await updateSessionQueueItem(activeSessionCode, item.id, 'reorder', auth.accessToken, targetOrder)
+        }
+        await refreshQueue()
+        await loadSongbook()
+        await refreshParticipants()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update queue'
+        setWsMessage(message)
+      } finally {
+        setIsMutatingQueue(false)
+      }
+    },
+    [activeSessionCode, auth.accessToken, loadSongbook, refreshParticipants, refreshQueue],
+  )
+
+  const handleSaveSessionVibes = useCallback(async () => {
+    if (session === null) {
+      return
+    }
+    setIsSavingSessionMeta(true)
+    try {
+      const updated = await updateSessionMetadata(session.id, auth.accessToken, {
+        name: sessionTitleInput,
+        vibes: vibesInput,
+      })
+      setWorkspace((previous) => (previous === null ? previous : { ...previous, session: updated }))
+      setSessionTitleInput(updated.name)
+      setVibesInput(updated.vibes ?? '')
+      setWsMessage('Session updated.')
+      setIsSessionEditorOpen(false)
+      onRefreshSessions()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update session vibes'
+      setWsMessage(message)
+    } finally {
+      setIsSavingSessionMeta(false)
+    }
+  }, [auth.accessToken, onRefreshSessions, session, sessionTitleInput, vibesInput])
+
+  const handleOpenSongEditor = useCallback(async (songId: string) => {
+    if (activeSessionCode === null || activeSessionId === null) {
+      return
+    }
+    try {
+      const detail = await fetchSongDetail(songId, undefined, activeSessionId)
+      setEditingSong(detail)
+      setEditingSongThumbnailDataUrl(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load song details'
+      setWsMessage(message)
+    }
+  }, [activeSessionCode, activeSessionId])
+
+  const handleSaveSongEditor = useCallback(async () => {
+    if (editingSong === null) {
+      return
+    }
+    setIsSavingSongMeta(true)
+    try {
+      const updated = await updateSongAdminDetails(editingSong.id, auth.accessToken, {
+        title: editingSong.title,
+        artist: editingSong.artist,
+        language: editingSong.language,
+        genre: editingSong.genre,
+        tags: editingSong.tags,
+        lyrics: editingSong.lyrics,
+        source_thumbnail_data_url: editingSongThumbnailDataUrl,
+      })
+      setEditingSong(updated)
+      await loadSongbook()
+      setWsMessage('Song metadata updated.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update song metadata'
+      setWsMessage(message)
+    } finally {
+      setIsSavingSongMeta(false)
+    }
+  }, [auth.accessToken, editingSong, editingSongThumbnailDataUrl, loadSongbook])
+
+  const handleRetryDownload = useCallback((songId: string) => {
+    setRetryingDownloadSongIds((current) => (current.includes(songId) ? current : [...current, songId]))
+    void apiJson<SongDownloadRetryResponse>(`/songs/downloads/${songId}/retry`, {
+      method: 'POST',
+    })
+      .then(() => {
+        setDownloadItems((items) =>
+          items.map((item) =>
+            item.songId === songId
+              ? {
+                  ...item,
+                  status: 'pending',
+                  progressPct: null,
+                  progressMessage: 'Waiting in queue',
+                  errorMessage: null,
+                }
+              : item,
+          ),
+        )
+      })
+      .finally(() => {
+        setRetryingDownloadSongIds((current) => current.filter((entry) => entry !== songId))
+      })
+  }, [])
+
+  const pendingQueueItems = useMemo(
+    () => queueItems.filter((item) => item.status === 'pending').sort((a, b) => a.queueOrder - b.queueOrder),
+    [queueItems],
+  )
+  const historyQueueItems = useMemo(
+    () => queueItems.filter((item) => item.status !== 'pending').sort((a, b) => b.queueOrder - a.queueOrder),
+    [queueItems],
+  )
+  const currentQueueSong = pendingQueueItems[0] ?? null
+  const visibleQueueItems = showQueueHistory ? historyQueueItems : pendingQueueItems
+  const mobilePanelTitle =
+    mobileRightPanel === 'songbook' ? 'Songbook panel opened.' : mobileRightPanel === 'participants' ? 'Participants panel opened.' : ''
+
+  const closeSongEditor = useCallback(() => {
+    if (isSavingSongMeta) {
+      return
+    }
+    setEditingSong(null)
+  }, [isSavingSongMeta])
 
   useEffect(() => {
     const clearReconnectTimer = () => {
@@ -3042,9 +3619,9 @@ function SessionControlPage({
 
         if (payload.type === 'queue.updated') {
           const items = payload.payload.items
-          if (Array.isArray(items)) {
-            setQueueItems(items as SongQueueItem[])
-          }
+          setQueueItems(normalizeSessionQueueItems(items))
+          void refreshParticipants()
+          void loadSongbook()
           return
         }
 
@@ -3052,6 +3629,9 @@ function SessionControlPage({
           const items = payload.payload.items
           if (Array.isArray(items)) {
             setDownloadsCount(items.length)
+            setDownloadItems((previous) =>
+              mergeDownloadProgressItems(previous, normalizeDownloadProgressItems(items)),
+            )
           }
           return
         }
@@ -3097,7 +3677,7 @@ function SessionControlPage({
       clearReconnectTimer()
       closeSocket()
     }
-  }, [activeSessionCode, auth.accessToken, navigate])
+  }, [activeSessionCode, auth.accessToken, loadSongbook, navigate, refreshParticipants])
 
   if (session === null) {
     return (
@@ -3114,89 +3694,392 @@ function SessionControlPage({
   }
 
   return (
-    <main className="app-shell">
-      <section className="card session-control-card">
-        <div className="card-header">
-          <div>
-            <h1>{session.name}</h1>
+    <main className="app-shell admin-session-shell">
+      <section className="card session-control-card session-workspace">
+        <div className="workspace-column workspace-column-left">
+          <section className="panel workspace-panel playback-panel">
+            <div className="panel-header">
+              <h2 className="session-heading">
+                {(workspace?.session.name ?? session.name) + ' \u2014 ' + session.session_code}
+              </h2>
+              <div className="row-actions">
+                <button
+                  type="button"
+                  className="icon-control-button"
+                  onClick={() => setIsSessionEditorOpen(true)}
+                  title="Edit session"
+                  aria-label="Edit session"
+                >
+                  <span className="material-symbols-outlined">edit</span>
+                </button>
+                <button
+                  type="button"
+                  className="icon-control-button"
+                  onClick={() => navigate('/admin/sessions')}
+                  title="Back to sessions"
+                  aria-label="Back to sessions"
+                >
+                  <span className="material-symbols-outlined">arrow_back</span>
+                </button>
+              </div>
+            </div>
             <p className="subtitle">
-              Session code: <code>{session.session_code}</code>
+              WebSocket: {socketStatus} · Player: {workspace?.playerConnected ? 'Connected' : 'Disconnected'}
             </p>
-            <p className="subtitle">WebSocket: {socketStatus}</p>
-          </div>
-          <div className="row-actions">
-            <button type="button" className="secondary" onClick={() => navigate('/admin/sessions')}>
-              Back
-            </button>
-            <button type="button" className="secondary" onClick={() => onArchiveSession(session.id)}>
-              End session
-            </button>
-          </div>
-        </div>
-
-        {wsMessage !== '' ? <p className="success-message">{wsMessage}</p> : null}
-
-        <div className="control-layout">
-          <section className="panel">
-            <h2>Playback</h2>
-            <p className="subtitle">
-              State: {playbackState.isPlaying ? 'Playing' : 'Paused'} · Position:{' '}
-              {playbackState.positionSeconds.toFixed(1)}s
-            </p>
-            <div className="playback-actions">
-              <button type="button" onClick={() => {
-                setPlaybackState((previous) => ({ ...previous, isPlaying: true }))
-                sendCommand('playback.play')
-              }}>
-                Play
+            {currentQueueSong ? (
+              <p className="session-meta">
+                Now queued next: <strong>{currentQueueSong.title}</strong> · {currentQueueSong.artist}
+              </p>
+            ) : (
+              <p className="session-meta">No pending songs in queue.</p>
+            )}
+            <div className="playback-actions compact">
+              <button
+                type="button"
+                className="icon-control-button"
+                onClick={() => {
+                  if (playbackState.isPlaying) {
+                    setPlaybackState((previous) => ({ ...previous, isPlaying: false }))
+                    sendCommand('playback.pause')
+                    return
+                  }
+                  setPlaybackState((previous) => ({ ...previous, isPlaying: true }))
+                  sendCommand('playback.play')
+                }}
+                title={playbackState.isPlaying ? 'Pause' : 'Play'}
+                aria-label={playbackState.isPlaying ? 'Pause' : 'Play'}
+              >
+                <span className="material-symbols-outlined">
+                  {playbackState.isPlaying ? 'pause' : 'play_arrow'}
+                </span>
               </button>
-              <button type="button" className="secondary" onClick={() => {
-                setPlaybackState((previous) => ({ ...previous, isPlaying: false }))
-                sendCommand('playback.pause')
-              }}>
-                Pause
+              <button
+                type="button"
+                className="icon-control-button"
+                onClick={() => {
+                  setPlaybackState((previous) => ({ ...previous, positionSeconds: 0 }))
+                  sendCommand('playback.skip')
+                }}
+                title="Next / Skip"
+                aria-label="Next / Skip"
+              >
+                <span className="material-symbols-outlined">skip_next</span>
               </button>
-              <button type="button" className="secondary" onClick={() => {
-                setPlaybackState((previous) => ({ ...previous, positionSeconds: 0 }))
-                sendCommand('playback.skip')
-              }}>
-                Skip
-              </button>
-              <button type="button" className="secondary" onClick={() => {
-                const nextPosition = playbackState.positionSeconds + 10
-                setPlaybackState((previous) => ({ ...previous, positionSeconds: nextPosition }))
-                sendCommand('playback.seek', { position_seconds: nextPosition })
-              }}>
-                Seek +10s
-              </button>
+            </div>
+            <div className="top-gap">
+              <input
+                className="playback-seek"
+                type="range"
+                min={0}
+                max={100}
+                value={Math.min(100, Math.max(0, playbackState.positionSeconds))}
+                onChange={(event) => {
+                  const nextPosition = Number(event.target.value)
+                  setPlaybackState((previous) => ({ ...previous, positionSeconds: nextPosition }))
+                  sendCommand('playback.seek', { position_seconds: nextPosition })
+                }}
+              />
+            </div>
+            <div className="volume-row top-gap">
+              <span className="material-symbols-outlined" aria-hidden="true">
+                {volumePct === 0 ? 'volume_off' : 'volume_up'}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={volumePct}
+                onChange={(event) => setVolumePct(Number(event.target.value))}
+                aria-label="Volume"
+              />
             </div>
           </section>
 
-          <section className="panel">
-            <div className="panel-header">
-              <h2>Queued Songs</h2>
-              <button type="button" className="secondary" onClick={() => setWsMessage('Songbook is mocked for now.')}>
-                Songbook
+          <section className="panel workspace-panel queue-panel">
+          <div className="panel-header">
+            <h2>Reserved / Queued Songs</h2>
+            <div className="row-actions">
+              <button
+                type="button"
+                className="secondary small"
+                onClick={() => setShowQueueHistory((value) => !value)}
+              >
+                {showQueueHistory ? 'Hide History' : 'History'}
+              </button>
+              <button type="button" className="secondary small mobile-only" onClick={() => setMobileRightPanel('songbook')}>
+                Open Songbook
+              </button>
+              <button type="button" className="secondary small mobile-only" onClick={() => setMobileRightPanel('participants')}>
+                Open Participants
               </button>
             </div>
-            <p className="subtitle">Download queue: {downloadsCount}</p>
-            <div className="queue-list">
-              {queueItems.length === 0 ? (
-                <p className="empty-state">No queued songs.</p>
+          </div>
+          <p className="subtitle">
+            Pending: {pendingQueueItems.length} · History: {historyQueueItems.length} · Downloads: {downloadsCount}
+          </p>
+          {mobilePanelTitle !== '' ? <p className="subtitle mobile-only">{mobilePanelTitle}</p> : null}
+          <div className="row-actions top-gap">
+            <select
+              value={selectedSongId}
+              onChange={(event) => setSelectedSongId(event.target.value)}
+              disabled={songbookItems.length === 0 || isMutatingQueue}
+            >
+              {songbookItems.length === 0 ? (
+                <option value="">No songbook entries</option>
               ) : (
-                queueItems.map((song) => (
-                  <article className="queue-item" key={song.id}>
-                    <strong>{song.title}</strong>
-                    <p className="session-meta">
-                      {song.artist} · {song.status}
-                    </p>
-                  </article>
+                songbookItems.map((song) => (
+                  <option key={song.id} value={song.id}>
+                    {song.title} · {song.artist}
+                  </option>
                 ))
               )}
+            </select>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => void handleReserveSong()}
+              disabled={selectedSongId === '' || isMutatingQueue}
+            >
+              {isMutatingQueue ? 'Working…' : 'Reserve Song'}
+            </button>
+          </div>
+          <div className="queue-list">
+            {visibleQueueItems.length === 0 ? (
+              <p className="empty-state">{showQueueHistory ? 'No history yet.' : 'No queued songs.'}</p>
+            ) : (
+              visibleQueueItems.map((song) => (
+                <article className="queue-item" key={song.id}>
+                  <strong>#{song.queueOrder} · {song.title}</strong>
+                  <p className="session-meta">
+                    {song.artist}{song.duration ? ` · ${song.duration}` : ''} · {formatQueueStatus(song.status)} · {song.reservedByUsername ?? 'unknown'}
+                  </p>
+                  <p className="session-meta queue-item-details">
+                    Reserved: {formatQueueTimestamp(song.reservedAt) ?? 'n/a'}
+                    {song.playedAt !== null ? ` · Played: ${formatQueueTimestamp(song.playedAt) ?? 'n/a'}` : ''}
+                  </p>
+                  {song.status === 'pending' ? (
+                    <div className="row-actions">
+                      <button type="button" className="secondary small" disabled={song.queueOrder <= 1 || isMutatingQueue} onClick={() => void handleQueueAction(song, 'move_up')}>Up</button>
+                      <button type="button" className="secondary small" disabled={isMutatingQueue || song.queueOrder >= pendingQueueItems.length} onClick={() => void handleQueueAction(song, 'move_down')}>Down</button>
+                      <button type="button" className="secondary small" disabled={isMutatingQueue} onClick={() => void handleQueueAction(song, 'skip')}>Skip</button>
+                      <button type="button" className="secondary small" disabled={isMutatingQueue} onClick={() => void handleQueueAction(song, 'finish')}>Finish</button>
+                      <button type="button" className="secondary small" disabled={isMutatingQueue} onClick={() => void handleQueueAction(song, 'cancel')}>Cancel</button>
+                    </div>
+                  ) : null}
+                </article>
+              ))
+            )}
+          </div>
+          </section>
+        </div>
+
+        <div className="workspace-column workspace-column-right">
+          <section className={`panel workspace-panel songbook-panel ${mobileRightPanel === 'songbook' ? 'mobile-visible mobile-right-panel-open' : 'mobile-hidden'}`}>
+          <div className="panel-header songbook-panel-header">
+            <div className="songbook-header-row">
+              <input
+                className="songbook-search-input"
+                value={songbookQuery}
+                onChange={(event) => {
+                  setSongbookQuery(event.target.value)
+                  setSongbookPage(1)
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    void loadSongbook()
+                  }
+                }}
+                placeholder="Search songs..."
+              />
+            </div>
+            <div className="row-actions">
+              <button
+                type="button"
+                className="icon-control-button"
+                onClick={() => setIsDownloadsModalOpen(true)}
+                title="Downloads"
+                aria-label="Downloads"
+              >
+                <span className="material-symbols-outlined">download</span>
+              </button>
+              <button
+                type="button"
+                className="icon-control-button"
+                onClick={() => navigate('/songbook/suggest/search')}
+                title="Suggest a song"
+                aria-label="Suggest a song"
+              >
+                <span className="material-symbols-outlined">auto_awesome</span>
+              </button>
+              <button type="button" className="secondary small mobile-only" onClick={() => setMobileRightPanel(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+          <div className="songbook-body">
+            <div className="songbook-scrollframe">
+              <div className="queue-list songbook-list">
+                {songbookItems.map((song) => (
+                  <SongbookListItem
+                    key={song.id}
+                    song={song}
+                    onClick={() => void handleOpenSongEditor(song.id)}
+                    badge={song.wasQueuedInSession ? <span className="badge active">Queued ×{Math.max(song.queuedCountInSession, 1)}</span> : undefined}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+          {songbookPages > 1 ? (
+            <div className="pagination songbook-pagination">
+              <button
+                type="button"
+                className="secondary"
+                disabled={songbookPage <= 1}
+                onClick={() => setSongbookPage((current) => Math.max(1, current - 1))}
+              >
+                ← Prev
+              </button>
+              <span className="pagination-info">
+                Page {songbookPage} of {songbookPages}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={songbookPage >= songbookPages}
+                onClick={() => setSongbookPage((current) => Math.min(songbookPages, current + 1))}
+              >
+                Next →
+              </button>
+            </div>
+          ) : null}
+          </section>
+
+          <section className={`panel workspace-panel participants-panel ${mobileRightPanel === 'participants' ? 'mobile-visible mobile-right-panel-open' : 'mobile-hidden'}`}>
+          <div className="panel-header">
+            <h2>Participants</h2>
+            <div className="row-actions">
+              <button type="button" className="secondary small" onClick={() => void refreshParticipants()}>
+                Refresh
+              </button>
+              <button type="button" className="secondary small mobile-only" onClick={() => setMobileRightPanel(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+          <div className="queue-list top-gap">
+            {participants.length === 0 ? (
+              <p className="empty-state">No participants with queued songs yet.</p>
+            ) : (
+              participants.map((participant) => (
+                <article key={participant.userId} className="queue-item">
+                  <div className="panel-header">
+                    <strong>{participant.username}</strong>
+                    <span className={`badge ${participant.isOnline ? 'active' : 'inactive'}`}>
+                      {participant.isOnline ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
+                  <p className="session-meta">
+                    Pending: {participant.pendingCount} · Finished: {participant.finishedCount} · Skipped: {participant.skippedCount} · Total: {participant.totalCount}
+                  </p>
+                </article>
+              ))
+            )}
+          </div>
+          </section>
+        </div>
+        <DownloadProgressModal
+          isOpen={isDownloadsModalOpen}
+          status={socketStatus}
+          items={downloadItems}
+          retryingSongIds={retryingDownloadSongIds}
+          onClose={() => setIsDownloadsModalOpen(false)}
+          onRetryDownload={handleRetryDownload}
+        />
+      </section>
+
+      {isSessionEditorOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setIsSessionEditorOpen(false)}>
+          <section className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Session Editor</h2>
+              <button
+                type="button"
+                className="secondary"
+                disabled={isSavingSessionMeta}
+                onClick={() => setIsSessionEditorOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="form top-gap">
+              <label>
+                Session Title
+                <input
+                  value={sessionTitleInput}
+                  onChange={(event) => setSessionTitleInput(event.target.value)}
+                  placeholder="Friday Night"
+                />
+              </label>
+              <label>
+                Session Vibes
+                <input
+                  value={vibesInput}
+                  onChange={(event) => setVibesInput(event.target.value)}
+                  placeholder="anime, high-energy, nostalgic"
+                />
+              </label>
+            </div>
+            <div className="row-actions top-gap">
+              <button type="button" disabled={isSavingSessionMeta} onClick={() => void handleSaveSessionVibes()}>
+                {isSavingSessionMeta ? 'Saving…' : 'Save'}
+              </button>
+              <button type="button" className="secondary" onClick={() => onArchiveSession(session.id)} disabled={isSavingSessionMeta}>
+                End Session
+              </button>
             </div>
           </section>
         </div>
-      </section>
+      ) : null}
+
+      {editingSong !== null ? (
+        <div className="modal-backdrop" role="presentation" onClick={closeSongEditor}>
+          <section className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Edit Song</h2>
+              <button type="button" className="secondary" onClick={closeSongEditor} disabled={isSavingSongMeta}>Close</button>
+            </div>
+            <div className="form top-gap">
+              <label>Title<input value={editingSong.title} onChange={(event) => setEditingSong({ ...editingSong, title: event.target.value })} /></label>
+              <label>Artist<input value={editingSong.artist} onChange={(event) => setEditingSong({ ...editingSong, artist: event.target.value })} /></label>
+              <label>Language<input value={editingSong.language ?? ''} onChange={(event) => setEditingSong({ ...editingSong, language: event.target.value || null })} /></label>
+              <label>Genre<input value={editingSong.genre ?? ''} onChange={(event) => setEditingSong({ ...editingSong, genre: event.target.value || null })} /></label>
+              <label>Tags (comma-separated)<input value={editingSong.tags.join(', ')} onChange={(event) => setEditingSong({ ...editingSong, tags: splitChipInput(event.target.value) })} /></label>
+              <label>Lyrics<textarea value={editingSong.lyrics ?? ''} onChange={(event) => setEditingSong({ ...editingSong, lyrics: event.target.value || null })} /></label>
+              <label>
+                Thumbnail image
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    if (file === undefined) {
+                      return
+                    }
+                    void readFileAsDataUrl(file).then((dataUrl) => setEditingSongThumbnailDataUrl(dataUrl))
+                  }}
+                />
+              </label>
+            </div>
+            <div className="row-actions top-gap">
+              <button type="button" onClick={() => void handleSaveSongEditor()} disabled={isSavingSongMeta}>
+                {isSavingSongMeta ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   )
 }

@@ -4,6 +4,7 @@ import math
 import os
 import re
 import uuid
+from pathlib import Path
 
 import yt_dlp
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -14,11 +15,13 @@ from sqlalchemy.orm import Session
 from ..agents.orchestrator import OrchestratorAgent
 from ..config import settings
 from ..db import get_db
-from ..models import Song, SongDownload, User
+from ..models import Session as KaraokeSession, Song, SongDownload, SongQueue, User
 from ..schemas import (
     SongDownloadListResponse,
     SongbookItem,
     SongbookListResponse,
+    SongAdminUpdateRequest,
+    SongAdminUpdateResponse,
     SongSuggestDownloadRequest,
     SongSuggestDownloadResponse,
     SongSuggestEnhanceRequest,
@@ -34,11 +37,15 @@ from ..schemas import (
 )
 from ..services.auth import get_current_user, require_admin_user
 from ..services.download_queue import list_active_download_items
+from ..services.thumbnail_service import convert_base64_to_jpg, save_thumbnail
+from ..services.ytdlp.naming import normalize_song_title
 from ..services.songs_download import extract_youtube_video_id, run_song_download
+from ..services.sessions import get_active_session_by_code
 
 router = APIRouter(prefix="/api/songs", tags=["songs"])
 logger = logging.getLogger(__name__)
 SUGGEST_KEYWORD_REGEX = re.compile(r"\b(karaoke|instrumental|off[\s-]?vocal)\b|カラオケ", re.IGNORECASE)
+FILENAME_TOKEN_SANITIZER_REGEX = re.compile(r"[^a-zA-Z0-9_-]+")
 
 
 def _format_duration(seconds: int | float | None) -> str:
@@ -125,6 +132,11 @@ def _normalize_entries(values: list[str], lowercase: bool = False) -> list[str]:
         seen.add(entry)
         normalized.append(entry)
     return normalized
+
+
+def _sanitize_filename_token(value: str) -> str:
+    token = FILENAME_TOKEN_SANITIZER_REGEX.sub("_", value.strip()).strip("_")
+    return token or "song"
 
 
 def _require_songbook_user(user: User = Depends(get_current_user)) -> User:
@@ -647,7 +659,60 @@ def _load_added_by_usernames(db: Session, songs: list[Song]) -> dict[uuid.UUID, 
     return {user_id: username for user_id, username in rows}
 
 
-def _song_to_item(song: Song, added_by_username: str | None = None) -> SongbookItem:
+def _load_session_song_counts(
+    db: Session,
+    session: KaraokeSession | None,
+    songs: list[Song],
+) -> dict[uuid.UUID, int]:
+    if session is None or len(songs) == 0:
+        return {}
+    rows = db.query(SongQueue.song_id, func.count(SongQueue.id)).filter(
+        SongQueue.session_id == session.id,
+        SongQueue.song_id.in_([song.id for song in songs]),
+    ).group_by(SongQueue.song_id).all()
+    return {song_id: int(count) for song_id, count in rows}
+
+
+def _load_session_queue_song_ids(db: Session, session: KaraokeSession | None) -> set[uuid.UUID]:
+    if session is None:
+        return set()
+    rows = db.query(SongQueue.song_id).filter(
+        SongQueue.session_id == session.id,
+        SongQueue.status == "pending",
+    ).all()
+    return {song_id for (song_id,) in rows}
+
+
+def _parse_vibe_terms(vibes: str | None) -> list[str]:
+    if vibes is None:
+        return []
+
+    terms = [entry.strip() for entry in re.split(r"[,;/\n|]+", vibes) if entry.strip() != ""]
+    return terms
+
+
+def _resolve_songbook_session(
+    db: Session,
+    session_id: uuid.UUID | None,
+    session_code: str | None,
+) -> KaraokeSession | None:
+    if session_id is not None:
+        session = db.get(KaraokeSession, session_id)
+        if session is not None and session.archived_at is None:
+            return session
+        return None
+
+    if session_code is None or session_code == "":
+        return None
+
+    return get_active_session_by_code(db, session_code)
+
+
+def _song_to_item(
+    song: Song,
+    added_by_username: str | None = None,
+    queued_count_in_session: int = 0,
+) -> SongbookItem:
     return SongbookItem(
         id=song.id,
         title=song.title,
@@ -662,6 +727,8 @@ def _song_to_item(song: Song, added_by_username: str | None = None) -> SongbookI
         video_file=song.video_file,
         lyrics=song.lyrics,
         added_by_username=added_by_username,
+        queued_count_in_session=queued_count_in_session,
+        was_queued_in_session=queued_count_in_session > 0,
     )
 
 
@@ -673,19 +740,47 @@ def _song_to_item(song: Song, added_by_username: str | None = None) -> SongbookI
 def list_songs(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    session_id: uuid.UUID | None = Query(default=None, alias="sessionId"),
+    session_code: str | None = Query(default=None, min_length=6, max_length=6),
     db: Session = Depends(get_db),
 ):
-    base_query = (
-        db.query(Song)
-        .filter(Song.status == "published", Song.archived_at.is_(None))
-        .order_by(Song.published_at.desc())
-    )
+    session = _resolve_songbook_session(db, session_id, session_code)
+    queued_song_ids = _load_session_queue_song_ids(db, session)
+
+    base_query = db.query(Song).filter(Song.status == "published", Song.archived_at.is_(None))
+    if len(queued_song_ids) > 0:
+        base_query = base_query.filter(~Song.id.in_(queued_song_ids))
+
+    vibe_terms = _parse_vibe_terms(session.vibes if session is not None else None)
+    if len(vibe_terms) > 0:
+        vibe_filters = []
+        for term in vibe_terms:
+            pattern = f"%{term}%"
+            vibe_filters.append(
+                or_(
+                    Song.title.ilike(pattern),
+                    Song.artist.ilike(pattern),
+                    Song.genre.ilike(pattern),
+                    Song.tags.ilike(pattern),
+                )
+            )
+        base_query = base_query.filter(or_(*vibe_filters))
+
+    base_query = base_query.order_by(func.lower(Song.title), func.lower(Song.artist), Song.id)
     total = base_query.count()
     pages = max(1, math.ceil(total / limit))
     items = base_query.offset((page - 1) * limit).limit(limit).all()
     added_by_usernames = _load_added_by_usernames(db, items)
+    session_song_counts = _load_session_song_counts(db, session, items)
     return SongbookListResponse(
-        items=[_song_to_item(s, added_by_usernames.get(s.added_by)) for s in items],
+        items=[
+            _song_to_item(
+                s,
+                added_by_usernames.get(s.added_by),
+                session_song_counts.get(s.id, 0),
+            )
+            for s in items
+        ],
         total=total,
         page=page,
         pages=pages,
@@ -701,8 +796,11 @@ def search_songs(
     q: str = Query("", alias="q"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    session_id: uuid.UUID | None = Query(default=None, alias="sessionId"),
+    session_code: str | None = Query(default=None, min_length=6, max_length=6),
     db: Session = Depends(get_db),
 ):
+    session = _resolve_songbook_session(db, session_id, session_code)
     base_query = (
         db.query(Song)
         .filter(Song.status == "published", Song.archived_at.is_(None))
@@ -718,13 +816,21 @@ def search_songs(
                 Song.tags.ilike(pattern),
             )
         )
-    base_query = base_query.order_by(Song.published_at.desc())
+    base_query = base_query.order_by(func.lower(Song.title), func.lower(Song.artist), Song.id)
     total = base_query.count()
     pages = max(1, math.ceil(total / limit))
     items = base_query.offset((page - 1) * limit).limit(limit).all()
     added_by_usernames = _load_added_by_usernames(db, items)
+    session_song_counts = _load_session_song_counts(db, session, items)
     return SongbookListResponse(
-        items=[_song_to_item(s, added_by_usernames.get(s.added_by)) for s in items],
+        items=[
+            _song_to_item(
+                s,
+                added_by_usernames.get(s.added_by),
+                session_song_counts.get(s.id, 0),
+            )
+            for s in items
+        ],
         total=total,
         page=page,
         pages=pages,
@@ -739,6 +845,8 @@ def search_songs(
 @router.get("/{song_id}", response_model=SongbookItem)
 def get_song(
     song_id: str,
+    session_id: uuid.UUID | None = Query(default=None, alias="sessionId"),
+    session_code: str | None = Query(default=None, min_length=6, max_length=6),
     db: Session = Depends(get_db),
 ):
     import uuid as _uuid
@@ -759,4 +867,60 @@ def get_song(
         .filter(User.id == song.added_by)
         .scalar()
     )
-    return _song_to_item(song, added_by_username)
+    session = _resolve_songbook_session(db, session_id, session_code)
+    session_song_counts = _load_session_song_counts(db, session, [song])
+    return _song_to_item(song, added_by_username, session_song_counts.get(song.id, 0))
+
+
+@router.patch("/{song_id}", response_model=SongAdminUpdateResponse)
+def patch_song(
+    song_id: str,
+    payload: SongAdminUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    import uuid as _uuid
+
+    try:
+        uid = _uuid.UUID(song_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    song = (
+        db.query(Song)
+        .filter(Song.id == uid, Song.status == "published", Song.archived_at.is_(None))
+        .first()
+    )
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    normalized_title = payload.title.strip()
+    normalized_artist = payload.artist.strip()
+    if normalized_title == "" or normalized_artist == "":
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Title and artist cannot be empty")
+
+    song.title = normalized_title
+    song.artist = normalized_artist
+    song.language = payload.language.strip() if isinstance(payload.language, str) and payload.language.strip() != "" else None
+    song.genre = payload.genre.strip() if isinstance(payload.genre, str) and payload.genre.strip() != "" else None
+    song.tags = ",".join([entry.strip() for entry in payload.tags if entry.strip() != ""]) or None
+    song.lyrics = payload.lyrics.strip() if isinstance(payload.lyrics, str) and payload.lyrics.strip() != "" else None
+    song.last_modified_by = current_user.id
+
+    if isinstance(payload.source_thumbnail_data_url, str) and payload.source_thumbnail_data_url.strip() != "":
+        try:
+            source_token = _sanitize_filename_token(song.source_id) if song.source_id else str(song.id)
+            thumbnail_filename = f"{normalize_song_title(song.title)}[{source_token}].jpg"
+            thumbnail_data = convert_base64_to_jpg(payload.source_thumbnail_data_url)
+            save_thumbnail(thumbnail_data, thumbnail_filename, Path(settings.media_root_dir))
+            song.thumbnail_file = thumbnail_filename
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid thumbnail data: {exc}") from exc
+
+    db.commit()
+    db.refresh(song)
+    added_by_username = db.query(User.username).filter(User.id == song.added_by).scalar()
+    return SongAdminUpdateResponse(
+        item=_song_to_item(song, added_by_username, 0),
+        message="Song updated",
+    )

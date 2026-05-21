@@ -29,6 +29,7 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
   - id (primary key)
   - session_code (6-digit code for players to join)
   - name
+  - vibe
   - created_at
   - updated_at
   - archived_at (nullable; if not null, session is considered archived and won't be joined by new Player Apps)
@@ -57,10 +58,10 @@ Unlike the original Singalong Karaoke system, I want this to be less restrictive
   - status (e.g. `draft`, `downloading`, `published`, `archived`, `error`; error means the download failed)
   - published_at (nullable; null by default, until the song is downloaded and video_file is available)
   - archived_at (nullable; if not null, song is considered archived and won't be shown in the songbook for new reservations; useful when status is `error`, so we can keep the record for tracking but hide it from users, and the admin can fix it)
-- Reservations
+- SongQueue
   - id (primary key)
-  - session_id (foreign key to Sessions)
-  - song_id (foreign key to Songs)
+  - session_id (foreign key to Sessions, where the song is reserved to be played)
+  - song_id (foreign key to Songs, the song that is reserved)
   - order (integer to determine the position in the queue)
   - status (e.g., `pending`, `finished`, `skipped`)
   - reserved_by (name or identifier of the person who made the reservation)
