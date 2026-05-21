@@ -897,28 +897,6 @@ async function reserveSessionQueueSong(sessionCode: string, songId: string, toke
   }, token)
 }
 
-async function updateSessionQueueItem(
-  sessionCode: string,
-  queueId: string,
-  action: 'skip' | 'finish' | 'reorder',
-  token: string,
-  targetOrder?: number,
-): Promise<void> {
-  await apiJson<{ message: string }>(`/sessions/${sessionCode}/queue/${queueId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      action,
-      target_order: action === 'reorder' ? targetOrder : undefined,
-    }),
-  }, token)
-}
-
-async function cancelSessionQueueItem(sessionCode: string, queueId: string, token: string): Promise<void> {
-  await apiJson<{ message: string }>(`/sessions/${sessionCode}/queue/${queueId}`, {
-    method: 'DELETE',
-  }, token)
-}
-
 function authHeaders(token?: string): HeadersInit {
   if (token === undefined) {
     return {}
@@ -1083,44 +1061,91 @@ type SongbookListItemProps = {
   song: SongbookSong
   onClick: () => void
   badge?: ReactNode
+  isMenuOpen?: boolean
+  onReserve?: () => void
+  onEditDetails?: () => void
 }
 
-function SongbookListItem({ song, onClick, badge }: SongbookListItemProps) {
+function SongbookListItem({
+  song,
+  onClick,
+  badge,
+  isMenuOpen = false,
+  onReserve,
+  onEditDetails,
+}: SongbookListItemProps) {
   return (
-    <article
-      className="queue-item songbook-item"
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onClick()
-        }
-      }}
-    >
-      {song.thumbnailUrl ? (
-        <img
-          className="songbook-thumbnail"
-          src={song.thumbnailUrl}
-          alt={song.title}
-          loading="lazy"
-        />
-      ) : (
-        <div className="songbook-thumbnail songbook-thumbnail--placeholder" />
-      )}
-      <div className="songbook-info">
-        <div className="songbook-item-header">
-          <strong>{song.title}</strong>
-          {badge !== undefined ? badge : null}
+    <div className="songbook-item-shell">
+      <article
+        className="queue-item songbook-item"
+        role="button"
+        tabIndex={0}
+        onClick={onClick}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onClick()
+          }
+        }}
+      >
+        {song.thumbnailUrl ? (
+          <img
+            className="songbook-thumbnail"
+            src={song.thumbnailUrl}
+            alt={song.title}
+            loading="lazy"
+          />
+        ) : (
+          <div className="songbook-thumbnail songbook-thumbnail--placeholder" />
+        )}
+        <div className="songbook-info">
+          <div className="songbook-item-header">
+            <strong>{song.title}</strong>
+            {badge !== undefined ? badge : null}
+          </div>
+          <p className="session-meta">
+            {song.artist}
+            {song.duration ? ` · ${song.duration}` : ''}
+          </p>
         </div>
-        <p className="session-meta">
-          {song.artist}
-          {song.duration ? ` · ${song.duration}` : ''}
-        </p>
-      </div>
-    </article>
+      </article>
+      {isMenuOpen ? (
+        <div className="context-menu songbook-context-menu" onClick={(event) => event.stopPropagation()} role="menu">
+          <button type="button" onClick={onReserve} disabled={onReserve === undefined} role="menuitem">
+            Reserve
+          </button>
+          <button type="button" onClick={onEditDetails} disabled={onEditDetails === undefined} role="menuitem">
+            Edit Details
+          </button>
+        </div>
+      ) : null}
+    </div>
   )
+}
+
+function buildCompactPagination(page: number, totalPages: number): Array<number | 'ellipsis'> {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1)
+  }
+
+  const pages = new Set<number>([1, 2, totalPages - 1, totalPages])
+  for (let offset = -1; offset <= 1; offset += 1) {
+    const candidate = page + offset
+    if (candidate >= 1 && candidate <= totalPages) {
+      pages.add(candidate)
+    }
+  }
+
+  const ordered = Array.from(pages).sort((left, right) => left - right)
+  const items: Array<number | 'ellipsis'> = []
+  ordered.forEach((value, index) => {
+    const previous = ordered[index - 1]
+    if (previous !== undefined && value - previous > 1) {
+      items.push('ellipsis')
+    }
+    items.push(value)
+  })
+  return items
 }
 
 type DownloadProgressModalProps = {
@@ -3235,7 +3260,6 @@ function SessionControlPage({
   const sessionCode = params.sessionCode ?? ''
   const [socketStatus, setSocketStatus] = useState('Connecting...')
   const [queueItems, setQueueItems] = useState<SongQueueItem[]>([])
-  const [downloadsCount, setDownloadsCount] = useState(0)
   const [downloadItems, setDownloadItems] = useState<DownloadProgressItem[]>([])
   const [isDownloadsModalOpen, setIsDownloadsModalOpen] = useState(false)
   const [retryingDownloadSongIds, setRetryingDownloadSongIds] = useState<string[]>([])
@@ -3243,8 +3267,6 @@ function SessionControlPage({
   const [songbookQuery, setSongbookQuery] = useState('')
   const [songbookPage, setSongbookPage] = useState(1)
   const [songbookPages, setSongbookPages] = useState(1)
-  const [selectedSongId, setSelectedSongId] = useState('')
-  const [isMutatingQueue, setIsMutatingQueue] = useState(false)
   const [isSavingSessionMeta, setIsSavingSessionMeta] = useState(false)
   const [isSavingSongMeta, setIsSavingSongMeta] = useState(false)
   const [volumePct, setVolumePct] = useState(70)
@@ -3259,6 +3281,7 @@ function SessionControlPage({
   const [isSessionEditorOpen, setIsSessionEditorOpen] = useState(false)
   const [showQueueHistory, setShowQueueHistory] = useState(false)
   const [mobileRightPanel, setMobileRightPanel] = useState<'songbook' | 'participants' | null>(null)
+  const [activeSongMenuId, setActiveSongMenuId] = useState<string | null>(null)
   const [editingSong, setEditingSong] = useState<SongbookSong | null>(null)
   const [editingSongThumbnailDataUrl, setEditingSongThumbnailDataUrl] = useState<string | null>(null)
   const [, setWsMessage] = useState('')
@@ -3351,12 +3374,6 @@ function SessionControlPage({
           : await searchSongbook(songbookQuery.trim(), songbookPage, 10, undefined, activeSessionId)
       setSongbookItems(response.items)
       setSongbookPages(response.pages)
-      setSelectedSongId((current) => {
-        if (current !== '' && response.items.some((item) => item.id === current)) {
-          return current
-        }
-        return response.items[0]?.id ?? ''
-      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load songbook'
       setWsMessage(message)
@@ -3373,12 +3390,10 @@ function SessionControlPage({
     void refreshParticipants()
   }, [activeSessionCode, refreshQueue, loadSongbook, refreshWorkspace, refreshParticipants])
 
-  const handleReserveSong = useCallback(async (songIdOverride?: string) => {
-    const songId = songIdOverride ?? selectedSongId
+  const handleReserveSong = useCallback(async (songId: string) => {
     if (activeSessionCode === null || songId === '') {
       return
     }
-    setIsMutatingQueue(true)
     setWsMessage('')
     try {
       await reserveSessionQueueSong(activeSessionCode, songId, auth.accessToken)
@@ -3389,40 +3404,8 @@ function SessionControlPage({
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to reserve song'
       setWsMessage(message)
-    } finally {
-      setIsMutatingQueue(false)
     }
-  }, [activeSessionCode, auth.accessToken, loadSongbook, refreshParticipants, refreshQueue, selectedSongId])
-
-  const handleQueueAction = useCallback(
-    async (item: SongQueueItem, action: 'cancel' | 'skip' | 'finish' | 'move_up' | 'move_down') => {
-      if (activeSessionCode === null) {
-        return
-      }
-
-      setIsMutatingQueue(true)
-      setWsMessage('')
-      try {
-        if (action === 'cancel') {
-          await cancelSessionQueueItem(activeSessionCode, item.id, auth.accessToken)
-        } else if (action === 'skip' || action === 'finish') {
-          await updateSessionQueueItem(activeSessionCode, item.id, action, auth.accessToken)
-        } else {
-          const targetOrder = action === 'move_up' ? item.queueOrder - 1 : item.queueOrder + 1
-          await updateSessionQueueItem(activeSessionCode, item.id, 'reorder', auth.accessToken, targetOrder)
-        }
-        await refreshQueue()
-        await loadSongbook()
-        await refreshParticipants()
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to update queue'
-        setWsMessage(message)
-      } finally {
-        setIsMutatingQueue(false)
-      }
-    },
-    [activeSessionCode, auth.accessToken, loadSongbook, refreshParticipants, refreshQueue],
-  )
+  }, [activeSessionCode, auth.accessToken, loadSongbook, refreshParticipants, refreshQueue])
 
   const handleSaveSessionVibes = useCallback(async () => {
     if (session === null) {
@@ -3452,6 +3435,7 @@ function SessionControlPage({
     if (activeSessionCode === null || activeSessionId === null) {
       return
     }
+    setActiveSongMenuId(null)
     try {
       const detail = await fetchSongDetail(songId, undefined, activeSessionId)
       setEditingSong(detail)
@@ -3523,8 +3507,6 @@ function SessionControlPage({
   )
   const currentQueueSong = pendingQueueItems[0] ?? null
   const visibleQueueItems = showQueueHistory ? historyQueueItems : pendingQueueItems
-  const mobilePanelTitle =
-    mobileRightPanel === 'songbook' ? 'Songbook panel opened.' : mobileRightPanel === 'participants' ? 'Participants panel opened.' : ''
 
   const closeSongEditor = useCallback(() => {
     if (isSavingSongMeta) {
@@ -3532,6 +3514,17 @@ function SessionControlPage({
     }
     setEditingSong(null)
   }, [isSavingSongMeta])
+
+  const activeSongMenu = useMemo(
+    () => songbookItems.find((song) => song.id === activeSongMenuId) ?? null,
+    [activeSongMenuId, songbookItems],
+  )
+
+  useEffect(() => {
+    if (activeSongMenuId !== null && activeSongMenu === null) {
+      setActiveSongMenuId(null)
+    }
+  }, [activeSongMenu, activeSongMenuId])
 
   useEffect(() => {
     const clearReconnectTimer = () => {
@@ -3628,7 +3621,6 @@ function SessionControlPage({
         if (payload.type === 'downloads.updated') {
           const items = payload.payload.items
           if (Array.isArray(items)) {
-            setDownloadsCount(items.length)
             setDownloadItems((previous) =>
               mergeDownloadProgressItems(previous, normalizeDownloadProgressItems(items)),
             )
@@ -3703,6 +3695,12 @@ function SessionControlPage({
                 {(workspace?.session.name ?? session.name) + ' \u2014 ' + session.session_code}
               </h2>
               <div className="row-actions">
+                <button type="button" className="secondary small mobile-only" onClick={() => setMobileRightPanel('songbook')}>
+                  Open Songbook
+                </button>
+                <button type="button" className="secondary small mobile-only" onClick={() => setMobileRightPanel('participants')}>
+                  Open Participants
+                </button>
                 <button
                   type="button"
                   className="icon-control-button"
@@ -3796,164 +3794,159 @@ function SessionControlPage({
           </section>
 
           <section className="panel workspace-panel queue-panel">
-          <div className="panel-header">
-            <h2>Reserved / Queued Songs</h2>
-            <div className="row-actions">
-              <button
-                type="button"
-                className="secondary small"
-                onClick={() => setShowQueueHistory((value) => !value)}
-              >
-                {showQueueHistory ? 'Hide History' : 'History'}
-              </button>
-              <button type="button" className="secondary small mobile-only" onClick={() => setMobileRightPanel('songbook')}>
-                Open Songbook
-              </button>
-              <button type="button" className="secondary small mobile-only" onClick={() => setMobileRightPanel('participants')}>
-                Open Participants
-              </button>
+            <div className="panel-header queue-panel-header">
+              <h2>Queue</h2>
+              <div className="row-actions">
+                <button
+                  type="button"
+                  className="icon-control-button"
+                  onClick={() => setShowQueueHistory((value) => !value)}
+                  title={showQueueHistory ? 'Hide history' : 'Show history'}
+                  aria-label={showQueueHistory ? 'Hide history' : 'Show history'}
+                >
+                  <span className="material-symbols-outlined">history</span>
+                </button>
+              </div>
             </div>
-          </div>
-          <p className="subtitle">
-            Pending: {pendingQueueItems.length} · History: {historyQueueItems.length} · Downloads: {downloadsCount}
-          </p>
-          {mobilePanelTitle !== '' ? <p className="subtitle mobile-only">{mobilePanelTitle}</p> : null}
-          <div className="row-actions top-gap">
-            <select
-              value={selectedSongId}
-              onChange={(event) => setSelectedSongId(event.target.value)}
-              disabled={songbookItems.length === 0 || isMutatingQueue}
-            >
-              {songbookItems.length === 0 ? (
-                <option value="">No songbook entries</option>
-              ) : (
-                songbookItems.map((song) => (
-                  <option key={song.id} value={song.id}>
-                    {song.title} · {song.artist}
-                  </option>
-                ))
-              )}
-            </select>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => void handleReserveSong()}
-              disabled={selectedSongId === '' || isMutatingQueue}
-            >
-              {isMutatingQueue ? 'Working…' : 'Reserve Song'}
-            </button>
-          </div>
-          <div className="queue-list">
-            {visibleQueueItems.length === 0 ? (
-              <p className="empty-state">{showQueueHistory ? 'No history yet.' : 'No queued songs.'}</p>
-            ) : (
-              visibleQueueItems.map((song) => (
-                <article className="queue-item" key={song.id}>
-                  <strong>#{song.queueOrder} · {song.title}</strong>
-                  <p className="session-meta">
-                    {song.artist}{song.duration ? ` · ${song.duration}` : ''} · {formatQueueStatus(song.status)} · {song.reservedByUsername ?? 'unknown'}
-                  </p>
-                  <p className="session-meta queue-item-details">
-                    Reserved: {formatQueueTimestamp(song.reservedAt) ?? 'n/a'}
-                    {song.playedAt !== null ? ` · Played: ${formatQueueTimestamp(song.playedAt) ?? 'n/a'}` : ''}
-                  </p>
-                  {song.status === 'pending' ? (
-                    <div className="row-actions">
-                      <button type="button" className="secondary small" disabled={song.queueOrder <= 1 || isMutatingQueue} onClick={() => void handleQueueAction(song, 'move_up')}>Up</button>
-                      <button type="button" className="secondary small" disabled={isMutatingQueue || song.queueOrder >= pendingQueueItems.length} onClick={() => void handleQueueAction(song, 'move_down')}>Down</button>
-                      <button type="button" className="secondary small" disabled={isMutatingQueue} onClick={() => void handleQueueAction(song, 'skip')}>Skip</button>
-                      <button type="button" className="secondary small" disabled={isMutatingQueue} onClick={() => void handleQueueAction(song, 'finish')}>Finish</button>
-                      <button type="button" className="secondary small" disabled={isMutatingQueue} onClick={() => void handleQueueAction(song, 'cancel')}>Cancel</button>
-                    </div>
-                  ) : null}
-                </article>
-              ))
-            )}
-          </div>
+            <div className="queue-body">
+              <div className="queue-scrollframe">
+                <div className="queue-list">
+                  {visibleQueueItems.length === 0 ? (
+                    <p className="empty-state">{showQueueHistory ? 'No history yet.' : 'No queued songs.'}</p>
+                  ) : (
+                    visibleQueueItems.map((song) => (
+                      <article className="queue-item" key={song.id}>
+                        <strong>#{song.queueOrder} · {song.title}</strong>
+                        <p className="session-meta">
+                          {song.artist}
+                          {song.duration ? ` · ${song.duration}` : ''}
+                          {' · '}
+                          {formatQueueStatus(song.status)}
+                        </p>
+                        <p className="session-meta queue-item-details">
+                          Reserved by {song.reservedByUsername ?? 'unknown'}
+                          {' · '}
+                          Reserved: {formatQueueTimestamp(song.reservedAt) ?? 'n/a'}
+                          {song.playedAt !== null ? ` · Played: ${formatQueueTimestamp(song.playedAt) ?? 'n/a'}` : ''}
+                        </p>
+                      </article>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
           </section>
         </div>
 
         <div className="workspace-column workspace-column-right">
           <section className={`panel workspace-panel songbook-panel ${mobileRightPanel === 'songbook' ? 'mobile-visible mobile-right-panel-open' : 'mobile-hidden'}`}>
-          <div className="panel-header songbook-panel-header">
-            <div className="songbook-header-row">
-              <input
-                className="songbook-search-input"
-                value={songbookQuery}
-                onChange={(event) => {
-                  setSongbookQuery(event.target.value)
-                  setSongbookPage(1)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    void loadSongbook()
-                  }
-                }}
-                placeholder="Search songs..."
-              />
-            </div>
-            <div className="row-actions">
-              <button
-                type="button"
-                className="icon-control-button"
-                onClick={() => setIsDownloadsModalOpen(true)}
-                title="Downloads"
-                aria-label="Downloads"
-              >
-                <span className="material-symbols-outlined">download</span>
-              </button>
-              <button
-                type="button"
-                className="icon-control-button"
-                onClick={() => navigate('/songbook/suggest/search')}
-                title="Suggest a song"
-                aria-label="Suggest a song"
-              >
-                <span className="material-symbols-outlined">auto_awesome</span>
-              </button>
-              <button type="button" className="secondary small mobile-only" onClick={() => setMobileRightPanel(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-          <div className="songbook-body">
-            <div className="songbook-scrollframe">
-              <div className="queue-list songbook-list">
-                {songbookItems.map((song) => (
-                  <SongbookListItem
-                    key={song.id}
-                    song={song}
-                    onClick={() => void handleOpenSongEditor(song.id)}
-                    badge={song.wasQueuedInSession ? <span className="badge active">Queued ×{Math.max(song.queuedCountInSession, 1)}</span> : undefined}
-                  />
-                ))}
+            <div className="panel-header songbook-panel-header">
+              <div className="songbook-header-row">
+                <input
+                  className="songbook-search-input"
+                  value={songbookQuery}
+                  onChange={(event) => {
+                    setSongbookQuery(event.target.value)
+                    setSongbookPage(1)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void loadSongbook()
+                    }
+                  }}
+                  placeholder="Search songs..."
+                />
+              </div>
+              <div className="row-actions">
+                <button
+                  type="button"
+                  className="icon-control-button"
+                  onClick={() => setIsDownloadsModalOpen(true)}
+                  title="Downloads"
+                  aria-label="Downloads"
+                >
+                  <span className="material-symbols-outlined">download</span>
+                </button>
+                <button
+                  type="button"
+                  className="icon-control-button"
+                  onClick={() => navigate('/songbook/suggest/search')}
+                  title="Suggest a song"
+                  aria-label="Suggest a song"
+                >
+                  <span className="material-symbols-outlined">auto_awesome</span>
+                </button>
+                <button type="button" className="secondary small mobile-only" onClick={() => setMobileRightPanel(null)}>
+                  Close
+                </button>
               </div>
             </div>
-          </div>
-          {songbookPages > 1 ? (
-            <div className="pagination songbook-pagination">
-              <button
-                type="button"
-                className="secondary"
-                disabled={songbookPage <= 1}
-                onClick={() => setSongbookPage((current) => Math.max(1, current - 1))}
-              >
-                ← Prev
-              </button>
-              <span className="pagination-info">
-                Page {songbookPage} of {songbookPages}
-              </span>
-              <button
-                type="button"
-                className="secondary"
-                disabled={songbookPage >= songbookPages}
-                onClick={() => setSongbookPage((current) => Math.min(songbookPages, current + 1))}
-              >
-                Next →
-              </button>
+            <div className="songbook-body">
+              <div className="songbook-scrollframe">
+                <div className="queue-list songbook-list">
+                  {songbookItems.map((song) => (
+                    <SongbookListItem
+                      key={song.id}
+                      song={song}
+                      onClick={() => {
+                        setActiveSongMenuId((current) => (current === song.id ? null : song.id))
+                      }}
+                      isMenuOpen={activeSongMenuId === song.id}
+                      onReserve={() => {
+                        setActiveSongMenuId(null)
+                        void handleReserveSong(song.id)
+                      }}
+                      onEditDetails={() => void handleOpenSongEditor(song.id)}
+                      badge={song.wasQueuedInSession ? <span className="badge active">Queued ×{Math.max(song.queuedCountInSession, 1)}</span> : undefined}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
-          ) : null}
+            {songbookPages > 1 ? (
+              <div className="pagination songbook-pagination">
+                <button
+                  type="button"
+                  className="icon-control-button pagination-arrow-button"
+                  disabled={songbookPage <= 1}
+                  onClick={() => setSongbookPage((current) => Math.max(1, current - 1))}
+                  title="Previous page"
+                  aria-label="Previous page"
+                >
+                  <span className="material-symbols-outlined">chevron_left</span>
+                </button>
+                <div className="pagination-pages">
+                  {buildCompactPagination(songbookPage, songbookPages).map((item, index) =>
+                    item === 'ellipsis' ? (
+                      <span className="pagination-ellipsis" key={`ellipsis-${index}`}>
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={item}
+                        type="button"
+                        className={`pagination-page-button ${item === songbookPage ? 'active' : ''}`}
+                        onClick={() => setSongbookPage(item)}
+                        aria-current={item === songbookPage ? 'page' : undefined}
+                      >
+                        {item}
+                      </button>
+                    ),
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="icon-control-button pagination-arrow-button"
+                  disabled={songbookPage >= songbookPages}
+                  onClick={() => setSongbookPage((current) => Math.min(songbookPages, current + 1))}
+                  title="Next page"
+                  aria-label="Next page"
+                >
+                  <span className="material-symbols-outlined">chevron_right</span>
+                </button>
+              </div>
+            ) : null}
           </section>
 
           <section className={`panel workspace-panel participants-panel ${mobileRightPanel === 'participants' ? 'mobile-visible mobile-right-panel-open' : 'mobile-hidden'}`}>
@@ -4044,34 +4037,125 @@ function SessionControlPage({
       ) : null}
 
       {editingSong !== null ? (
-        <div className="modal-backdrop" role="presentation" onClick={closeSongEditor}>
-          <section className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-backdrop song-detail-backdrop" role="presentation" onClick={closeSongEditor}>
+          <section
+            className="modal-card song-detail-modal song-editor-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingSong.title}
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="modal-header">
-              <h2>Edit Song</h2>
-              <button type="button" className="secondary" onClick={closeSongEditor} disabled={isSavingSongMeta}>Close</button>
+              <div>
+                <h2>Edit Song Details</h2>
+                <p className="subtitle">{editingSong.artist}</p>
+              </div>
+              <button type="button" className="secondary" onClick={closeSongEditor} disabled={isSavingSongMeta}>
+                Close
+              </button>
             </div>
-            <div className="form top-gap">
-              <label>Title<input value={editingSong.title} onChange={(event) => setEditingSong({ ...editingSong, title: event.target.value })} /></label>
-              <label>Artist<input value={editingSong.artist} onChange={(event) => setEditingSong({ ...editingSong, artist: event.target.value })} /></label>
-              <label>Language<input value={editingSong.language ?? ''} onChange={(event) => setEditingSong({ ...editingSong, language: event.target.value || null })} /></label>
-              <label>Genre<input value={editingSong.genre ?? ''} onChange={(event) => setEditingSong({ ...editingSong, genre: event.target.value || null })} /></label>
-              <label>Tags (comma-separated)<input value={editingSong.tags.join(', ')} onChange={(event) => setEditingSong({ ...editingSong, tags: splitChipInput(event.target.value) })} /></label>
-              <label>Lyrics<textarea value={editingSong.lyrics ?? ''} onChange={(event) => setEditingSong({ ...editingSong, lyrics: event.target.value || null })} /></label>
-              <label>
-                Thumbnail image
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    if (file === undefined) {
-                      return
-                    }
-                    void readFileAsDataUrl(file).then((dataUrl) => setEditingSongThumbnailDataUrl(dataUrl))
-                  }}
-                />
-              </label>
+
+            <div className="song-detail-layout song-editor-layout">
+              <div className="song-detail-video-panel">
+                {editingSong.videoFile ? (
+                  <video
+                    controls
+                    className="song-detail-video"
+                    src={`/media/songs/${editingSong.videoFile}`}
+                  />
+                ) : (
+                  <p className="empty-state">Video not available.</p>
+                )}
+              </div>
+
+              <div className="song-detail-panels song-editor-panels">
+                <div className="song-detail-summary-panel">
+                  <div className="song-detail-header-row song-editor-header-row">
+                    {editingSong.thumbnailUrl ? (
+                      <img
+                        className="song-detail-thumbnail song-detail-thumbnail--small"
+                        src={editingSong.thumbnailUrl}
+                        alt={editingSong.title}
+                      />
+                    ) : (
+                      <div className="song-detail-thumbnail song-detail-thumbnail--small song-detail-thumbnail--placeholder" />
+                    )}
+
+                    <div className="song-detail-meta song-editor-meta">
+                      <input
+                        className="song-editor-input song-editor-input--title"
+                        value={editingSong.title}
+                        onChange={(event) => setEditingSong({ ...editingSong, title: event.target.value })}
+                        placeholder="Title"
+                        aria-label="Title"
+                      />
+                      <input
+                        className="song-editor-input song-editor-input--artist"
+                        value={editingSong.artist}
+                        onChange={(event) => setEditingSong({ ...editingSong, artist: event.target.value })}
+                        placeholder="Artist"
+                        aria-label="Artist"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="song-editor-meta-grid top-gap">
+                    <label>
+                      Language
+                      <input
+                        className="song-editor-input"
+                        value={editingSong.language ?? ''}
+                        onChange={(event) => setEditingSong({ ...editingSong, language: event.target.value || null })}
+                        placeholder="Language"
+                      />
+                    </label>
+                    <label>
+                      Genre
+                      <input
+                        className="song-editor-input"
+                        value={editingSong.genre ?? ''}
+                        onChange={(event) => setEditingSong({ ...editingSong, genre: event.target.value || null })}
+                        placeholder="Genre"
+                      />
+                    </label>
+                    <label className="song-editor-meta-grid-wide">
+                      Tags (comma-separated)
+                      <input
+                        className="song-editor-input"
+                        value={editingSong.tags.join(', ')}
+                        onChange={(event) => setEditingSong({ ...editingSong, tags: splitChipInput(event.target.value) })}
+                        placeholder="tag one, tag two"
+                      />
+                    </label>
+                    <label className="song-editor-meta-grid-wide">
+                      Thumbnail image
+                      <input
+                        className="song-editor-file-input"
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0]
+                          if (file === undefined) {
+                            return
+                          }
+                          void readFileAsDataUrl(file).then((dataUrl) => setEditingSongThumbnailDataUrl(dataUrl))
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="song-detail-lyrics-panel">
+                  <h3>Lyrics</h3>
+                  <textarea
+                    value={editingSong.lyrics ?? ''}
+                    onChange={(event) => setEditingSong({ ...editingSong, lyrics: event.target.value || null })}
+                    placeholder="Lyrics"
+                  />
+                </div>
+              </div>
             </div>
+
             <div className="row-actions top-gap">
               <button type="button" onClick={() => void handleSaveSongEditor()} disabled={isSavingSongMeta}>
                 {isSavingSongMeta ? 'Saving…' : 'Save'}
