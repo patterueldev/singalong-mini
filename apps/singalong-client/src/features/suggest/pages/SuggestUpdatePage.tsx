@@ -1,0 +1,622 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useSuggestService } from '../hooks/useSuggestService'
+import { ChipField } from '../components/ChipField'
+import { BlockingHud } from '../components/BlockingHud'
+import { LANGUAGE_OPTIONS } from '../../../shared/config/client'
+import { readFileAsDataUrl } from '../../../shared/lib/files'
+import { normalizeLanguageCodeForUi } from '../../../shared/lib/format'
+import {
+  normalizeTagList,
+  splitChipInput,
+} from '../../../shared/lib/suggest'
+import { clearSuggestDraft } from '../../../shared/storage/suggestStorage'
+import type {
+  SuggestDraft,
+  SuggestMetadataSuggestionsResponse,
+} from '../../../shared/types/client'
+
+type SuggestUpdatePageProps = {
+  nickname: string
+  authToken: string
+  draft: SuggestDraft
+  onDraftChange: (draft: SuggestDraft) => void
+  onDownload: (title: string) => void
+  onCancel: () => void
+}
+
+export function SuggestUpdatePage({
+  nickname,
+  authToken,
+  draft,
+  onDraftChange,
+  onDownload,
+  onCancel,
+}: SuggestUpdatePageProps) {
+  const navigate = useNavigate()
+  const {
+    download: suggestDownload,
+    enhance: suggestEnhance,
+    metadataSuggestions: suggestMetadataSuggestions,
+  } = useSuggestService()
+  const [originalDraft] = useState(draft)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isEnhancing, setIsEnhancing] = useState(false)
+  const [enhanceMessage, setEnhanceMessage] = useState('')
+  const [genreInput, setGenreInput] = useState(draft.genre)
+  const [tagInput, setTagInput] = useState('')
+  const [metadataSuggestions, setMetadataSuggestions] = useState<SuggestMetadataSuggestionsResponse>({
+    genres: [],
+    tags: [],
+  })
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const thumbnailFileInputRef = useRef<HTMLInputElement>(null)
+  const previewUrl =
+    draft.source_thumbnail_data_url !== '' ? draft.source_thumbnail_data_url : draft.source_thumbnail
+
+  const updateDraft = useCallback(
+    (patch: Partial<SuggestDraft>) => {
+      const nextDraft = { ...draft, ...patch }
+      onDraftChange({
+        ...nextDraft,
+        genre: nextDraft.genre.trim(),
+        tags: normalizeTagList(nextDraft.tags),
+      })
+    },
+    [draft, onDraftChange],
+  )
+
+  const commitTags = useCallback(() => {
+    const nextValues = splitChipInput(tagInput, (entry) => entry.trim().toLowerCase())
+    if (nextValues.length === 0) {
+      return
+    }
+
+    updateDraft({ tags: normalizeTagList([...draft.tags, ...nextValues]) })
+    setTagInput('')
+  }, [draft.tags, tagInput, updateDraft])
+
+  useEffect(() => {
+    let isStale = false
+    void suggestMetadataSuggestions('', authToken)
+      .then((payload) => {
+        if (isStale) {
+          return
+        }
+        setMetadataSuggestions({
+          genres: payload.genres,
+          tags: normalizeTagList(payload.tags),
+        })
+      })
+      .catch(() => {
+        if (!isStale) {
+          setMetadataSuggestions({ genres: [], tags: [] })
+        }
+      })
+    return () => {
+      isStale = true
+    }
+  }, [authToken])
+
+  useEffect(() => {
+    const keyword = genreInput.trim()
+    if (keyword === '') {
+      return
+    }
+
+    let isStale = false
+    const timeoutId = window.setTimeout(() => {
+      void suggestMetadataSuggestions(keyword, authToken)
+        .then((payload) => {
+          if (isStale) {
+            return
+          }
+          setMetadataSuggestions((current) => ({
+            ...current,
+            genres: payload.genres,
+          }))
+        })
+        .catch(() => {
+          // Keep existing suggestions on transient failures.
+        })
+    }, 250)
+
+    return () => {
+      isStale = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [authToken, genreInput])
+
+  useEffect(() => {
+    const keyword = tagInput.trim()
+    if (keyword === '') {
+      return
+    }
+
+    let isStale = false
+    const timeoutId = window.setTimeout(() => {
+      void suggestMetadataSuggestions(keyword, authToken)
+        .then((payload) => {
+          if (isStale) {
+            return
+          }
+          setMetadataSuggestions((current) => ({
+            ...current,
+            tags: normalizeTagList(payload.tags),
+          }))
+        })
+        .catch(() => {
+          // Keep existing suggestions on transient failures.
+        })
+    }, 250)
+
+    return () => {
+      isStale = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [authToken, tagInput])
+
+  const handleThumbnailUpload = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.currentTarget.files?.[0] ?? null
+      if (file === null) {
+        return
+      }
+
+      try {
+        const dataUrl = await readFileAsDataUrl(file)
+        updateDraft({ source_thumbnail_data_url: dataUrl })
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Unable to load image file')
+      } finally {
+        event.currentTarget.value = ''
+        setContextMenu(null)
+      }
+    },
+    [updateDraft],
+  )
+
+  const openLyricsSearch = useCallback(() => {
+    const search = `${draft.title.trim()} lyrics`.trim()
+    window.open(`https://www.google.com/search?q=${encodeURIComponent(search)}`, '_blank', 'noopener,noreferrer')
+  }, [draft.title])
+
+  const previewOnYoutube = useCallback(() => {
+    window.open(draft.source_url, '_blank', 'noopener,noreferrer')
+  }, [draft.source_url])
+
+  const handleEnhance = useCallback(async () => {
+    setIsEnhancing(true)
+    setEnhanceMessage('')
+    try {
+      const response = await suggestEnhance(draft, authToken)
+      if (response.status === 'success' || response.status === 'degraded') {
+        const enhanced = response.enhanced
+        updateDraft({
+          title: enhanced.title,
+          artist: enhanced.artist,
+          language: enhanced.language || '',
+          is_off_vocal: enhanced.is_off_vocal,
+          video_has_lyrics: enhanced.video_has_lyrics,
+          genre: enhanced.genre || '',
+          tags: enhanced.tags || [],
+        })
+        setEnhanceMessage(response.status === 'degraded' ? '✓ Enhanced (partial)' : '✓ Enhanced successfully!')
+        setTimeout(() => setEnhanceMessage(''), 3000)
+      } else {
+        setEnhanceMessage('Enhancement failed')
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Enhancement failed'
+      setEnhanceMessage(`Error: ${message}`)
+    } finally {
+      setIsEnhancing(false)
+    }
+  }, [draft, authToken, updateDraft])
+
+  const confirmExitUpdate = useCallback(
+    (onConfirmed: () => void) => {
+      const shouldLeave = window.confirm(
+        'Leave Song Details? All current changes will be lost.',
+      )
+      if (!shouldLeave) {
+        return
+      }
+      clearSuggestDraft()
+      onCancel()
+      onConfirmed()
+    },
+    [onCancel],
+  )
+
+  return (
+    <main className="app-shell">
+      <section className="card suggest-update-card">
+        <div className="card-header">
+          <div>
+            <h1>Suggest · Update Details</h1>
+            <p className="subtitle">
+              Signed in as <strong>{nickname}</strong>
+            </p>
+          </div>
+          <div className="row-actions">
+            <button
+              type="button"
+              className="secondary"
+              disabled={isEnhancing || isSubmitting}
+              onClick={() => {
+                confirmExitUpdate(() => {
+                  navigate('/songbook')
+                })
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+        <div className="row-actions top-gap">
+          <button
+            type="button"
+            className="youtube-button"
+            disabled={isEnhancing || isSubmitting}
+            onClick={previewOnYoutube}
+          >
+            Preview on Youtube
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={isEnhancing || isSubmitting}
+            onClick={handleEnhance}
+            title={isEnhancing ? 'Enhancing...' : 'Use AI to enhance song metadata'}
+          >
+            {isEnhancing ? 'Enhancing...' : 'Enhance'} <span aria-hidden="true">✦</span>
+          </button>
+          {enhanceMessage && (
+            <span className="enhance-message" style={{ color: enhanceMessage.startsWith('Error') ? '#d32f2f' : '#4caf50' }}>
+              {enhanceMessage}
+            </span>
+          )}
+        </div>
+        <form
+          className="form top-gap"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const submitter = (event.nativeEvent as SubmitEvent).submitter as
+              | HTMLButtonElement
+              | null
+            if (submitter?.dataset.action !== 'download') {
+              return
+            }
+            setErrorMessage('')
+            setIsSubmitting(true)
+            void suggestDownload(draft, authToken)
+              .then(() => {
+                onDownload(draft.title)
+                clearSuggestDraft()
+                setIsSubmitting(false)
+                navigate('/songbook')
+              })
+              .catch((error: unknown) => {
+                const message = error instanceof Error ? error.message : 'Download failed'
+                setErrorMessage(message)
+                setIsSubmitting(false)
+              })
+          }}
+        >
+          <div className="suggest-update-layout">
+            <section className="panel thumbnail-panel">
+            <h2>Thumbnail</h2>
+            <div
+              className="thumbnail-preview"
+              onClick={(e) => {
+                const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+                setContextMenu({ x: rect.left, y: rect.top + rect.height })
+              }}
+              style={{ cursor: 'pointer', position: 'relative' }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+                  setContextMenu({ x: rect.left, y: rect.top + rect.height })
+                }
+              }}
+            >
+              {previewUrl !== '' ? (
+                <img src={previewUrl} alt={draft.title} />
+              ) : (
+                <div className="thumbnail-placeholder">No thumbnail available</div>
+              )}
+              <div style={{ position: 'absolute', bottom: 8, right: 8 }}>
+                <div style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: '50%',
+                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: 20,
+                }}>
+                  📷
+                </div>
+              </div>
+            </div>
+
+            {contextMenu && (
+              <div
+                style={{
+                  position: 'fixed',
+                  top: contextMenu.y,
+                  left: contextMenu.x,
+                  backgroundColor: 'var(--surface-secondary)',
+                  border: '1px solid var(--border-primary)',
+                  borderRadius: 8,
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
+                  zIndex: 1000,
+                  minWidth: 180,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    thumbnailFileInputRef.current?.click()
+                    setContextMenu(null)
+                  }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '10px 16px',
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--surface-input)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  Upload Thumbnail
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateDraft({
+                      source_thumbnail_data_url: originalDraft.source_thumbnail_data_url,
+                      source_thumbnail: originalDraft.source_thumbnail,
+                    })
+                    setContextMenu(null)
+                  }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '10px 16px',
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    borderTop: '1px solid var(--border-primary)',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--surface-input)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  Reset Thumbnail
+                </button>
+              </div>
+            )}
+            {contextMenu && (
+              <div
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 999,
+                }}
+                onClick={() => setContextMenu(null)}
+              />
+            )}
+
+            <input
+              ref={thumbnailFileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleThumbnailUpload}
+              style={{ display: 'none' }}
+            />
+          </section>
+
+          <section className="panel">
+            <h2>Song Details</h2>
+            <div className="form">
+              <label>
+                Title
+                <input
+                  value={draft.title}
+                  onChange={(event) => updateDraft({ title: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Artist
+                <input
+                  value={draft.artist}
+                  onChange={(event) => updateDraft({ artist: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Language
+                <select
+                  value={normalizeLanguageCodeForUi(draft.language) || 'other'}
+                  onChange={(event) => updateDraft({ language: event.target.value })}
+                >
+                  {LANGUAGE_OPTIONS.map((option) => (
+                    <option key={option.code} value={option.code}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="checkbox-grid">
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={draft.is_off_vocal}
+                    onChange={(event) => updateDraft({ is_off_vocal: event.target.checked })}
+                  />
+                  Is Off Vocal
+                </label>
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={draft.video_has_lyrics}
+                    onChange={(event) => updateDraft({ video_has_lyrics: event.target.checked })}
+                  />
+                  Video Has Lyrics
+                </label>
+              </div>
+              <p className="subtitle">
+                Source URL:{' '}
+                <a href={draft.source_url} target="_blank" rel="noreferrer">
+                  {draft.source_url}
+                </a>
+              </p>
+              <p className="subtitle">
+                Source ID: <code>{draft.source_id}</code>
+              </p>
+              <p className="subtitle">
+                Source: <code>{draft.source}</code>
+              </p>
+            </div>
+          </section>
+
+          <section className="panel full-span">
+            <label>
+              Genre
+              <input
+                value={draft.genre}
+                list="genre-suggestions"
+                onChange={(event) => {
+                  const nextValue = event.target.value
+                  setGenreInput(nextValue)
+                  updateDraft({ genre: nextValue })
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                  }
+                }}
+                placeholder="Pop, ballad, rock..."
+                required
+              />
+              {metadataSuggestions.genres.length > 0 ? (
+                <datalist id="genre-suggestions">
+                  {metadataSuggestions.genres
+                    .filter((suggestion) => suggestion !== draft.genre)
+                    .map((suggestion) => (
+                      <option key={suggestion} value={suggestion} />
+                    ))}
+                </datalist>
+              ) : null}
+              {metadataSuggestions.genres.length > 0 ? (
+                <div className="chip-suggestion-list top-gap">
+                  {metadataSuggestions.genres
+                    .filter((suggestion) => suggestion !== draft.genre)
+                    .map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        className="chip-suggestion"
+                        onClick={() => {
+                          setGenreInput(suggestion)
+                          updateDraft({ genre: suggestion })
+                        }}
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                </div>
+              ) : null}
+              <span className="field-help">Add at least one genre.</span>
+            </label>
+            <div className="top-gap">
+              <ChipField
+                label="Tags"
+                values={draft.tags}
+                inputValue={tagInput}
+                placeholder="romantic, duet, female vocal..."
+                helperText="Optional tags (saved as lowercase) separated by commas or Enter."
+                datalistId="tag-suggestions"
+                suggestions={metadataSuggestions.tags.filter((item) => !draft.tags.includes(item))}
+                onInputValueChange={setTagInput}
+                onCommitValue={commitTags}
+                onSelectSuggestion={(value) => {
+                  updateDraft({ tags: normalizeTagList([...draft.tags, value]) })
+                  setTagInput('')
+                }}
+                onRemoveValue={(value) =>
+                  updateDraft({ tags: draft.tags.filter((item) => item !== value) })
+                }
+              />
+            </div>
+          </section>
+
+          <section className="panel full-span">
+            <div className="panel-header">
+              <h2>Lyrics</h2>
+              <button type="button" className="secondary" onClick={openLyricsSearch}>
+                Search Lyrics on Google
+              </button>
+            </div>
+            <label className="top-gap">
+              Lyrics
+              <textarea
+                value={draft.lyrics}
+                onChange={(event) => updateDraft({ lyrics: event.target.value })}
+                rows={10}
+                placeholder="Paste lyrics here..."
+              />
+            </label>
+          </section>
+        </div>
+        <div className="row-actions top-gap">
+          <button
+            type="submit"
+            data-action="download"
+            disabled={isSubmitting || draft.genre.trim() === '' || isEnhancing}
+          >
+            {isSubmitting ? 'Saving…' : 'Download'}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={isEnhancing || isSubmitting}
+            onClick={() => {
+              confirmExitUpdate(() => {
+                navigate('/songbook/suggest/search')
+              })
+            }}
+          >
+            Back
+          </button>
+          {draft.genre.trim() === '' ? (
+            <p className="subtitle">Add at least one genre before downloading.</p>
+          ) : null}
+        </div>
+        {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
+        </form>
+        {isEnhancing || isSubmitting ? (
+          <BlockingHud message={isEnhancing ? 'Enhancing song details...' : 'Saving song...'} />
+        ) : null}
+      </section>
+    </main>
+  )
+}

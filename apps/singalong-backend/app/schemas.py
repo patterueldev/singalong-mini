@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -63,12 +64,18 @@ class SessionCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class SessionUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    vibes: str | None = Field(default=None, max_length=2000)
+
+
 class SessionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     session_code: str
     name: str
+    vibes: str | None = None
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -77,6 +84,71 @@ class SessionResponse(BaseModel):
 class SessionArchiveResponse(BaseModel):
     session: SessionResponse
     message: str
+
+
+class SessionQueueItem(BaseModel):
+    id: UUID
+    session_id: UUID
+    song_id: UUID
+    thumbnail_url: str | None = None
+    title: str
+    artist: str
+    duration: str | None = None
+    queue_order: int
+    status: Literal["playing", "pending", "finished", "skipped"]
+    reserved_by: UUID
+    reserved_by_username: str | None = None
+    reserved_at: datetime
+    played_at: datetime | None = None
+    playback_position_seconds: float | None = None
+    playback_volume_pct: int | None = None
+    playback_is_playing: bool | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SessionQueueListResponse(BaseModel):
+    items: list[SessionQueueItem]
+
+
+class SessionQueueCreateRequest(BaseModel):
+    song_id: UUID
+
+
+class SessionQueueUpdateRequest(BaseModel):
+    action: Literal["skip", "finish", "reorder"]
+    target_order: int | None = Field(default=None, ge=1)
+
+
+class SessionQueueMutationResponse(BaseModel):
+    item: SessionQueueItem
+    message: str
+
+
+class SessionQueueDeleteResponse(BaseModel):
+    message: str
+
+
+class SessionParticipantItem(BaseModel):
+    user_id: UUID
+    username: str
+    pending_count: int
+    finished_count: int
+    skipped_count: int
+    total_count: int
+    is_online: bool
+
+
+class SessionParticipantListResponse(BaseModel):
+    items: list[SessionParticipantItem]
+
+
+class SessionWorkspaceResponse(BaseModel):
+    session: SessionResponse
+    websocket_status: str = "connected"
+    player_connected: bool
+    admin_connected_count: int
+    guest_connected_count: int
 
 
 class SongSuggestDownloadRequest(BaseModel):
@@ -207,6 +279,23 @@ class SongbookItem(BaseModel):
     video_file: str | None = None
     lyrics: str | None = None
     added_by_username: str | None = None
+    queued_count_in_session: int = 0
+    was_queued_in_session: bool = False
+
+
+class SongAdminUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    artist: str = Field(min_length=1, max_length=200)
+    language: str | None = Field(default=None, max_length=20)
+    genre: str | None = Field(default=None, max_length=100)
+    tags: list[str] = Field(default_factory=list)
+    lyrics: str | None = Field(default=None, max_length=20000)
+    source_thumbnail_data_url: str | None = Field(default=None, max_length=1000000)
+
+
+class SongAdminUpdateResponse(BaseModel):
+    item: SongbookItem
+    message: str
 
 
 class SongbookListResponse(BaseModel):
