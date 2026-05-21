@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, FormEvent, ReactNode } from 'react'
+import QRCode from 'qrcode'
 import {
   BrowserRouter,
   Navigate,
@@ -250,6 +251,7 @@ const SUGGEST_STORAGE_KEY = 'singalong-client-suggest-nickname'
 const SUGGEST_AUTH_STORAGE_KEY = 'singalong-client-suggest-auth'
 const SUGGEST_DRAFT_STORAGE_KEY = 'singalong-client-suggest-draft'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin
+const SINGALONG_BASE_URL = import.meta.env.VITE_SINGALONG_BASE_URL ?? window.location.origin
 const API_ROOT =
   API_BASE_URL.endsWith('/api') || API_BASE_URL.endsWith('/api/')
     ? API_BASE_URL.replace(/\/$/, '')
@@ -294,6 +296,14 @@ function formatLanguageLabel(language: string | null | undefined): string {
     return '—'
   }
   return LANGUAGE_OPTIONS.find((option) => option.code === normalized)?.label ?? 'Others'
+}
+
+function buildGuestJoinUrl(baseUrl: string, sessionId: string | null): string {
+  if (sessionId === null || sessionId === '') {
+    return ''
+  }
+  const normalizedBase = baseUrl.replace(/\/$/, '')
+  return `${normalizedBase}/client/guest/login?sessionId=${encodeURIComponent(sessionId)}`
 }
 
 function readStoredAuth(): StoredAuth | null {
@@ -3338,6 +3348,9 @@ function SessionControlPage({
   const [reservationReorderDraft, setReservationReorderDraft] = useState<SongQueueItem[]>([])
   const [reservationDragSongId, setReservationDragSongId] = useState<string | null>(null)
   const [isSavingReservationOrder, setIsSavingReservationOrder] = useState(false)
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false)
+  const [guestJoinQrDataUrl, setGuestJoinQrDataUrl] = useState<string | null>(null)
+  const [isGeneratingGuestQr, setIsGeneratingGuestQr] = useState(false)
   const [editingSong, setEditingSong] = useState<SongbookSong | null>(null)
   const [editingSongThumbnailDataUrl, setEditingSongThumbnailDataUrl] = useState<string | null>(null)
   const [, setWsMessage] = useState('')
@@ -3357,6 +3370,10 @@ function SessionControlPage({
   )
   const activeSessionCode = session?.session_code ?? null
   const activeSessionId = session?.id ?? null
+  const guestJoinUrl = useMemo(
+    () => buildGuestJoinUrl(SINGALONG_BASE_URL, activeSessionId),
+    [activeSessionId],
+  )
 
   useEffect(() => {
     refreshSessionsRef.current = onRefreshSessions
@@ -3588,6 +3605,41 @@ function SessionControlPage({
     }
   }, [activeSongMenu, activeSongMenuId])
 
+  useEffect(() => {
+    if (guestJoinUrl === '') {
+      setGuestJoinQrDataUrl(null)
+      setIsGeneratingGuestQr(false)
+      return
+    }
+
+    let isCancelled = false
+    setIsGeneratingGuestQr(true)
+    void QRCode.toDataURL(guestJoinUrl, {
+      width: 280,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+    })
+      .then((url) => {
+        if (!isCancelled) {
+          setGuestJoinQrDataUrl(url)
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setGuestJoinQrDataUrl(null)
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsGeneratingGuestQr(false)
+        }
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [guestJoinUrl])
+
   const openReservationsReorderModal = useCallback(() => {
     setReservationReorderDraft(pendingQueueItems.slice(1))
     setReservationDragSongId(null)
@@ -3653,6 +3705,13 @@ function SessionControlPage({
   const closeReservationsHistoryModal = useCallback(() => {
     setIsReservationsHistoryOpen(false)
   }, [])
+
+  const handleCopyGuestJoinUrl = useCallback(() => {
+    if (guestJoinUrl === '') {
+      return
+    }
+    void navigator.clipboard.writeText(guestJoinUrl)
+  }, [guestJoinUrl])
 
   useEffect(() => {
     const clearReconnectTimer = () => {
@@ -3818,10 +3877,21 @@ function SessionControlPage({
       <section className="card session-control-card session-workspace">
         <div className="workspace-column workspace-column-left">
           <section className="panel workspace-panel playback-panel">
-            <div className="panel-header">
-              <h2 className="session-heading">
-                {(workspace?.session.name ?? session.name) + ' \u2014 ' + session.session_code}
-              </h2>
+            <div className="panel-header playback-panel-header">
+              <div className="playback-title-row">
+                <button
+                  type="button"
+                  className="icon-control-button"
+                  onClick={() => navigate('/admin/sessions')}
+                  title="Back to sessions"
+                  aria-label="Back to sessions"
+                >
+                  <span className="material-symbols-outlined">arrow_back</span>
+                </button>
+                <h2 className="session-heading">
+                  {(workspace?.session.name ?? session.name) + ' \u2014 ' + session.session_code}
+                </h2>
+              </div>
               <div className="row-actions">
                 <button type="button" className="secondary small mobile-only" onClick={() => setMobileRightPanel('songbook')}>
                   Open Songbook
@@ -3841,17 +3911,22 @@ function SessionControlPage({
                 <button
                   type="button"
                   className="icon-control-button"
-                  onClick={() => navigate('/admin/sessions')}
-                  title="Back to sessions"
-                  aria-label="Back to sessions"
+                  onClick={() => setIsQrModalOpen(true)}
+                  title="Guest join QR"
+                  aria-label="Guest join QR"
                 >
-                  <span className="material-symbols-outlined">arrow_back</span>
+                  <span className="material-symbols-outlined">qr_code_2</span>
                 </button>
               </div>
             </div>
             <p className="subtitle">
               WebSocket: {socketStatus} · Player: {workspace?.playerConnected ? 'Connected' : 'Disconnected'}
             </p>
+            {guestJoinQrDataUrl !== null ? (
+              <div className="playback-qr-overlay" title="Guests can scan to join this session">
+                <img src={guestJoinQrDataUrl} alt="Guest join QR code" />
+              </div>
+            ) : null}
             {currentQueueSong ? (
               <p className="session-meta">
                 Now queued next: <strong>{currentQueueSong.title}</strong> · {currentQueueSong.artist}
@@ -4120,6 +4195,46 @@ function SessionControlPage({
           onRetryDownload={handleRetryDownload}
         />
       </section>
+
+      {isQrModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setIsQrModalOpen(false)}>
+          <section
+            className="modal-card guest-qr-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Guest join QR"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h2>Guest Join QR</h2>
+                <p className="subtitle">Scan to open the guest join page for this session.</p>
+              </div>
+              <button type="button" className="secondary" onClick={() => setIsQrModalOpen(false)}>
+                Close
+              </button>
+            </div>
+            <div className="guest-qr-modal-content top-gap">
+              <div className="guest-qr-code-shell">
+                {isGeneratingGuestQr ? (
+                  <p className="empty-state">Generating QR...</p>
+                ) : guestJoinQrDataUrl ? (
+                  <img src={guestJoinQrDataUrl} alt="Guest join QR code" />
+                ) : (
+                  <p className="empty-state">QR is unavailable.</p>
+                )}
+              </div>
+              <p className="guest-qr-url">{guestJoinUrl !== '' ? guestJoinUrl : 'Join URL unavailable'}</p>
+              <div className="row-actions">
+                <button type="button" onClick={handleCopyGuestJoinUrl} disabled={guestJoinUrl === ''}>
+                  Copy Link
+                </button>
+              </div>
+              <p className="subtitle">Guests can share this link with other attendees. Guest flow improvements will follow in a later phase.</p>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {isReservationsReorderOpen ? (
         <div className="modal-backdrop song-detail-backdrop" role="presentation" onClick={closeReservationsReorderModal}>

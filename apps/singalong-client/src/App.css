@@ -287,6 +287,42 @@ button:disabled {
 .playback-panel {
   flex: 0 0 auto;
   overflow: visible;
+  position: relative;
+}
+
+.playback-panel-header {
+  align-items: center;
+}
+
+.playback-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.playback-title-row .session-heading {
+  margin: 0;
+}
+
+.playback-qr-overlay {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 78px;
+  height: 78px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border-primary);
+  background: color-mix(in srgb, var(--surface-panel) 84%, black 16%);
+  opacity: 0.9;
+}
+
+.playback-qr-overlay img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .queue-panel {
@@ -1502,6 +1538,42 @@ button.small {
 
 .downloads-modal-card {
   width: min(840px, 100%);
+}
+
+.guest-qr-modal-card {
+  width: min(520px, 100%);
+}
+
+.guest-qr-modal-content {
+  display: grid;
+  gap: 12px;
+}
+
+.guest-qr-code-shell {
+  width: 280px;
+  height: 280px;
+  max-width: 100%;
+  margin: 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  background: var(--surface-input);
+}
+
+.guest-qr-code-shell img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 10px;
+}
+
+.guest-qr-url {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  word-break: break-all;
 }
 
 .downloads-modal-list {

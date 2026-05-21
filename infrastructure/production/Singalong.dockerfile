@@ -2,11 +2,14 @@ FROM node:22-alpine AS client-builder
 
 WORKDIR /build/client
 
+ARG VITE_SINGALONG_BASE_URL
+
 COPY apps/singalong-client/package*.json /build/client/
 RUN npm install
 
 COPY apps/singalong-client /build/client
 ENV VITE_BASE_PATH=/client/
+ENV VITE_SINGALONG_BASE_URL=${VITE_SINGALONG_BASE_URL}
 RUN npm run build
 
 
