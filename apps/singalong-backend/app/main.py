@@ -180,6 +180,16 @@ async def on_startup():
         if "vibes" not in session_columns:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE sessions ADD COLUMN vibes TEXT"))
+    if inspector.has_table("song_queue"):
+        queue_columns = {column["name"] for column in inspector.get_columns("song_queue")}
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TYPE song_queue_status ADD VALUE IF NOT EXISTS 'playing'"))
+            if "playback_position_seconds" not in queue_columns:
+                conn.execute(text("ALTER TABLE song_queue ADD COLUMN playback_position_seconds DOUBLE PRECISION"))
+            if "playback_volume_pct" not in queue_columns:
+                conn.execute(text("ALTER TABLE song_queue ADD COLUMN playback_volume_pct INTEGER"))
+            if "playback_is_playing" not in queue_columns:
+                conn.execute(text("ALTER TABLE song_queue ADD COLUMN playback_is_playing BOOLEAN"))
     seed_admin_user()
     ws_hub.bind_event_loop(asyncio.get_running_loop())
 

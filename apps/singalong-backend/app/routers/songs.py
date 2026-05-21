@@ -669,6 +669,7 @@ def _load_session_song_counts(
     rows = db.query(SongQueue.song_id, func.count(SongQueue.id)).filter(
         SongQueue.session_id == session.id,
         SongQueue.song_id.in_([song.id for song in songs]),
+        SongQueue.status.in_(("finished", "skipped")),
     ).group_by(SongQueue.song_id).all()
     return {song_id: int(count) for song_id, count in rows}
 
@@ -678,7 +679,7 @@ def _load_session_queue_song_ids(db: Session, session: KaraokeSession | None) ->
         return set()
     rows = db.query(SongQueue.song_id).filter(
         SongQueue.session_id == session.id,
-        SongQueue.status == "pending",
+        SongQueue.status.in_(("playing", "pending")),
     ).all()
     return {song_id for (song_id,) in rows}
 

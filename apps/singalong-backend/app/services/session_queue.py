@@ -55,6 +55,17 @@ def _pending_rows_for_update(db: Session, session_id: UUID) -> list[SongQueue]:
     )
 
 
+def _active_rows_for_update(db: Session, session_id: UUID) -> list[SongQueue]:
+    return list(
+        db.scalars(
+            select(SongQueue)
+            .where(SongQueue.session_id == session_id, SongQueue.status.in_(("playing", "pending")))
+            .order_by(SongQueue.queue_order.asc())
+            .with_for_update()
+        ).all()
+    )
+
+
 def _queue_items_query(session_id: UUID):
     return (
         select(SongQueue, Song.thumbnail_file, Song.title, Song.artist, Song.duration, User.username)
@@ -62,7 +73,11 @@ def _queue_items_query(session_id: UUID):
         .outerjoin(User, User.id == SongQueue.reserved_by)
         .where(SongQueue.session_id == session_id)
         .order_by(
-            case((SongQueue.status == "pending", 0), else_=1),
+            case(
+                (SongQueue.status == "playing", 0),
+                (SongQueue.status == "pending", 1),
+                else_=2,
+            ),
             SongQueue.queue_order.asc(),
             SongQueue.reserved_at.asc(),
         )
@@ -91,6 +106,9 @@ def _to_queue_item(
         reserved_by_username=reserved_by_username,
         reserved_at=queue.reserved_at,
         played_at=queue.played_at,
+        playback_position_seconds=queue.playback_position_seconds,
+        playback_volume_pct=queue.playback_volume_pct,
+        playback_is_playing=queue.playback_is_playing,
         created_at=queue.created_at,
         updated_at=queue.updated_at,
     )
@@ -140,14 +158,17 @@ def reserve_song_in_session(
     if song.status != "published" or song.archived_at is not None:
         raise SessionQueueValidationError("Song is not available for reservation")
 
-    pending = _pending_rows_for_update(db, session.id)
-    next_order = (pending[-1].queue_order + 1) if pending else 1
+    active_rows = _active_rows_for_update(db, session.id)
+    next_order = (active_rows[-1].queue_order + 1) if active_rows else 1
+    has_playing = any(entry.status == "playing" for entry in active_rows)
     queue_row = SongQueue(
         session_id=session.id,
         song_id=song.id,
         queue_order=next_order,
-        status="pending",
+        status="pending" if has_playing else "playing",
         reserved_by=reserved_by,
+        playback_is_playing=None if has_playing else True,
+        playback_position_seconds=0 if not has_playing else None,
     )
     db.add(queue_row)
     db.commit()
@@ -201,18 +222,19 @@ def complete_queue_item(
         raise SessionQueueValidationError("Unsupported completion status")
 
     session = _require_active_session(db, session_code)
-    pending_rows = _pending_rows_for_update(db, session.id)
-    target = next((entry for entry in pending_rows if entry.id == queue_id), None)
+    active_rows = _active_rows_for_update(db, session.id)
+    target = next((entry for entry in active_rows if entry.id == queue_id), None)
     if target is None:
         existing = db.scalar(select(SongQueue).where(SongQueue.id == queue_id, SongQueue.session_id == session.id))
         if existing is None:
             raise SessionQueueNotFoundError("Queue record not found")
-        raise SessionQueueValidationError("Only pending queue items can be updated")
+        raise SessionQueueValidationError("Only playing or pending queue items can be updated")
 
     removed_order = target.queue_order
     target.status = "skipped" if status == "skip" else "finished"
     target.played_at = datetime.now(timezone.utc)
-    for entry in pending_rows:
+    target.playback_is_playing = False
+    for entry in active_rows:
         if entry.id == queue_id:
             continue
         if entry.queue_order > removed_order:
@@ -282,10 +304,78 @@ def list_session_participant_stats(db: Session, session_code: str, online_userna
             }
         entry = stats[user_id]
         entry["total_count"] += 1
-        if queue_status == "pending":
+        if queue_status in {"playing", "pending"}:
             entry["pending_count"] += 1
         elif queue_status == "finished":
             entry["finished_count"] += 1
         elif queue_status == "skipped":
             entry["skipped_count"] += 1
     return list(stats.values())
+
+
+def update_top_pending_playback_state(
+    db: Session,
+    session_code: str,
+    *,
+    position_seconds: float | None = None,
+    volume_pct: int | None = None,
+    is_playing: bool | None = None,
+) -> SessionQueueItem | None:
+    session = _require_active_session(db, session_code)
+    active_rows = _active_rows_for_update(db, session.id)
+    if len(active_rows) == 0:
+        db.rollback()
+        return None
+
+    target = next((entry for entry in active_rows if entry.status == "playing"), active_rows[0])
+    if position_seconds is not None:
+        target.playback_position_seconds = max(0.0, float(position_seconds))
+    if volume_pct is not None:
+        target.playback_volume_pct = max(0, min(100, int(round(volume_pct))))
+    if is_playing is not None:
+        target.playback_is_playing = bool(is_playing)
+    db.commit()
+
+    return get_session_queue_item(db, session_code, target.id)
+
+
+def advance_playing_queue_item(
+    db: Session,
+    session_code: str,
+    *,
+    completion_status: str,
+) -> list[SessionQueueItem]:
+    if completion_status not in {"finished", "skipped"}:
+        raise SessionQueueValidationError("Unsupported completion status")
+
+    session = _require_active_session(db, session_code)
+    active_rows = _active_rows_for_update(db, session.id)
+    if len(active_rows) == 0:
+        db.rollback()
+        return list_session_queue_items(db, session_code)
+
+    current = next((entry for entry in active_rows if entry.status == "playing"), active_rows[0])
+    current.status = completion_status
+    current.played_at = datetime.now(timezone.utc)
+    current.playback_is_playing = False
+
+    removed_order = current.queue_order
+    for entry in active_rows:
+        if entry.id == current.id:
+            continue
+        if entry.queue_order > removed_order:
+            entry.queue_order -= 1
+
+    remaining_pending = [
+        entry for entry in active_rows
+        if entry.id != current.id and entry.status == "pending"
+    ]
+    if len(remaining_pending) > 0:
+        next_entry = sorted(remaining_pending, key=lambda row: row.queue_order)[0]
+        next_entry.status = "playing"
+        next_entry.playback_is_playing = True
+        if next_entry.playback_position_seconds is None:
+            next_entry.playback_position_seconds = 0
+
+    db.commit()
+    return list_session_queue_items(db, session_code)
