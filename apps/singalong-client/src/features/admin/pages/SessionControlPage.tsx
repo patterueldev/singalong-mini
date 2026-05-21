@@ -11,7 +11,6 @@ import {
   normalizeDownloadProgressItems,
   normalizeSessionQueueItems,
 } from '../../shared/services/queueTransforms'
-import { SINGALONG_BASE_URL } from '../../../shared/config/client'
 import { apiJson } from '../../../shared/api/httpClient'
 import { buildWSUrl } from '../../../shared/api/ws'
 import { formatDownloadStatus, formatDurationClock } from '../../../shared/lib/format'
@@ -327,7 +326,7 @@ export function SessionControlPage({
   const activeSessionCode = session?.session_code ?? null
   const activeSessionId = session?.id ?? null
   const guestJoinUrl = useMemo(
-    () => buildGuestJoinUrl(SINGALONG_BASE_URL, activeSessionId),
+    () => buildGuestJoinUrl(window.location.origin, activeSessionId),
     [activeSessionId],
   )
 

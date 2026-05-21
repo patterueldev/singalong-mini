@@ -39,7 +39,7 @@ from ..services.sessions import (
     list_sessions,
     update_session,
 )
-from ..services.auth import require_admin_user
+from ..services.auth import require_admin_user, require_admin_or_player_user
 from ..services.ws import ws_hub
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -154,7 +154,7 @@ async def get_session_participants(
 def get_session_queue(
     session_code: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_admin_or_player_user),
 ):
     _ = current_user
     try:

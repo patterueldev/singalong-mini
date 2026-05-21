@@ -12,12 +12,14 @@ from ..schemas import (
     GuestUsernameSuggestionResponse,
     LoginResponse,
     LogoutResponse,
+    PlayerTokenResponse,
     UserResponse,
     UserLoginRequest,
     UserLogoutRequest,
 )
 from ..services.auth import create_access_token, get_current_user
 from ..security import verify_password
+from ..bootstrap import PLAYER_SERVICE_USERNAME
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -106,3 +108,20 @@ def get_guest_username(
     db: Session = Depends(get_db),
 ):
     return GuestUsernameSuggestionResponse(username=suggest_guest_username(db, nickname))
+
+
+@router.get("/player-token", response_model=PlayerTokenResponse)
+def get_player_token(db: Session = Depends(get_db)):
+    """Return a restricted JWT for the player display screen.
+
+    No credentials required — the token grants read-only player access
+    (fetch active session, fetch queue, connect to player WebSocket).
+    """
+    player_user = db.scalar(select(User).where(User.username == PLAYER_SERVICE_USERNAME))
+    if player_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Player service account not initialised; restart the server",
+        )
+    return PlayerTokenResponse(access_token=create_access_token(player_user))
+

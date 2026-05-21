@@ -1,6 +1,5 @@
-import { PLAYER_PASSWORD, PLAYER_USERNAME } from '../../../shared/config/client'
+import { API_ROOT } from '../../../shared/config/client'
 import { adminService } from '../../admin/services/adminService'
-import { authService } from '../../shared/services/authService'
 
 export interface PlayerService {
   isHostAllowed: (hostname: string) => boolean
@@ -19,8 +18,12 @@ export function isHostAllowed(hostname: string): boolean {
 }
 
 export async function loginPlayer(): Promise<string> {
-  const payload = await authService.login(PLAYER_USERNAME, PLAYER_PASSWORD)
-  return payload.access_token
+  const response = await fetch(`${API_ROOT}/users/player-token`)
+  if (!response.ok) {
+    throw new Error(`Failed to obtain player token: ${response.status}`)
+  }
+  const data = (await response.json()) as { access_token: string }
+  return data.access_token
 }
 
 export const playerService: PlayerService = {

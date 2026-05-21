@@ -5,8 +5,10 @@ export const SUGGEST_STORAGE_KEY = 'singalong-client-suggest-nickname'
 export const SUGGEST_AUTH_STORAGE_KEY = 'singalong-client-suggest-auth'
 export const SUGGEST_DRAFT_STORAGE_KEY = 'singalong-client-suggest-draft'
 
+// The client is always served from the same origin as the API, so
+// window.location.origin is always the correct base. VITE_API_BASE_URL
+// is kept as an optional override for local dev proxies.
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? window.location.origin
-export const SINGALONG_BASE_URL = import.meta.env.VITE_SINGALONG_BASE_URL ?? window.location.origin
 export const API_ROOT =
   API_BASE_URL.endsWith('/api') || API_BASE_URL.endsWith('/api/')
     ? API_BASE_URL.replace(/\/$/, '')
@@ -14,9 +16,6 @@ export const API_ROOT =
 export const HTTP_BASE = API_ROOT.replace(/\/api$/, '')
 export const WS_BASE = HTTP_BASE.replace(/^http/i, 'ws')
 
-export const PLAYER_USERNAME = import.meta.env.VITE_SINGALONG_PLAYER_USERNAME ?? 'admin'
-export const PLAYER_PASSWORD = import.meta.env.VITE_SINGALONG_PLAYER_PASSWORD ?? 'password'
-export const PLAYER_QR_DOMAIN_LABEL = 'singalong.nicenature.space'
 export const PLAYER_ENCOURAGEMENTS = [
   'Fantastic!',
   'Amazing!',

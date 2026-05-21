@@ -5,6 +5,9 @@ from .db import SessionLocal
 from .models import User
 from .security import hash_password
 
+PLAYER_SERVICE_USERNAME = "singalong-player"
+
+
 def seed_admin_user() -> None:
     admin_username = settings.singalong_admin_username.strip()
     admin_password = settings.singalong_admin_password
@@ -20,5 +23,10 @@ def seed_admin_user() -> None:
         else:
             admin_user.password_hash = password_hash
             admin_user.role = "admin"
+
+        # Seed the built-in player service account (no password — uses token endpoint).
+        player_user = db.scalar(select(User).where(User.username == PLAYER_SERVICE_USERNAME))
+        if player_user is None:
+            db.add(User(username=PLAYER_SERVICE_USERNAME, password_hash=None, role="player"))
 
         db.commit()

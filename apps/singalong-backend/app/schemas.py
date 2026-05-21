@@ -47,6 +47,11 @@ class LogoutResponse(BaseModel):
     message: str
 
 
+class PlayerTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
 class GuestCreateResponse(BaseModel):
     user: UserResponse
     message: str
