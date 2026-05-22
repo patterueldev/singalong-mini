@@ -129,6 +129,7 @@ export type SongbookSong = {
   id: string
   title: string
   artist: string
+  status: string
   language: string | null
   duration: string
   genre: string | null

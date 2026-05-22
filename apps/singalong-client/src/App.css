@@ -668,6 +668,20 @@ button:disabled {
   width: min(1560px, 100%);
 }
 
+.admin-songbook-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-songbook-title-row h1 {
+  margin: 0;
+}
+
+.admin-songbook-header-actions {
+  align-items: center;
+}
+
 .admin-songbook-toolbar {
   display: flex;
   justify-content: space-between;
@@ -680,6 +694,17 @@ button:disabled {
   min-width: 0;
 }
 
+.admin-songbook-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.admin-songbook-page-size select {
+  min-width: 82px;
+}
+
 .admin-songbook-table {
   display: grid;
   gap: 10px;
@@ -689,7 +714,7 @@ button:disabled {
 .admin-songbook-table-header,
 .admin-songbook-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.2fr) minmax(140px, 0.6fr) minmax(320px, 1fr);
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1.15fr) minmax(120px, 0.55fr) minmax(120px, 0.55fr) minmax(260px, 0.9fr);
   gap: 12px;
   align-items: center;
 }
@@ -701,6 +726,19 @@ button:disabled {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.admin-songbook-sort-button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  text-transform: inherit;
+  letter-spacing: inherit;
 }
 
 .admin-songbook-row {
@@ -732,8 +770,43 @@ button:disabled {
 }
 
 .admin-songbook-actions {
-  justify-content: flex-end;
+  justify-content: flex-start;
   flex-wrap: wrap;
+}
+
+.admin-songbook-actions .secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-songbook-status {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.badge.admin-songbook-status-badge.notice {
+  background: color-mix(in srgb, #ffd24d 18%, transparent);
+  border-color: color-mix(in srgb, #ffd24d 42%, #444);
+  color: #c98200;
+}
+
+.badge.admin-songbook-status-badge.warning {
+  background: color-mix(in srgb, #ff9f43 20%, transparent);
+  border-color: color-mix(in srgb, #ff9f43 44%, #444);
+  color: #c55c00;
+}
+
+.badge.admin-songbook-status-badge.critical {
+  background: color-mix(in srgb, #ff5c66 20%, transparent);
+  border-color: color-mix(in srgb, #ff5c66 44%, #444);
+  color: #d72d3d;
+}
+
+.badge.admin-songbook-status-badge.success {
+  background: color-mix(in srgb, var(--success) 20%, transparent);
+  border-color: color-mix(in srgb, var(--success) 42%, #444);
+  color: var(--success);
 }
 
 .admin-songbook-pagination {
@@ -2070,14 +2143,71 @@ button.small {
   background: transparent;
 }
 
-/* Linear form layout for song editor */
+/* Song editor modal layout */
+.song-editor-header-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
 .song-editor-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
+  display: grid;
+  gap: 16px;
   padding: 0 1.5rem;
   max-height: min(70vh, 800px);
-  overflow-y: auto;
+  overflow: auto;
+  overflow-x: hidden;
+}
+
+.song-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 16px;
+}
+
+.song-editor-panel {
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  background: var(--surface-panel);
+  padding: 14px;
+  min-width: 0;
+}
+
+.song-editor-panel-left,
+.song-editor-panel-right {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.song-editor-panel-bottom {
+  width: 100%;
+}
+
+.song-editor-bottom-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.song-editor-thumbnail-clickable {
+  position: relative;
+  display: block;
+  width: min(100%, 360px);
+  margin: 0 auto;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.song-editor-thumbnail-clickable:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.song-editor-video-actions {
+  justify-content: flex-start;
+}
+
+.song-editor-save-actions {
+  justify-content: flex-end;
 }
 
 .form-field {
@@ -2160,6 +2290,12 @@ button.small {
   background-color: var(--bg-secondary);
   color: var(--text-secondary);
   cursor: not-allowed;
+}
+
+@media (max-width: 980px) {
+  .song-editor-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Thumbnail preview */

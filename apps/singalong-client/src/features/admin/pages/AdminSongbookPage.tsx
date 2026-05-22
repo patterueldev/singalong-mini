@@ -1,15 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { StoredAuth, SongbookSong } from '../../../shared/types/client'
 import { useAdminService } from '../hooks/useAdminService'
-import { formatLanguageLabel } from '../../../shared/lib/format'
+import { formatLanguageLabel, normalizeLanguageCodeForUi } from '../../../shared/lib/format'
+import { LANGUAGE_OPTIONS } from '../../../shared/config/client'
 import { readFileAsDataUrl } from '../../../shared/lib/files'
+import { normalizeTagList, splitChipInput } from '../../../shared/lib/suggest'
 import { SkeletonList } from '../../songbook/components/SkeletonList'
+import { ChipField } from '../../suggest/components/ChipField'
 import { SongTrimModal } from '../components/SongTrimModal'
 
 type AdminSongbookPageProps = {
   auth: StoredAuth
 }
+
+type SongSortKey = 'attention' | 'status' | 'title'
+type SortDirection = 'asc' | 'desc'
 
 function buildCompactPagination(page: number, totalPages: number): Array<number | 'ellipsis'> {
   if (totalPages <= 7) {
@@ -62,6 +68,38 @@ function getAttentionTooltip(song: SongbookSong) {
   }
 
   return song.qualityFlags.map((flag) => `${flag.label}: ${flag.message}`).join(' • ')
+}
+
+function getSongStatusLabel(status: string) {
+  if (status === 'draft') {
+    return 'Pending'
+  }
+  if (status === 'downloading') {
+    return 'Downloading'
+  }
+  if (status === 'published') {
+    return 'Published'
+  }
+  if (status === 'error') {
+    return 'Error'
+  }
+  if (status === 'archived') {
+    return 'Archived'
+  }
+  return status
+}
+
+function getSongStatusClass(status: string) {
+  if (status === 'published') {
+    return 'success'
+  }
+  if (status === 'downloading' || status === 'draft') {
+    return 'warning'
+  }
+  if (status === 'error') {
+    return 'critical'
+  }
+  return 'notice'
 }
 
 function SongPreviewModal({
@@ -189,6 +227,10 @@ function SongEditModal({
   onSongChange,
   onThumbnailDataUrlChange,
   onSave,
+  onArchive,
+  isArchiving,
+  onMagicFixDuration,
+  tagSuggestions,
   onTrimClick,
 }: {
   song: SongbookSong
@@ -198,12 +240,41 @@ function SongEditModal({
   onSongChange: (song: SongbookSong) => void
   onThumbnailDataUrlChange: (value: string | null) => void
   onSave: () => void
+  onArchive: () => void
+  isArchiving: boolean
+  onMagicFixDuration: () => void
+  tagSuggestions: string[]
   onTrimClick?: () => void
 }) {
-  const [showThumbnailPreview, setShowThumbnailPreview] = useState(false)
   const [tagInput, setTagInput] = useState('')
+  const thumbnailFileInputRef = useRef<HTMLInputElement>(null)
 
   const displayedThumbnail = thumbnailDataUrl ?? song.thumbnailUrl
+  const trimDurationLabel = song.duration?.trim() ? song.duration : '--:--'
+
+  const commitTags = () => {
+    const nextValues = splitChipInput(tagInput, (entry) => entry.trim().toLowerCase())
+    if (nextValues.length === 0) {
+      return
+    }
+    onSongChange({ ...song, tags: normalizeTagList([...song.tags, ...nextValues]) })
+    setTagInput('')
+  }
+
+  const openLyricsSearch = () => {
+    const search = `${song.title.trim()} lyrics`.trim()
+    window.open(`https://www.google.com/search?q=${encodeURIComponent(search)}`, '_blank', 'noopener,noreferrer')
+  }
+
+  const filteredTagSuggestions = useMemo(() => {
+    const keyword = tagInput.trim().toLowerCase()
+    if (keyword === '') {
+      return []
+    }
+    return tagSuggestions
+      .filter((item) => !song.tags.includes(item) && item.includes(keyword))
+      .slice(0, 12)
+  }, [song.tags, tagInput, tagSuggestions])
 
   return (
     <div className="modal-backdrop song-detail-backdrop" role="presentation" onClick={onClose}>
@@ -215,251 +286,66 @@ function SongEditModal({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="modal-header">
-          <div>
-            <h2>Edit Song Details</h2>
-            <p className="subtitle">{song.artist}</p>
-          </div>
-          <button type="button" className="secondary" onClick={onClose} disabled={isSaving}>
-            Close
-          </button>
-        </div>
-
-        {/* Linear form layout */}
-        <div className="song-editor-form top-gap">
-          {/* Song Title */}
-          <label className="form-field">
-            <span className="form-label">Title</span>
-            <input
-              className="form-input"
-              type="text"
-              value={song.title}
-              onChange={(event) => onSongChange({ ...song, title: event.target.value })}
-              placeholder="Song title"
-              disabled={isSaving}
-            />
-          </label>
-
-          {/* Artist */}
-          <label className="form-field">
-            <span className="form-label">Artist</span>
-            <input
-              className="form-input"
-              type="text"
-              value={song.artist}
-              onChange={(event) => onSongChange({ ...song, artist: event.target.value })}
-              placeholder="Artist name"
-              disabled={isSaving}
-            />
-          </label>
-
-          {/* Thumbnail - Tappable to view/change */}
-          <div className="form-field">
-            <span className="form-label">Thumbnail</span>
-            <div className="thumbnail-preview-container">
-              {displayedThumbnail ? (
-                <img
-                  className="thumbnail-preview"
-                  src={displayedThumbnail}
-                  alt={song.title}
-                  onClick={() => setShowThumbnailPreview(true)}
-                  style={{ cursor: 'pointer' }}
-                />
-              ) : (
-                <div className="thumbnail-preview thumbnail-preview--empty" onClick={() => setShowThumbnailPreview(true)}>
-                  No thumbnail
-                </div>
-              )}
-            </div>
-            <input
-              className="hidden-file-input"
-              id="thumbnail-file-input"
-              type="file"
-              accept="image/*"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file === undefined) {
-                  return
-                }
-                void readFileAsDataUrl(file).then((dataUrl) => onThumbnailDataUrlChange(dataUrl))
-              }}
-              disabled={isSaving}
-            />
-          </div>
-
-          {/* Duration with Fix button */}
-          <div className="form-field form-field--inline">
-            <label className="form-field-inline">
-              <span className="form-label">Duration</span>
-              <input
-                className="form-input form-input--small"
-                type="text"
-                value={song.duration}
-                onChange={(event) => {
-                  onSongChange({ ...song, duration: event.target.value })
-                }}
-                placeholder="0:00"
-                disabled={isSaving}
-              />
-            </label>
+          <h2>Edit Song Details</h2>
+          <div className="song-editor-header-actions">
             <button
               type="button"
-              className="secondary small"
-              onClick={() => {
-                // TODO: Implement fix duration from video metadata
-                // await fetchDurationFromVideo(song.videoFile)
-              }}
+              className="icon-control-button"
+              onClick={onMagicFixDuration}
               disabled={isSaving || !song.videoFile}
-              title="Sync duration from saved video file"
+              title="Magic fix duration"
+              aria-label="Magic fix duration"
             >
-              Fix Duration
+              <span className="material-symbols-outlined">auto_fix_high</span>
             </button>
-          </div>
-
-          {/* Lyrics - Large textarea */}
-          <label className="form-field form-field--tall">
-            <span className="form-label">Lyrics</span>
-            <textarea
-              className="form-textarea"
-              value={song.lyrics ?? ''}
-              onChange={(event) => onSongChange({ ...song, lyrics: event.target.value || null })}
-              placeholder="Song lyrics..."
-              rows={10}
-              disabled={isSaving}
-            />
             <button
               type="button"
-              className="secondary small top-gap"
-              onClick={() => {
-                // TODO: Implement lyrics search from Google
-              }}
+              className="icon-control-button"
+              onClick={onClose}
               disabled={isSaving}
+              title="Close"
+              aria-label="Close"
             >
-              Search Lyrics from Google
+              <span className="material-symbols-outlined">close</span>
             </button>
-          </label>
-
-          {/* Tags - Capsule editor */}
-          <div className="form-field">
-            <div className="chip-tags">
-              {song.tags.map((tag) => (
-                <span key={tag} className="chip-tag">
-                  {tag}
-                  <button
-                    type="button"
-                    className="chip-tag-remove"
-                    onClick={() => onSongChange({ ...song, tags: song.tags.filter((t) => t !== tag) })}
-                    disabled={isSaving}
-                    aria-label={`Remove tag: ${tag}`}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-            <input
-              className="form-input form-input--tags"
-              type="text"
-              value={tagInput}
-              onChange={(event) => setTagInput(event.target.value)}
-              onKeyDown={(event) => {
-                if ((event.key === 'Enter' || event.key === ',') && tagInput.trim()) {
-                  event.preventDefault()
-                  const newTag = tagInput.trim().toLowerCase()
-                  if (!song.tags.includes(newTag)) {
-                    onSongChange({ ...song, tags: [...song.tags, newTag] })
-                  }
-                  setTagInput('')
-                }
-              }}
-              placeholder="Add tags (Enter or comma-separated)"
-              disabled={isSaving}
-            />
           </div>
-
-          {/* Language */}
-          <label className="form-field">
-            <span className="form-label">Language</span>
-            <input
-              className="form-input"
-              type="text"
-              value={song.language ?? ''}
-              onChange={(event) => onSongChange({ ...song, language: event.target.value || null })}
-              placeholder="Language (optional)"
-              disabled={isSaving}
-            />
-          </label>
-
-          {/* Genre */}
-          <label className="form-field">
-            <span className="form-label">Genre</span>
-            <input
-              className="form-input"
-              type="text"
-              value={song.genre ?? ''}
-              onChange={(event) => onSongChange({ ...song, genre: event.target.value || null })}
-              placeholder="Genre (optional)"
-              disabled={isSaving}
-            />
-          </label>
-
-          {/* Source URL - YouTube link */}
-          <div className="form-field">
-            <span className="form-label">Source</span>
-            {song.sourceUrl ? (
-              <a href={song.sourceUrl} target="_blank" rel="noopener noreferrer" className="youtube-link">
-                View on Youtube →
-              </a>
-            ) : (
-              <p className="text-secondary">No source URL</p>
-            )}
-          </div>
-
-          {/* Validated checkbox */}
-          <label className="form-field form-field--checkbox">
-            <input
-              type="checkbox"
-              checked={song.validatedByAdmin ?? false}
-              onChange={(event) => onSongChange({ ...song, validatedByAdmin: event.target.checked })}
-              disabled={isSaving}
-            />
-            <span>Marked as validated by admin</span>
-          </label>
         </div>
 
-        <div className="row-actions top-gap">
-          <button type="button" onClick={onSave} disabled={isSaving}>
-            {isSaving ? 'Saving…' : 'Save'}
-          </button>
-          {onTrimClick && song.videoFile && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={onTrimClick}
-              disabled={isSaving}
-              title="Trim video"
-            >
-              ✂️ Trim Video
-            </button>
-          )}
-          <button type="button" className="secondary" onClick={onClose} disabled={isSaving}>
-            Cancel
-          </button>
-        </div>
-
-        {/* Thumbnail preview modal */}
-        {showThumbnailPreview && displayedThumbnail ? (
-          <div className="modal-backdrop" role="presentation" onClick={() => setShowThumbnailPreview(false)}>
-            <div className="modal-card thumbnail-preview-modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h3>Thumbnail Preview</h3>
-                <button type="button" className="secondary" onClick={() => setShowThumbnailPreview(false)}>
-                  Close
-                </button>
-              </div>
-              <img src={displayedThumbnail} alt={song.title} className="thumbnail-preview-large" />
-              <div className="row-actions top-gap">
-                <label className="primary">
-                  <input
+        <div className="song-editor-form top-gap">
+          <div className="song-editor-grid">
+            <section className="song-editor-panel song-editor-panel-left">
+              <div className="form-field">
+                <span className="form-label">Thumbnail</span>
+                <div className="thumbnail-preview-container">
+                    <div
+                      className="song-editor-thumbnail-clickable"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => thumbnailFileInputRef.current?.click()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          thumbnailFileInputRef.current?.click()
+                        }
+                      }}
+                      aria-label="Change thumbnail"
+                    >
+                      {displayedThumbnail ? (
+                        <img className="thumbnail-preview" src={displayedThumbnail} alt={song.title} />
+                      ) : (
+                        <div className="thumbnail-preview thumbnail-preview--empty">
+                          No thumbnail
+                        </div>
+                      )}
+                      <span className="thumbnail-edit-button" aria-hidden="true">
+                        <span className="material-symbols-outlined">photo_camera</span>
+                      </span>
+                    </div>
+                </div>
+                <input
+                    ref={thumbnailFileInputRef}
+                    className="hidden-file-input"
+                    id="thumbnail-file-input"
                     type="file"
                     accept="image/*"
                     onChange={(event) => {
@@ -467,19 +353,163 @@ function SongEditModal({
                       if (file === undefined) {
                         return
                       }
-                      void readFileAsDataUrl(file).then((dataUrl) => {
-                        onThumbnailDataUrlChange(dataUrl)
-                        setShowThumbnailPreview(false)
-                      })
+                      void readFileAsDataUrl(file).then((dataUrl) => onThumbnailDataUrlChange(dataUrl))
                     }}
-                    style={{ display: 'none' }}
-                  />
-                  Change Thumbnail
-                </label>
+                    disabled={isSaving}
+                />
+              </div>
+
+              <label className="form-field">
+                <span className="form-label">Title</span>
+                <input
+                  className="form-input"
+                  type="text"
+                  value={song.title}
+                  onChange={(event) => onSongChange({ ...song, title: event.target.value })}
+                  placeholder="Song title"
+                  disabled={isSaving}
+                />
+              </label>
+
+              <label className="form-field">
+                <span className="form-label">Artist</span>
+                <input
+                  className="form-input"
+                  type="text"
+                  value={song.artist}
+                  onChange={(event) => onSongChange({ ...song, artist: event.target.value })}
+                  placeholder="Artist name"
+                  disabled={isSaving}
+                />
+              </label>
+
+              <label className="form-field">
+                <span className="form-label">Genre</span>
+                <input
+                  className="form-input"
+                  type="text"
+                  value={song.genre ?? ''}
+                  onChange={(event) => onSongChange({ ...song, genre: event.target.value || null })}
+                  placeholder="Genre"
+                  disabled={isSaving}
+                />
+              </label>
+            </section>
+
+            <section className="song-editor-panel song-editor-panel-right">
+              <div className="form-field">
+                <span className="form-label">Video Preview</span>
+                {song.videoFile ? (
+                  <video controls className="song-detail-video" src={`/media/songs/${song.videoFile}`} />
+                ) : (
+                  <p className="empty-state">Video not available.</p>
+                )}
+              </div>
+
+              <div className="row-actions song-editor-video-actions">
+                {onTrimClick && song.videoFile ? (
+                  <button type="button" className="secondary" onClick={onTrimClick} disabled={isSaving}>
+                    Trim Video ({trimDurationLabel})
+                  </button>
+                ) : (
+                  <button type="button" className="secondary" disabled>
+                    Trim Video ({trimDurationLabel})
+                  </button>
+                )}
+                {song.sourceUrl ? (
+                  <button
+                    type="button"
+                    className="youtube-button"
+                    onClick={() => window.open(song.sourceUrl!, '_blank', 'noopener,noreferrer')}
+                    disabled={isSaving}
+                  >
+                    View Source
+                  </button>
+                ) : (
+                  <button type="button" className="youtube-button" disabled>
+                    View Source
+                  </button>
+                )}
+              </div>
+
+              <label className="form-field">
+                <span className="form-label">Language</span>
+                <select
+                  className="form-input"
+                  value={normalizeLanguageCodeForUi(song.language) || 'other'}
+                  onChange={(event) => onSongChange({ ...song, language: event.target.value })}
+                  disabled={isSaving}
+                >
+                  {LANGUAGE_OPTIONS.map((option) => (
+                    <option key={option.code} value={option.code}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="form-field form-field--checkbox">
+                <input
+                  type="checkbox"
+                  checked={song.validatedByAdmin ?? false}
+                  onChange={(event) => onSongChange({ ...song, validatedByAdmin: event.target.checked })}
+                  disabled={isSaving}
+                />
+                <span>Marked as validated by admin</span>
+              </label>
+            </section>
+          </div>
+
+          <section className="song-editor-panel song-editor-panel-bottom">
+            <div className="song-editor-bottom-grid">
+              <div className="form-field">
+                <ChipField
+                  label="Tags"
+                  values={song.tags}
+                  inputValue={tagInput}
+                  placeholder="romantic, duet, female vocal..."
+                  helperText="Optional tags (saved as lowercase) separated by commas or Enter."
+                  datalistId="admin-edit-tag-suggestions"
+                  suggestions={filteredTagSuggestions}
+                  onInputValueChange={setTagInput}
+                  onCommitValue={commitTags}
+                  onSelectSuggestion={(value) => {
+                    onSongChange({ ...song, tags: normalizeTagList([...song.tags, value]) })
+                    setTagInput('')
+                  }}
+                  onRemoveValue={(value) => onSongChange({ ...song, tags: song.tags.filter((item) => item !== value) })}
+                />
+              </div>
+
+              <div className="form-field">
+                <div className="panel-header">
+                  <h3>Lyrics</h3>
+                  <button type="button" className="secondary" onClick={openLyricsSearch} disabled={isSaving}>
+                    Search Lyrics
+                  </button>
+                </div>
+                <textarea
+                  className="form-textarea"
+                  value={song.lyrics ?? ''}
+                  onChange={(event) => onSongChange({ ...song, lyrics: event.target.value || null })}
+                  placeholder="Song lyrics..."
+                  rows={10}
+                  disabled={isSaving}
+                />
               </div>
             </div>
-          </div>
-        ) : null}
+          </section>
+        </div>
+
+        <div className="row-actions top-gap song-editor-save-actions">
+          <button type="button" className="danger-button" onClick={onArchive} disabled={isSaving || isArchiving}>
+            {isArchiving ? 'Archiving…' : 'Archive'}
+          </button>
+          <button type="button" onClick={onSave} disabled={isSaving}>
+            {isSaving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+
       </section>
     </div>
   )
@@ -490,8 +520,8 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
   const {
     archiveSong,
     fetchSongbook,
+    fixDuration,
     searchSongbook,
-    setSongValidation,
     updateSongAdminDetails,
   } = useAdminService()
   const [songs, setSongs] = useState<SongbookSong[]>([])
@@ -500,6 +530,9 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
   const [errorMessage, setErrorMessage] = useState('')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [sortKey, setSortKey] = useState<SongSortKey>('attention')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const [pages, setPages] = useState(1)
   const [total, setTotal] = useState(0)
   const [previewSong, setPreviewSong] = useState<SongbookSong | null>(null)
@@ -507,7 +540,6 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
   const [editingSongThumbnailDataUrl, setEditingSongThumbnailDataUrl] = useState<string | null>(null)
   const [isSavingSong, setIsSavingSong] = useState(false)
   const [archivingSongId, setArchivingSongId] = useState<string | null>(null)
-  const [validationSongId, setValidationSongId] = useState<string | null>(null)
   const [showTrimModal, setShowTrimModal] = useState(false)
   const [selectedSongForTrim, setSelectedSongForTrim] = useState<SongbookSong | null>(null)
 
@@ -517,11 +549,9 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
     try {
       const payload =
         query.trim() === ''
-          ? await fetchSongbook(page, 25)
-          : await searchSongbook(query.trim(), page, 25)
-      // Sort by quality score descending (highest/dirtiest first)
-      const sortedSongs = [...payload.items].sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0))
-      setSongs(sortedSongs)
+          ? await fetchSongbook(page, pageSize)
+          : await searchSongbook(query.trim(), page, pageSize)
+      setSongs(payload.items)
       setPages(payload.pages)
       setTotal(payload.total)
     } catch (error) {
@@ -529,7 +559,7 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
     } finally {
       setIsLoading(false)
     }
-  }, [fetchSongbook, page, query, searchSongbook])
+  }, [fetchSongbook, page, pageSize, query, searchSongbook])
 
   useEffect(() => {
     void loadSongs()
@@ -537,12 +567,37 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
 
   useEffect(() => {
     setPage(1)
-  }, [query])
+  }, [query, pageSize])
 
   const attentionCount = useMemo(
     () => songs.filter((song) => song.qualityScore > 0).length,
     [songs],
   )
+  const knownTagSuggestions = useMemo(
+    () => normalizeTagList(songs.flatMap((song) => song.tags)),
+    [songs],
+  )
+  const sortedSongs = useMemo(() => {
+    const direction = sortDirection === 'asc' ? 1 : -1
+    return [...songs].sort((left, right) => {
+      if (sortKey === 'title') {
+        return left.title.localeCompare(right.title) * direction
+      }
+      if (sortKey === 'status') {
+        return getSongStatusLabel(left.status).localeCompare(getSongStatusLabel(right.status)) * direction
+      }
+      return ((left.qualityScore || 0) - (right.qualityScore || 0)) * direction
+    })
+  }, [songs, sortDirection, sortKey])
+
+  const handleSort = useCallback((key: SongSortKey) => {
+    if (key === sortKey) {
+      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setSortKey(key)
+    setSortDirection(key === 'attention' ? 'desc' : 'asc')
+  }, [sortKey])
 
   const handleSaveSong = useCallback(async () => {
     if (editingSong === null) {
@@ -561,9 +616,9 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
         lyrics: editingSong.lyrics,
         source_thumbnail_data_url: editingSongThumbnailDataUrl,
       })
-      setEditingSong(updated)
       setSongs((current) => current.map((song) => (song.id === updated.id ? updated : song)))
       setMessage('Song updated.')
+      setEditingSong(null)
       setEditingSongThumbnailDataUrl(null)
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to update song')
@@ -583,6 +638,10 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
       try {
         const payload = await archiveSong(song.id, auth.accessToken)
         setMessage(payload.message)
+        if (editingSong?.id === song.id) {
+          setEditingSong(null)
+          setEditingSongThumbnailDataUrl(null)
+        }
         await loadSongs()
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'Failed to archive song')
@@ -590,30 +649,7 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
         setArchivingSongId(null)
       }
     },
-    [archiveSong, auth.accessToken, loadSongs],
-  )
-
-  const handleToggleValidation = useCallback(
-    async (song: SongbookSong) => {
-      setValidationSongId(song.id)
-      setErrorMessage('')
-      try {
-        const updated = await setSongValidation(song.id, auth.accessToken, !song.validatedByAdmin)
-        setSongs((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)))
-        if (editingSong?.id === updated.id) {
-          setEditingSong(updated)
-        }
-        if (previewSong?.id === updated.id) {
-          setPreviewSong(updated)
-        }
-        setMessage(updated.validatedByAdmin ? 'Song marked as validated.' : 'Song validation cleared.')
-      } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'Failed to update validation state')
-      } finally {
-        setValidationSongId(null)
-      }
-    },
-    [auth.accessToken, editingSong, previewSong, setSongValidation],
+    [archiveSong, auth.accessToken, editingSong?.id, loadSongs],
   )
 
   const handleOpenEdit = useCallback((song: SongbookSong) => {
@@ -632,25 +668,64 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
 
   const closePreview = useCallback(() => setPreviewSong(null), [])
 
+  const handleMagicFixDuration = useCallback(async () => {
+    if (editingSong === null || !editingSong.videoFile) {
+      return
+    }
+
+    setIsSavingSong(true)
+    setErrorMessage('')
+    try {
+      const payload = await fixDuration(editingSong.id, auth.accessToken)
+      setEditingSong((current) => (current === null ? null : { ...current, duration: payload.new_duration }))
+      setSongs((current) =>
+        current.map((song) => (song.id === editingSong.id ? { ...song, duration: payload.new_duration } : song)),
+      )
+      if (previewSong?.id === editingSong.id) {
+        setPreviewSong((current) => (current === null ? null : { ...current, duration: payload.new_duration }))
+      }
+      setMessage(payload.message || `Duration fixed: ${payload.old_duration} → ${payload.new_duration}`)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to fix duration')
+    } finally {
+      setIsSavingSong(false)
+    }
+  }, [auth.accessToken, editingSong, fixDuration, previewSong])
+
   return (
     <main className="app-shell admin-songbook-shell">
       <section className="card admin-songbook-card">
         <div className="card-header admin-songbook-header">
-          <div>
-            <h1>Songbook Management</h1>
-            <p className="subtitle">
-              Manage songs, edit metadata, and archive records from a table-first admin view.
-            </p>
+          <div className="admin-songbook-title-row">
+            <button
+              type="button"
+              className="icon-control-button"
+              onClick={() => navigate('/admin/dashboard')}
+              title="Back to dashboard"
+              aria-label="Back to dashboard"
+            >
+              <span className="material-symbols-outlined">arrow_back</span>
+            </button>
+            <h1>Manage Songbook</h1>
           </div>
-          <div className="row-actions">
-            <button type="button" className="secondary" onClick={() => navigate('/admin/dashboard')}>
-              Dashboard
+          <div className="row-actions admin-songbook-header-actions">
+            <button
+              type="button"
+              className="icon-control-button"
+              onClick={() => navigate('/admin/songbook/suggest/search')}
+              title="Suggest song"
+              aria-label="Suggest song"
+            >
+              <span className="material-symbols-outlined">add_circle</span>
             </button>
-            <button type="button" className="secondary" onClick={() => navigate('/admin/songbook/suggest/search')}>
-              Suggest Song
-            </button>
-            <button type="button" className="secondary" onClick={() => void loadSongs()}>
-              Refresh
+            <button
+              type="button"
+              className="icon-control-button"
+              onClick={() => void loadSongs()}
+              title="Refresh"
+              aria-label="Refresh"
+            >
+              <span className="material-symbols-outlined">refresh</span>
             </button>
           </div>
         </div>
@@ -679,6 +754,18 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
             />
           </label>
           <div className="row-actions admin-songbook-toolbar-actions">
+            <label className="admin-songbook-page-size">
+              Items
+              <select
+                value={pageSize}
+                onChange={(event) => setPageSize(Number(event.target.value))}
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </label>
             <button type="button" className="secondary" onClick={() => setQuery('')}>
               Clear
             </button>
@@ -694,9 +781,16 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
 
         <div className="admin-songbook-table">
           <div className="admin-songbook-table-header">
-            <span>Song</span>
+            <button type="button" className="admin-songbook-sort-button" onClick={() => handleSort('title')}>
+              Song
+            </button>
             <span>Metadata</span>
-            <span>Attention</span>
+            <button type="button" className="admin-songbook-sort-button" onClick={() => handleSort('attention')}>
+              Attention
+            </button>
+            <button type="button" className="admin-songbook-sort-button" onClick={() => handleSort('status')}>
+              Status
+            </button>
             <span>Actions</span>
           </div>
 
@@ -704,10 +798,10 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
             <div className="top-gap">
               <SkeletonList count={3} />
             </div>
-          ) : songs.length === 0 ? (
+          ) : sortedSongs.length === 0 ? (
             <p className="empty-state top-gap">No songs found.</p>
           ) : (
-            songs.map((song) => (
+            sortedSongs.map((song) => (
               <article className="admin-songbook-row" key={song.id}>
                 <div className="admin-songbook-song">
                   <div className="song-detail-header-row">
@@ -764,10 +858,16 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
                     </span>
                   </div>
 
-                <div className="row-actions admin-songbook-actions">
-                  <button type="button" className="secondary" onClick={() => handleOpenEdit(song)}>
-                    Edit Details
-                  </button>
+                  <div className="admin-songbook-status">
+                    <span className={`badge admin-songbook-status-badge ${getSongStatusClass(song.status)}`}>
+                      {getSongStatusLabel(song.status)}
+                    </span>
+                  </div>
+
+                  <div className="row-actions admin-songbook-actions">
+                    <button type="button" className="secondary" onClick={() => handleOpenEdit(song)}>
+                      Edit Details
+                    </button>
                   <button type="button" className="secondary" onClick={() => setPreviewSong(song)}>
                     View Details
                   </button>
@@ -780,29 +880,10 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
                         setShowTrimModal(true)
                       }}
                     >
-                      ✂️ Trim Video
+                      <span className="material-symbols-outlined">content_cut</span>
+                      <span>Trim Video</span>
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    className="danger-button"
-                    onClick={() => void handleArchiveSong(song)}
-                    disabled={archivingSongId === song.id}
-                  >
-                    {archivingSongId === song.id ? 'Archiving…' : 'Archive Song'}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => void handleToggleValidation(song)}
-                    disabled={validationSongId === song.id}
-                  >
-                    {validationSongId === song.id
-                      ? 'Saving…'
-                      : song.validatedByAdmin
-                        ? 'Clear Validation'
-                        : 'Mark Validated'}
-                  </button>
                 </div>
               </article>
             ))
@@ -865,6 +946,10 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
           onSongChange={setEditingSong}
           onThumbnailDataUrlChange={setEditingSongThumbnailDataUrl}
           onSave={() => void handleSaveSong()}
+          onArchive={() => void handleArchiveSong(editingSong)}
+          isArchiving={archivingSongId === editingSong.id}
+          onMagicFixDuration={() => void handleMagicFixDuration()}
+          tagSuggestions={knownTagSuggestions}
           onTrimClick={() => {
             setSelectedSongForTrim(editingSong)
             setShowTrimModal(true)

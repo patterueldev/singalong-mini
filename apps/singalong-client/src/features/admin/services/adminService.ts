@@ -58,7 +58,7 @@ export interface AdminService {
 }
 
 function mapSong(raw: {
-  id: string; title: string; artist: string; duration: string
+  id: string; title: string; artist: string; status: string; duration: string
   language: string | null; genre: string | null; tags: string[]
   thumbnail_url: string | null; source_id: string | null; source_url: string | null
   video_file: string | null; lyrics: string | null; added_by_username: string | null
@@ -70,6 +70,7 @@ function mapSong(raw: {
     id: raw.id,
     title: raw.title,
     artist: raw.artist,
+    status: raw.status,
     duration: raw.duration,
     language: raw.language,
     genre: raw.genre,
@@ -95,6 +96,7 @@ export async function fetchSongbook(
   sessionId?: string,
 ): Promise<SongbookListResponse> {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+  params.set('include_unpublished', 'true')
   if (typeof sessionId === 'string' && sessionId !== '') {
     params.set('sessionId', sessionId)
   }
@@ -103,7 +105,7 @@ export async function fetchSongbook(
   }
   const raw = await apiJson<{
     items: Array<{
-      id: string; title: string; artist: string; duration: string
+      id: string; title: string; artist: string; status: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
@@ -127,6 +129,7 @@ export async function searchSongbook(
   sessionId?: string,
 ): Promise<SongbookListResponse> {
   const params = new URLSearchParams({ q, page: String(page), limit: String(limit) })
+  params.set('include_unpublished', 'true')
   if (typeof sessionId === 'string' && sessionId !== '') {
     params.set('sessionId', sessionId)
   }
@@ -135,7 +138,7 @@ export async function searchSongbook(
   }
   const raw = await apiJson<{
     items: Array<{
-      id: string; title: string; artist: string; duration: string
+      id: string; title: string; artist: string; status: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
@@ -161,7 +164,7 @@ export async function fetchSongDetail(id: string, sessionCode?: string, sessionI
   }
   const suffix = params.toString()
   const raw = await apiJson<{
-    id: string; title: string; artist: string; duration: string
+    id: string; title: string; artist: string; status: string; duration: string
     language: string | null; genre: string | null; tags: string[]
     thumbnail_url: string | null; source_id: string | null; source_url: string | null
     video_file: string | null; lyrics: string | null; added_by_username: string | null
@@ -246,7 +249,7 @@ export async function updateSongAdminDetails(
 ): Promise<SongbookSong> {
   const raw = await apiJson<{
     item: {
-      id: string; title: string; artist: string; duration: string
+      id: string; title: string; artist: string; status: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
@@ -277,7 +280,7 @@ export async function setSongValidation(
 ): Promise<SongbookSong> {
   const raw = await apiJson<{
     item: {
-      id: string; title: string; artist: string; duration: string
+      id: string; title: string; artist: string; status: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null

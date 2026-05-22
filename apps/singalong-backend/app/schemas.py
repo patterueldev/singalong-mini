@@ -290,6 +290,7 @@ class SongbookItem(BaseModel):
     id: UUID
     title: str
     artist: str
+    status: str
     duration: str
     language: str | None
     genre: str | None

@@ -778,6 +778,7 @@ def _song_to_item(
         id=song.id,
         title=song.title,
         artist=song.artist,
+        status=song.status,
         duration=_format_duration(song.duration),
         language=song.language,
         genre=song.genre,
@@ -804,6 +805,7 @@ def _song_to_item(
 def list_songs(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    include_unpublished: bool = Query(False),
     session_id: uuid.UUID | None = Query(default=None, alias="sessionId"),
     session_code: str | None = Query(default=None, min_length=6, max_length=6),
     db: Session = Depends(get_db),
@@ -811,7 +813,9 @@ def list_songs(
     session = _resolve_songbook_session(db, session_id, session_code)
     queued_song_ids = _load_session_queue_song_ids(db, session)
 
-    base_query = db.query(Song).filter(Song.status == "published", Song.archived_at.is_(None))
+    base_query = db.query(Song).filter(Song.archived_at.is_(None))
+    if not include_unpublished:
+        base_query = base_query.filter(Song.status == "published")
     if len(queued_song_ids) > 0:
         base_query = base_query.filter(~Song.id.in_(queued_song_ids))
 
@@ -860,15 +864,15 @@ def search_songs(
     q: str = Query("", alias="q"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    include_unpublished: bool = Query(False),
     session_id: uuid.UUID | None = Query(default=None, alias="sessionId"),
     session_code: str | None = Query(default=None, min_length=6, max_length=6),
     db: Session = Depends(get_db),
 ):
     session = _resolve_songbook_session(db, session_id, session_code)
-    base_query = (
-        db.query(Song)
-        .filter(Song.status == "published", Song.archived_at.is_(None))
-    )
+    base_query = db.query(Song).filter(Song.archived_at.is_(None))
+    if not include_unpublished:
+        base_query = base_query.filter(Song.status == "published")
     keyword = q.strip()
     if keyword:
         pattern = f"%{keyword}%"
@@ -952,7 +956,7 @@ def patch_song(
 
     song = (
         db.query(Song)
-        .filter(Song.id == uid, Song.status == "published", Song.archived_at.is_(None))
+        .filter(Song.id == uid, Song.archived_at.is_(None))
         .first()
     )
     if not song:
@@ -1010,7 +1014,7 @@ def update_song_validation(
 
     song = (
         db.query(Song)
-        .filter(Song.id == uid, Song.status == "published", Song.archived_at.is_(None))
+        .filter(Song.id == uid, Song.archived_at.is_(None))
         .first()
     )
     if not song:
@@ -1050,7 +1054,7 @@ def archive_song(
 
     song = (
         db.query(Song)
-        .filter(Song.id == uid, Song.status == "published", Song.archived_at.is_(None))
+        .filter(Song.id == uid, Song.archived_at.is_(None))
         .first()
     )
     if not song:

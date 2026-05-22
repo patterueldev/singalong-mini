@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 MEDIA_ROOT = Path(settings.media_root_dir)
 SONGS_DIR = MEDIA_ROOT / "songs"
+THUMBNAILS_DIR = MEDIA_ROOT / "thumbnails"
 ARCHIVE_ROOT = MEDIA_ROOT / "archive"
 
 
@@ -463,13 +464,30 @@ def fix_video_duration(db: Session, song: Song) -> dict:
     Returns:
         dict with keys: status, old_duration, new_duration, message
     """
+    def _format_hms(value_seconds: int | None) -> str:
+        if not isinstance(value_seconds, int) or value_seconds < 0:
+            return "00:00:00"
+        return (
+            f"{value_seconds // 3600:02d}:"
+            f"{(value_seconds % 3600) // 60:02d}:"
+            f"{value_seconds % 60:02d}"
+        )
+
     try:
+        if not song.video_file:
+            return {
+                "status": "failed",
+                "message": "Song has no video file",
+                "old_duration": _format_hms(song.duration),
+                "new_duration": None,
+            }
+
         video_path = SONGS_DIR / song.video_file
         if not video_path.exists():
             return {
                 "status": "failed",
                 "message": f"Video file not found: {song.video_file}",
-                "old_duration": str(song.duration),
+                "old_duration": _format_hms(song.duration),
                 "new_duration": None,
             }
 
@@ -479,14 +497,40 @@ def fix_video_duration(db: Session, song: Song) -> dict:
             return {
                 "status": "failed",
                 "message": "Could not scan video duration with ffprobe",
-                "old_duration": str(song.duration),
+                "old_duration": _format_hms(song.duration),
                 "new_duration": None,
             }
 
-        # Convert to HH:MM:SS format
         actual_duration_seconds = actual_duration_ms // 1000
-        old_duration = song.duration
-        
+        old_duration = song.duration if isinstance(song.duration, int) else None
+        message_parts = [f"Duration fixed successfully ({_format_hms(old_duration)} → {_format_hms(actual_duration_seconds)})"]
+
+        # Confirm associated files are present.
+        missing_assets: list[str] = []
+        if song.thumbnail_file:
+            thumbnail_path = THUMBNAILS_DIR / song.thumbnail_file
+            if not thumbnail_path.exists():
+                missing_assets.append(f"Thumbnail file missing: {song.thumbnail_file}")
+
+        # Clear stale extra_metadata.error only when no missing assets were found.
+        if len(missing_assets) == 0:
+            metadata: dict[str, object]
+            if song.extra_metadata is None or song.extra_metadata.strip() == "":
+                metadata = {}
+            else:
+                try:
+                    parsed = json.loads(song.extra_metadata)
+                    metadata = parsed if isinstance(parsed, dict) else {}
+                except json.JSONDecodeError:
+                    metadata = {}
+
+            if isinstance(metadata.get("error"), str) and metadata.get("error", "").strip() != "":
+                metadata.pop("error", None)
+                song.extra_metadata = json.dumps(metadata) if len(metadata) > 0 else None
+                message_parts.append("Cleared stale metadata error")
+        else:
+            message_parts.extend(missing_assets)
+
         # Update database
         song.duration = actual_duration_seconds
         song.updated_at = datetime.now(timezone.utc)
@@ -496,9 +540,9 @@ def fix_video_duration(db: Session, song: Song) -> dict:
 
         return {
             "status": "success",
-            "message": f"Duration fixed successfully",
-            "old_duration": f"{old_duration // 3600:02d}:{(old_duration % 3600) // 60:02d}:{old_duration % 60:02d}",
-            "new_duration": f"{actual_duration_seconds // 3600:02d}:{(actual_duration_seconds % 3600) // 60:02d}:{actual_duration_seconds % 60:02d}",
+            "message": " · ".join(message_parts),
+            "old_duration": _format_hms(old_duration),
+            "new_duration": _format_hms(actual_duration_seconds),
         }
 
     except Exception as e:
@@ -507,6 +551,6 @@ def fix_video_duration(db: Session, song: Song) -> dict:
         return {
             "status": "failed",
             "message": f"Error: {str(e)[:100]}",
-            "old_duration": str(song.duration),
+            "old_duration": _format_hms(song.duration if isinstance(song.duration, int) else None),
             "new_duration": None,
         }
