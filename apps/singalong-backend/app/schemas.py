@@ -369,6 +369,7 @@ class SongDownloadListResponse(BaseModel):
 class TrimSongRequest(BaseModel):
     trim_start_ms: int
     trim_end_ms: int
+    monitor_id: str | None = None  # Optional: for progress tracking
 
 
 class TrimSongResponse(BaseModel):

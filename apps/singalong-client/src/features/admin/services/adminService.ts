@@ -37,8 +37,9 @@ export interface AdminService {
     },
   ) => Promise<SongbookSong>
   setSongValidation: (songId: string, token: string, validated: boolean) => Promise<SongbookSong>
-  trimSong: (songId: string, token: string, startMs: number, endMs: number) => Promise<TrimResponse>
+  trimSong: (songId: string, token: string, startMs: number, endMs: number, monitorId?: string) => Promise<TrimResponse>
   getTrimHistory: (songId: string, token: string) => Promise<TrimHistoryItem[]>
+  getTrimProgress: (songId: string, monitorId: string, token: string) => Promise<{ operation_id: string; status: string; progress_percent: number; message: string; error: string | null }>
   restoreTrim: (songId: string, token: string, historyId: string) => Promise<RestoreResponse>
   fixDuration: (songId: string, token: string) => Promise<{ song_id: string; old_duration: string; new_duration: string; status: string; message: string }>
   reserveSessionQueueSong: (
@@ -349,7 +350,7 @@ export async function fetchActiveSession(): Promise<SessionRecord | null> {
   }
 }
 
-export async function trimSong(songId: string, token: string, startMs: number, endMs: number): Promise<TrimResponse> {
+export async function trimSong(songId: string, token: string, startMs: number, endMs: number, monitorId?: string): Promise<TrimResponse> {
   return apiJson<TrimResponse>(
     `/songs/${songId}/trim`,
     {
@@ -357,6 +358,7 @@ export async function trimSong(songId: string, token: string, startMs: number, e
       body: JSON.stringify({
         trim_start_ms: startMs,
         trim_end_ms: endMs,
+        monitor_id: monitorId,
       }),
     },
     token,
@@ -366,6 +368,18 @@ export async function trimSong(songId: string, token: string, startMs: number, e
 export async function getTrimHistory(songId: string, token: string): Promise<TrimHistoryItem[]> {
   const raw = await apiJson<{ items: TrimHistoryItem[] }>(`/songs/${songId}/trim-history`, {}, token)
   return raw.items
+}
+
+export async function getTrimProgress(
+  songId: string,
+  monitorId: string,
+  token: string,
+): Promise<{ operation_id: string; status: string; progress_percent: number; message: string; error: string | null }> {
+  return apiJson(
+    `/songs/${songId}/trim-progress/${monitorId}`,
+    {},
+    token,
+  )
 }
 
 export async function restoreTrim(songId: string, token: string, historyId: string): Promise<RestoreResponse> {
@@ -423,6 +437,7 @@ export const adminService: AdminService = {
   fetchActiveSession,
   trimSong,
   getTrimHistory,
+  getTrimProgress,
   restoreTrim,
   fixDuration,
 }

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SongbookSong, TrimHistoryItem, StoredAuth } from '../../../shared/types/client'
 import { formatTimeMs, parseTimeMs } from '../../../shared/lib/format'
 import { useAdminService } from '../hooks/useAdminService'
@@ -12,9 +12,10 @@ interface SongTrimModalProps {
 }
 
 export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: SongTrimModalProps) {
-  const { trimSong, getTrimHistory, restoreTrim } = useAdminService()
+  const { trimSong, getTrimHistory, restoreTrim, getTrimProgress } = useAdminService()
   const videoRef = useRef<HTMLVideoElement>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   const [startTimeMs, setStartTimeMs] = useState(0)
   const [endTimeMs, setEndTimeMs] = useState(0)
@@ -27,6 +28,8 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [restoringHistoryId, setRestoringHistoryId] = useState<string | null>(null)
+  const [trimProgress, setTrimProgress] = useState(0)
+  const [trimProgressMessage, setTrimProgressMessage] = useState('')
 
   // Load trim history on demand (button click), not on mount
   const loadTrimHistory = useCallback(async () => {
@@ -105,28 +108,73 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   const handleTrimVideo = async () => {
     setErrorMessage('')
     setSuccessMessage('')
+    setTrimProgress(0)
+    setTrimProgressMessage('')
 
     if (!validateTimeRange()) {
       return
     }
 
+    const monitorId = crypto.randomUUID()
+    setTrimProgress(0)
+    setTrimProgressMessage('Initializing trim...')
     setIsTrimming(true)
+    
     console.log('📹 Trimming video:', {
       startTimeMs: Math.round(startTimeMs),
       endTimeMs: Math.round(endTimeMs),
       videoDurationMs: videoDurationMs,
       startFormatted: formatTimeMs(startTimeMs),
       endFormatted: formatTimeMs(endTimeMs),
+      monitorId,
     })
+    
     try {
+      // Start polling for progress
+      pollingIntervalRef.current = setInterval(async () => {
+        try {
+          const progress = await getTrimProgress(song.id, monitorId, auth.accessToken)
+          console.log('📊 Trim progress:', progress)
+          setTrimProgress(progress.progress_percent)
+          setTrimProgressMessage(progress.message)
+          
+          if (progress.status === 'completed') {
+            clearInterval(pollingIntervalRef.current!)
+            pollingIntervalRef.current = null
+          } else if (progress.status === 'failed') {
+            clearInterval(pollingIntervalRef.current!)
+            pollingIntervalRef.current = null
+            setErrorMessage(progress.error || 'Trim failed')
+            setIsTrimming(false)
+          }
+        } catch (error) {
+          // Silently fail polling if endpoint doesn't exist (operation completed)
+          console.debug('Polling error (may be normal):', error)
+        }
+      }, 300) // Poll every 300ms
+      
       // Round to integers to avoid fractional milliseconds
-      await trimSong(song.id, auth.accessToken, Math.round(startTimeMs), Math.round(endTimeMs))
+      await trimSong(song.id, auth.accessToken, Math.round(startTimeMs), Math.round(endTimeMs), monitorId)
+      
+      // Clear polling interval if still running
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
+      }
+      
       const newDuration = formatTimeMs(endTimeMs - startTimeMs)
       setSuccessMessage(`Video trimmed successfully! New duration: ${newDuration}`)
+      setTrimProgress(100)
+      setTrimProgressMessage('Trim complete')
       setTimeout(() => {
         onTrimComplete()
       }, 1500)
     } catch (error) {
+      // Clear polling interval on error
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
+      }
       setErrorMessage(error instanceof Error ? error.message : 'Failed to trim video')
     } finally {
       setIsTrimming(false)
@@ -200,6 +248,15 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
       updateTimelinePosition(e)
     }
   }
+
+  // Cleanup polling interval on unmount or modal close
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+      }
+    }
+  }, [])
 
   if (!isOpen || !song) return null
 
@@ -339,6 +396,21 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
           {/* Messages */}
           {errorMessage && <div className="trim-error-message">{errorMessage}</div>}
           {successMessage && <div className="trim-success-message">{successMessage}</div>}
+
+          {/* Progress Bar */}
+          {isTrimming && (
+            <div className="trim-progress-container">
+              <div className="trim-progress-bar">
+                <div 
+                  className="trim-progress-fill"
+                  style={{ width: `${trimProgress}%` }}
+                ></div>
+              </div>
+              <div className="trim-progress-text">
+                {trimProgressMessage} ({trimProgress}%)
+              </div>
+            </div>
+          )}
 
           {/* Trim Button */}
           <div className="trim-modal-actions">

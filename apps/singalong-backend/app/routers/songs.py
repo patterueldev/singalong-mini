@@ -42,6 +42,7 @@ from ..schemas import (
     SongSuggestUpdateResponse,
     TrimHistoryItem,
     TrimHistoryListResponse,
+    TrimProgressEvent,
     TrimRestoreRequest,
     TrimRestoreResponse,
     TrimSongRequest,
@@ -49,6 +50,7 @@ from ..schemas import (
 )
 from ..services.auth import get_current_user, require_admin_or_guest_user, require_admin_user
 from ..services.download_queue import list_active_download_items
+from ..services.progress_tracker import ProgressEvent, get_progress_tracker
 from ..services.thumbnail_service import convert_base64_to_jpg, save_thumbnail
 from ..services.song_quality import assess_song_quality
 from ..services.ytdlp.naming import normalize_song_title
@@ -1094,7 +1096,16 @@ def trim_song(
     Trim a song video.
     
     Requires admin role.
+    
+    Optionally accepts monitor_id for progress tracking.
+    Frontend can poll GET /api/songs/{song_id}/trim-progress/{monitor_id} to check progress.
     """
+    tracker = get_progress_tracker()
+    monitor_id = request.monitor_id
+    
+    if monitor_id:
+        tracker.update(monitor_id, 10, "Validating trim parameters...")
+    
     result = trim_video(
         db=db,
         song_id=song_id,
@@ -1106,6 +1117,8 @@ def trim_song(
 
     if result.get("status") == "failed":
         error_msg = result.get("error", "Unknown error")
+        if monitor_id:
+            tracker.fail(monitor_id, error_msg)
         if "trim_start_ms" in error_msg or "trim_end_ms" in error_msg or "Trimmed duration" in error_msg:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg)
         elif "not found" in error_msg.lower():
@@ -1113,6 +1126,9 @@ def trim_song(
         else:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_msg)
 
+    if monitor_id:
+        tracker.complete(monitor_id, "Video trimmed successfully")
+    
     return TrimSongResponse(
         song_id=result["song_id"],
         trim_start_ms=result["trim_start_ms"],
@@ -1234,3 +1250,25 @@ def fix_duration(
         status=result["status"],
         message=result["message"],
     )
+
+
+@router.get("/{song_id}/trim-progress/{operation_id}", response_model=TrimProgressEvent)
+def get_trim_progress(
+    song_id: uuid.UUID,
+    operation_id: str,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get progress of a trim operation.
+    
+    Returns progress percentage (0-100), status, and any error messages.
+    Useful for polling while trimming is in progress.
+    """
+    tracker = get_progress_tracker()
+    progress_event = tracker.get(operation_id)
+    
+    if not progress_event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operation not found")
+    
+    return progress_event.to_dict()
