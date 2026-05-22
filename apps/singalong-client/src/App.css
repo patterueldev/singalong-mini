@@ -3204,6 +3204,7 @@ button.small {
   display: flex;
   flex-direction: column;
   gap: 0;
+  overflow: hidden;
 }
 
 .song-trim-header {
@@ -3510,4 +3511,124 @@ button.small {
   margin: 0;
   font-size: 0.8rem;
   color: var(--text-secondary);
+}
+
+/* Trim header actions */
+.song-trim-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 0 16px 0;
+  border-bottom: 1px solid var(--border-primary);
+  margin-bottom: 16px;
+}
+
+.trim-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.trim-history-button {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 6px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.trim-history-button:hover:not(:disabled) {
+  background: var(--surface-secondary, rgba(0, 0, 0, 0.05));
+}
+
+.trim-history-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Time inputs with action buttons */
+.time-input-with-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.time-input-with-actions input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.time-input-with-actions input:disabled {
+  background: var(--surface-secondary, rgba(0, 0, 0, 0.05));
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+.time-action-button {
+  background: none;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  min-width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  color: var(--text-secondary);
+  background: var(--surface-secondary, rgba(0, 0, 0, 0.02));
+}
+
+.time-action-button:hover:not(:disabled) {
+  background: #2196f3;
+  color: white;
+  border-color: #2196f3;
+}
+
+.time-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Timeline markers with drag state */
+.trim-marker {
+  position: absolute;
+  width: 2px;
+  height: 100%;
+  background: #2196f3;
+  top: 0;
+  cursor: col-resize;
+  border-radius: 1px;
+  transition: background 0.2s;
+}
+
+.trim-marker:hover {
+  background: #1976d2;
+  width: 3px;
+}
+
+.trim-marker.dragging {
+  background: #1565c0;
+  width: 4px;
+  box-shadow: 0 0 8px rgba(33, 150, 243, 0.5);
+}
+
+.trim-marker-start,
+.trim-marker-end {
+  transform: translateX(-50%);
 }

@@ -14,6 +14,7 @@ interface SongTrimModalProps {
 export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: SongTrimModalProps) {
   const { trimSong, getTrimHistory, restoreTrim } = useAdminService()
   const videoRef = useRef<HTMLVideoElement>(null)
+  const timelineRef = useRef<HTMLDivElement>(null)
 
   const [startTimeMs, setStartTimeMs] = useState(0)
   const [endTimeMs, setEndTimeMs] = useState(0)
@@ -21,6 +22,8 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   const [trimHistory, setTrimHistory] = useState<TrimHistoryItem[]>([])
   const [isTrimming, setIsTrimming] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [isDraggingStart, setIsDraggingStart] = useState(false)
+  const [isDraggingEnd, setIsDraggingEnd] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [restoringHistoryId, setRestoringHistoryId] = useState<string | null>(null)
@@ -48,6 +51,30 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
       setEndTimeMs(durationMs)
     }
   }, [])
+
+  // Mark current position as start
+  const markStart = useCallback(() => {
+    if (videoRef.current) {
+      const currentMs = videoRef.current.currentTime * 1000
+      setStartTimeMs(Math.max(0, Math.min(currentMs, endTimeMs - 1000)))
+    }
+  }, [endTimeMs])
+
+  // Mark current position as end
+  const markEnd = useCallback(() => {
+    if (videoRef.current) {
+      const currentMs = videoRef.current.currentTime * 1000
+      setEndTimeMs(Math.max(startTimeMs + 1000, Math.min(currentMs, videoDurationMs)))
+    }
+  }, [startTimeMs, videoDurationMs])
+
+  // Seek to start time and play
+  const seekToStart = useCallback(() => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = startTimeMs / 1000
+      videoRef.current.play()
+    }
+  }, [startTimeMs])
 
   const validateTimeRange = (): boolean => {
     if (startTimeMs < 0) {
@@ -116,20 +143,48 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
     }
   }
 
-  const handleTimelineClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect()
+  // Real-time timeline click and drag
+  const updateTimelinePosition = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!timelineRef.current) return
+    const rect = timelineRef.current.getBoundingClientRect()
     const clickX = event.clientX - rect.left
-    const percentage = clickX / rect.width
+    const percentage = Math.max(0, Math.min(1, clickX / rect.width))
     const clickTimeMs = percentage * videoDurationMs
 
-    // Determine if we're closer to start or end marker
-    const distToStart = Math.abs(clickTimeMs - startTimeMs)
-    const distToEnd = Math.abs(clickTimeMs - endTimeMs)
-
-    if (distToStart < distToEnd) {
+    if (isDraggingStart) {
       setStartTimeMs(Math.max(0, Math.min(clickTimeMs, endTimeMs - 1000)))
-    } else {
+    } else if (isDraggingEnd) {
       setEndTimeMs(Math.max(startTimeMs + 1000, Math.min(clickTimeMs, videoDurationMs)))
+    } else {
+      // Determine which marker is closer
+      const distToStart = Math.abs(clickTimeMs - startTimeMs)
+      const distToEnd = Math.abs(clickTimeMs - endTimeMs)
+
+      if (distToStart < distToEnd) {
+        setStartTimeMs(Math.max(0, Math.min(clickTimeMs, endTimeMs - 1000)))
+      } else {
+        setEndTimeMs(Math.max(startTimeMs + 1000, Math.min(clickTimeMs, videoDurationMs)))
+      }
+    }
+  }
+
+  const handleTimelineMouseDown = (marker: 'start' | 'end') => (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (marker === 'start') {
+      setIsDraggingStart(true)
+    } else {
+      setIsDraggingEnd(true)
+    }
+  }
+
+  const handleMouseUp = () => {
+    setIsDraggingStart(false)
+    setIsDraggingEnd(false)
+  }
+
+  const handleTimelineMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isDraggingStart || isDraggingEnd) {
+      updateTimelinePosition(e)
     }
   }
 
@@ -139,11 +194,27 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   const endPercentage = videoDurationMs > 0 ? (endTimeMs / videoDurationMs) * 100 : 0
 
   return (
-    <div className="modal-backdrop song-detail-backdrop" role="presentation" onClick={onClose}>
+    <div 
+      className="modal-backdrop song-detail-backdrop" 
+      role="presentation" 
+      onClick={onClose}
+      onMouseUp={handleMouseUp}
+    >
       <div className="modal-card song-trim-modal" onClick={(e) => e.stopPropagation()}>
         <div className="song-trim-header">
           <h2>Trim Video: {song.title}</h2>
-          <button className="trim-close-button" onClick={onClose} aria-label="Close">✕</button>
+          <div className="trim-header-actions">
+            <button 
+              className="trim-history-button" 
+              onClick={loadTrimHistory}
+              disabled={isLoadingHistory || isTrimming}
+              title="View trim history"
+              aria-label="View trim history"
+            >
+              📋
+            </button>
+            <button className="trim-close-button" onClick={onClose} aria-label="Close">✕</button>
+          </div>
         </div>
 
         <div className="song-trim-content">
@@ -160,7 +231,12 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
 
           {/* Timeline */}
           <div className="trim-timeline-section">
-            <div className="trim-timeline" onClick={handleTimelineClick}>
+            <div 
+              ref={timelineRef}
+              className="trim-timeline" 
+              onClick={updateTimelinePosition}
+              onMouseMove={handleTimelineMouseMove}
+            >
               <div
                 className="trim-range"
                 style={{
@@ -168,8 +244,16 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
                   right: `${100 - endPercentage}%`,
                 }}
               />
-              <div className="trim-marker trim-marker-start" style={{ left: `${startPercentage}%` }} />
-              <div className="trim-marker trim-marker-end" style={{ left: `${endPercentage}%` }} />
+              <div 
+                className={`trim-marker trim-marker-start ${isDraggingStart ? 'dragging' : ''}`}
+                style={{ left: `${startPercentage}%` }}
+                onMouseDown={handleTimelineMouseDown('start')}
+              />
+              <div 
+                className={`trim-marker trim-marker-end ${isDraggingEnd ? 'dragging' : ''}`}
+                style={{ left: `${endPercentage}%` }}
+                onMouseDown={handleTimelineMouseDown('end')}
+              />
             </div>
           </div>
 
@@ -177,27 +261,55 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
           <div className="trim-time-inputs">
             <div className="time-input-group">
               <label>Start Time</label>
-              <input
-                type="text"
-                value={formatTimeMs(startTimeMs)}
-                onChange={(e) => {
-                  const ms = parseTimeMs(e.target.value)
-                  setStartTimeMs(Math.max(0, Math.min(ms, endTimeMs - 1000)))
-                }}
-                disabled={isTrimming}
-              />
+              <div className="time-input-with-actions">
+                <input
+                  type="text"
+                  value={formatTimeMs(startTimeMs)}
+                  onChange={(e) => {
+                    const ms = parseTimeMs(e.target.value)
+                    setStartTimeMs(Math.max(0, Math.min(ms, endTimeMs - 1000)))
+                  }}
+                  disabled={isTrimming}
+                />
+                <button 
+                  className="time-action-button"
+                  onClick={seekToStart}
+                  title="Seek to start time and play"
+                  disabled={isTrimming}
+                >
+                  ▶️
+                </button>
+                <button 
+                  className="time-action-button"
+                  onClick={markStart}
+                  title="Mark current position as start"
+                  disabled={isTrimming}
+                >
+                  ⚑
+                </button>
+              </div>
             </div>
             <div className="time-input-group">
               <label>End Time</label>
-              <input
-                type="text"
-                value={formatTimeMs(endTimeMs)}
-                onChange={(e) => {
-                  const ms = parseTimeMs(e.target.value)
-                  setEndTimeMs(Math.max(startTimeMs + 1000, Math.min(ms, videoDurationMs)))
-                }}
-                disabled={isTrimming}
-              />
+              <div className="time-input-with-actions">
+                <input
+                  type="text"
+                  value={formatTimeMs(endTimeMs)}
+                  onChange={(e) => {
+                    const ms = parseTimeMs(e.target.value)
+                    setEndTimeMs(Math.max(startTimeMs + 1000, Math.min(ms, videoDurationMs)))
+                  }}
+                  disabled={isTrimming}
+                />
+                <button 
+                  className="time-action-button"
+                  onClick={markEnd}
+                  title="Mark current position as end"
+                  disabled={isTrimming}
+                >
+                  ⚑
+                </button>
+              </div>
             </div>
             <div className="time-input-group">
               <label>Duration</label>
@@ -224,17 +336,6 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
             </button>
             <button className="btn-secondary" onClick={onClose} disabled={isTrimming}>
               Cancel
-            </button>
-          </div>
-
-          {/* Load History Button */}
-          <div className="trim-load-history-container">
-            <button
-              className="btn-link"
-              onClick={loadTrimHistory}
-              disabled={isLoadingHistory || isTrimming}
-            >
-              {isLoadingHistory ? 'Loading...' : trimHistory.length > 0 ? 'Reload History' : 'Load History'}
             </button>
           </div>
 
