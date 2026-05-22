@@ -228,7 +228,12 @@ export function GuestSongbookPage() {
       <section className="card guest-fullscreen-card guest-songbook-screen">
         <div className="guest-songbook-sticky-top">
           <div className="guest-songbook-search-row">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search songs..." />
+            <input
+              className="songbook-search-input"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search songs..."
+            />
             <div className="row-actions guest-songbook-header-actions">
               <button
                 type="button"
@@ -283,6 +288,19 @@ export function GuestSongbookPage() {
                  <div className="songbook-info">
                    <div className="songbook-item-header">
                      <strong>{song.title}</strong>
+                     {song.wasQueuedInSession ? (
+                       Math.max(song.queuedCountInSession, 1) === 1 ? (
+                         <span className="songbook-played-indicator one" aria-label="Played once">
+                           <span className="material-symbols-outlined" aria-hidden="true">
+                             check_circle
+                           </span>
+                         </span>
+                       ) : (
+                         <span className="songbook-played-indicator many" aria-label="Played multiple times">
+                           {Math.max(song.queuedCountInSession, 1)}
+                         </span>
+                       )
+                     ) : null}
                    </div>
                    <p className="session-meta">
                      {song.artist}
