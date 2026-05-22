@@ -104,9 +104,17 @@ def trim_video(
             "song_id": song_id,
         }
 
-    # Validate trim points
-    # Note: song.duration is in seconds, but trim parameters are in milliseconds
-    current_duration_ms = (song.duration or 0) * 1000
+    # Get ACTUAL video duration from ffprobe (not from database)
+    # This fixes issues where database duration is stale or incorrect
+    actual_duration_ms = _get_video_duration_ms(str(video_path))
+    if actual_duration_ms is None:
+        return {
+            "status": "failed",
+            "error": "Could not determine video duration",
+            "song_id": song_id,
+        }
+
+    # Validate trim points against actual video duration
     if trim_start_ms < 0:
         return {
             "status": "failed",
@@ -128,10 +136,10 @@ def trim_video(
             "song_id": song_id,
         }
 
-    if trim_end_ms > current_duration_ms:
+    if trim_end_ms > actual_duration_ms:
         return {
             "status": "failed",
-            "error": f"trim_end_ms ({trim_end_ms}ms) exceeds video duration ({current_duration_ms}ms)",
+            "error": f"trim_end_ms ({trim_end_ms}ms) exceeds video duration ({actual_duration_ms}ms)",
             "song_id": song_id,
         }
 
@@ -159,7 +167,7 @@ def trim_video(
             version=version,
             file_path=backup_file_rel,
             file_size_bytes=os.path.getsize(backup_path),
-            duration_ms=current_duration_ms,
+            duration_ms=actual_duration_ms,
             expires_at=backup_expires_at,
         )
         db.add(archive_record)
@@ -171,7 +179,7 @@ def trim_video(
             admin_id=admin_id,
             trim_start_ms=trim_start_ms,
             trim_end_ms=trim_end_ms,
-            old_duration_ms=current_duration_ms,
+            old_duration_ms=actual_duration_ms,
             backup_file=backup_file_rel,
             backup_expires_at=backup_expires_at,
             status="pending",
@@ -275,7 +283,7 @@ def trim_video(
             "song_id": song_id,
             "trim_start_ms": trim_start_ms,
             "trim_end_ms": trim_end_ms,
-            "old_duration_ms": current_duration_ms,
+            "old_duration_ms": actual_duration_ms,
             "new_duration_ms": new_duration_ms,
             "backup_file": backup_file_rel,
             "backup_expires_at": backup_expires_at,
