@@ -5,6 +5,7 @@ import { useAdminService } from '../hooks/useAdminService'
 import { formatLanguageLabel } from '../../../shared/lib/format'
 import { readFileAsDataUrl } from '../../../shared/lib/files'
 import { SkeletonList } from '../../songbook/components/SkeletonList'
+import { SongTrimModal } from '../components/SongTrimModal'
 
 type AdminSongbookPageProps = {
   auth: StoredAuth
@@ -188,6 +189,7 @@ function SongEditModal({
   onSongChange,
   onThumbnailDataUrlChange,
   onSave,
+  onTrimClick,
 }: {
   song: SongbookSong
   thumbnailDataUrl: string | null
@@ -196,6 +198,7 @@ function SongEditModal({
   onSongChange: (song: SongbookSong) => void
   onThumbnailDataUrlChange: (value: string | null) => void
   onSave: () => void
+  onTrimClick?: () => void
 }) {
   const [showThumbnailPreview, setShowThumbnailPreview] = useState(false)
   const [tagInput, setTagInput] = useState('')
@@ -427,6 +430,17 @@ function SongEditModal({
           <button type="button" onClick={onSave} disabled={isSaving}>
             {isSaving ? 'Saving…' : 'Save'}
           </button>
+          {onTrimClick && song.videoFile && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={onTrimClick}
+              disabled={isSaving}
+              title="Trim video"
+            >
+              ✂️ Trim Video
+            </button>
+          )}
           <button type="button" className="secondary" onClick={onClose} disabled={isSaving}>
             Cancel
           </button>
@@ -494,6 +508,8 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
   const [isSavingSong, setIsSavingSong] = useState(false)
   const [archivingSongId, setArchivingSongId] = useState<string | null>(null)
   const [validationSongId, setValidationSongId] = useState<string | null>(null)
+  const [showTrimModal, setShowTrimModal] = useState(false)
+  const [selectedSongForTrim, setSelectedSongForTrim] = useState<SongbookSong | null>(null)
 
   const loadSongs = useCallback(async () => {
     setIsLoading(true)
@@ -837,6 +853,27 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
           onSongChange={setEditingSong}
           onThumbnailDataUrlChange={setEditingSongThumbnailDataUrl}
           onSave={() => void handleSaveSong()}
+          onTrimClick={() => {
+            setSelectedSongForTrim(editingSong)
+            setShowTrimModal(true)
+          }}
+        />
+      ) : null}
+
+      {showTrimModal && selectedSongForTrim ? (
+        <SongTrimModal
+          song={selectedSongForTrim}
+          isOpen={showTrimModal}
+          auth={auth}
+          onClose={() => {
+            setShowTrimModal(false)
+            setSelectedSongForTrim(null)
+          }}
+          onTrimComplete={() => {
+            setShowTrimModal(false)
+            setSelectedSongForTrim(null)
+            void loadSongs()
+          }}
         />
       ) : null}
     </main>

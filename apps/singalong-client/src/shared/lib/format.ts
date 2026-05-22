@@ -33,6 +33,41 @@ export function formatDurationClock(valueSeconds: number | null | undefined): st
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
+export function formatTimeMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) {
+    return '00:00'
+  }
+  const totalSeconds = Math.floor(ms / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+export function parseTimeMs(timeStr: string): number {
+  const parts = timeStr.split(':')
+  if (parts.length !== 2) {
+    return 0
+  }
+  const [minutesStr, secondsStr] = parts
+  const minutes = parseInt(minutesStr, 10)
+  const seconds = parseInt(secondsStr, 10)
+  if (isNaN(minutes) || isNaN(seconds)) {
+    return 0
+  }
+  return (minutes * 60 + seconds) * 1000
+}
+
+export function calculateDuration(startMs: number, endMs: number): number {
+  if (endMs <= startMs) {
+    return 0
+  }
+  return endMs - startMs
+}
+
+export function getTimerDurationDisplay(startMs: number, endMs: number): string {
+  return `${formatTimeMs(endMs - startMs)}`
+}
+
 export function formatDownloadStatus(status: DownloadProgressItem['status']): string {
   if (status === 'pending') {
     return 'Pending'

@@ -8,6 +8,9 @@ import type {
   SongQualityFlag,
   SongbookListResponse,
   SongbookSong,
+  TrimHistoryItem,
+  TrimResponse,
+  RestoreResponse,
   UserProfile,
 } from '../../../shared/types/client'
 import { normalizeSessionQueueItems } from '../../shared/services/queueTransforms'
@@ -34,6 +37,9 @@ export interface AdminService {
     },
   ) => Promise<SongbookSong>
   setSongValidation: (songId: string, token: string, validated: boolean) => Promise<SongbookSong>
+  trimSong: (songId: string, token: string, startMs: number, endMs: number) => Promise<TrimResponse>
+  getTrimHistory: (songId: string, token: string) => Promise<TrimHistoryItem[]>
+  restoreTrim: (songId: string, token: string, historyId: string) => Promise<RestoreResponse>
   reserveSessionQueueSong: (
     sessionCode: string,
     songId: string,
@@ -342,6 +348,38 @@ export async function fetchActiveSession(): Promise<SessionRecord | null> {
   }
 }
 
+export async function trimSong(songId: string, token: string, startMs: number, endMs: number): Promise<TrimResponse> {
+  return apiJson<TrimResponse>(
+    `/songs/${songId}/trim`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        trim_start_ms: startMs,
+        trim_end_ms: endMs,
+      }),
+    },
+    token,
+  )
+}
+
+export async function getTrimHistory(songId: string, token: string): Promise<TrimHistoryItem[]> {
+  const raw = await apiJson<{ items: TrimHistoryItem[] }>(`/songs/${songId}/trim-history`, {}, token)
+  return raw.items
+}
+
+export async function restoreTrim(songId: string, token: string, historyId: string): Promise<RestoreResponse> {
+  return apiJson<RestoreResponse>(
+    `/songs/${songId}/trim/restore`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        history_id: historyId,
+      }),
+    },
+    token,
+  )
+}
+
 export const adminService: AdminService = {
   fetchSongbook,
   searchSongbook,
@@ -360,4 +398,7 @@ export const adminService: AdminService = {
   archiveSong,
   setSongValidation,
   fetchActiveSession,
+  trimSong,
+  getTrimHistory,
+  restoreTrim,
 }
