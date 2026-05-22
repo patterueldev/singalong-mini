@@ -11,9 +11,16 @@ from threading import Lock
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DBSession
 
 from ..models import Song, SongDownload
+from ..services.session_queue import (
+    SessionQueueNotFoundError,
+    SessionQueueValidationError,
+    list_session_queue_items,
+    reserve_song_in_session,
+)
 from ..services.ytdlp.naming import build_saved_filename, normalize_song_title
 from ..services.thumbnail_service import convert_base64_to_jpg, download_thumbnail, save_thumbnail
 from ..services.download_queue import list_active_download_items
@@ -303,6 +310,7 @@ class SongDownloaderService:
             self._delete_download_record(db, song_uuid)
             db.commit()
             self._emit_downloads_updated(db)
+            self._attempt_auto_reserve(db, song_uuid)
             print(
                 f"[DOWNLOADER] Song published successfully - song_id={song_id}",
                 file=sys.stderr,
@@ -488,6 +496,46 @@ class SongDownloaderService:
     def _emit_downloads_updated(self, db: DBSession) -> None:
         download_items = self._build_download_items_for_broadcast(db)
         ws_hub.broadcast_downloads_updated_threadsafe(download_items)
+
+    def _attempt_auto_reserve(self, db: DBSession, song_id: UUID) -> None:
+        song = db.scalar(select(Song).where(Song.id == song_id))
+        if song is None or song.extra_metadata is None:
+            return
+
+        try:
+            metadata = json.loads(song.extra_metadata)
+        except json.JSONDecodeError:
+            return
+        if not isinstance(metadata, dict):
+            return
+
+        reserve_intent = metadata.get("reserve_intent")
+        if not isinstance(reserve_intent, dict):
+            return
+
+        session_code = reserve_intent.get("session_code")
+        reserved_by = reserve_intent.get("reserved_by")
+        if not isinstance(session_code, str) or not isinstance(reserved_by, str):
+            return
+
+        try:
+            reserve_song_in_session(
+                db=db,
+                session_code=session_code,
+                song_id=song_id,
+                reserved_by=UUID(reserved_by),
+            )
+            queue_items = list_session_queue_items(db, session_code)
+            ws_hub.broadcast_queue_updated_threadsafe(session_code, queue_items)
+            metadata.pop("reserve_intent", None)
+            song.extra_metadata = json.dumps(metadata) if metadata else None
+            db.commit()
+        except (ValueError, SessionQueueNotFoundError, SessionQueueValidationError, SQLAlchemyError) as exc:
+            print(
+                f"[DOWNLOADER] Auto-reserve failed - song_id={song_id} session={session_code}: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
 
     def _build_download_items_for_broadcast(self, db: DBSession) -> list:
         items = list_active_download_items(db)

@@ -332,6 +332,11 @@ class SessionWebSocketHub:
             return
         asyncio.run_coroutine_threadsafe(self.broadcast_downloads_updated(items), self._event_loop)
 
+    def broadcast_queue_updated_threadsafe(self, session_code: str, items: list[SessionQueueItem]) -> None:
+        if self._event_loop is None:
+            return
+        asyncio.run_coroutine_threadsafe(self.broadcast_queue_updated(session_code, items), self._event_loop)
+
     async def _broadcast_all(self, target_channel: str, payload: dict[str, Any]) -> None:
         async with self._lock:
             targets = [
