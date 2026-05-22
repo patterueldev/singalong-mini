@@ -129,6 +129,7 @@ export type SongbookSong = {
   id: string
   title: string
   artist: string
+  status: string
   language: string | null
   duration: string
   genre: string | null
@@ -144,6 +145,28 @@ export type SongbookSong = {
   qualityScore: number
   qualityFlags: SongQualityFlag[]
   validatedByAdmin: boolean
+}
+
+export type TrimHistoryItem = {
+  id: string
+  trim_start_ms: number
+  trim_end_ms: number
+  old_duration_ms: number | null
+  new_duration_ms: number | null
+  status: 'completed' | 'failed' | 'restored'
+  backup_expires_at: string | null
+  created_at: string
+  can_restore: boolean
+}
+
+export type TrimResponse = {
+  message: string
+  song: SongbookSong
+}
+
+export type RestoreResponse = {
+  message: string
+  song: SongbookSong
 }
 
 export type SongQualityFlag = {

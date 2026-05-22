@@ -11,6 +11,7 @@ USER_ROLES = ("admin", "guest", "player")
 SONG_STATUSES = ("draft", "downloading", "published", "archived", "error")
 SONG_DOWNLOAD_STATUSES = ("pending", "downloading", "error")
 SONG_QUEUE_STATUSES = ("playing", "pending", "finished", "skipped")
+TRIM_HISTORY_STATUSES = ("pending", "completed", "failed", "restored")
 
 
 class User(Base):
@@ -89,6 +90,10 @@ class Song(Base):
     )
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    trim_start_ms: Mapped[int | None] = mapped_column(nullable=True)
+    trim_end_ms: Mapped[int | None] = mapped_column(nullable=True)
+    was_trimmed: Mapped[bool] = mapped_column(default=False, server_default="false")
+    trimmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -196,3 +201,63 @@ class SongQueue(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class SongTrimHistory(Base):
+    __tablename__ = "song_trim_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    song_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("songs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    admin_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    trim_start_ms: Mapped[int] = mapped_column(nullable=False)
+    trim_end_ms: Mapped[int] = mapped_column(nullable=False)
+    old_duration_ms: Mapped[int | None] = mapped_column(nullable=True)
+    new_duration_ms: Mapped[int | None] = mapped_column(nullable=True)
+    backup_file: Mapped[str] = mapped_column(String(500), nullable=False)
+    backup_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(
+        Enum(*TRIM_HISTORY_STATUSES, name="trim_history_status", create_type=True),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    restored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SongTrimArchive(Base):
+    __tablename__ = "song_trim_archive"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    song_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("songs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(nullable=False)
+    duration_ms: Mapped[int | None] = mapped_column(nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

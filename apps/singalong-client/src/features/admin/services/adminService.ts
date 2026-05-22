@@ -8,6 +8,9 @@ import type {
   SongQualityFlag,
   SongbookListResponse,
   SongbookSong,
+  TrimHistoryItem,
+  TrimResponse,
+  RestoreResponse,
   UserProfile,
 } from '../../../shared/types/client'
 import { normalizeSessionQueueItems } from '../../shared/services/queueTransforms'
@@ -34,6 +37,11 @@ export interface AdminService {
     },
   ) => Promise<SongbookSong>
   setSongValidation: (songId: string, token: string, validated: boolean) => Promise<SongbookSong>
+  trimSong: (songId: string, token: string, startMs: number, endMs: number, monitorId?: string) => Promise<TrimResponse>
+  getTrimHistory: (songId: string, token: string) => Promise<TrimHistoryItem[]>
+  getTrimProgress: (songId: string, monitorId: string, token: string) => Promise<{ operation_id: string; status: string; progress_percent: number; message: string; error: string | null }>
+  restoreTrim: (songId: string, token: string, historyId: string) => Promise<RestoreResponse>
+  fixDuration: (songId: string, token: string) => Promise<{ song_id: string; old_duration: string; new_duration: string; status: string; message: string }>
   reserveSessionQueueSong: (
     sessionCode: string,
     songId: string,
@@ -50,7 +58,7 @@ export interface AdminService {
 }
 
 function mapSong(raw: {
-  id: string; title: string; artist: string; duration: string
+  id: string; title: string; artist: string; status: string; duration: string
   language: string | null; genre: string | null; tags: string[]
   thumbnail_url: string | null; source_id: string | null; source_url: string | null
   video_file: string | null; lyrics: string | null; added_by_username: string | null
@@ -62,6 +70,7 @@ function mapSong(raw: {
     id: raw.id,
     title: raw.title,
     artist: raw.artist,
+    status: raw.status,
     duration: raw.duration,
     language: raw.language,
     genre: raw.genre,
@@ -87,6 +96,7 @@ export async function fetchSongbook(
   sessionId?: string,
 ): Promise<SongbookListResponse> {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+  params.set('include_unpublished', 'true')
   if (typeof sessionId === 'string' && sessionId !== '') {
     params.set('sessionId', sessionId)
   }
@@ -95,7 +105,7 @@ export async function fetchSongbook(
   }
   const raw = await apiJson<{
     items: Array<{
-      id: string; title: string; artist: string; duration: string
+      id: string; title: string; artist: string; status: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
@@ -119,6 +129,7 @@ export async function searchSongbook(
   sessionId?: string,
 ): Promise<SongbookListResponse> {
   const params = new URLSearchParams({ q, page: String(page), limit: String(limit) })
+  params.set('include_unpublished', 'true')
   if (typeof sessionId === 'string' && sessionId !== '') {
     params.set('sessionId', sessionId)
   }
@@ -127,7 +138,7 @@ export async function searchSongbook(
   }
   const raw = await apiJson<{
     items: Array<{
-      id: string; title: string; artist: string; duration: string
+      id: string; title: string; artist: string; status: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
@@ -153,7 +164,7 @@ export async function fetchSongDetail(id: string, sessionCode?: string, sessionI
   }
   const suffix = params.toString()
   const raw = await apiJson<{
-    id: string; title: string; artist: string; duration: string
+    id: string; title: string; artist: string; status: string; duration: string
     language: string | null; genre: string | null; tags: string[]
     thumbnail_url: string | null; source_id: string | null; source_url: string | null
     video_file: string | null; lyrics: string | null; added_by_username: string | null
@@ -238,7 +249,7 @@ export async function updateSongAdminDetails(
 ): Promise<SongbookSong> {
   const raw = await apiJson<{
     item: {
-      id: string; title: string; artist: string; duration: string
+      id: string; title: string; artist: string; status: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
@@ -269,7 +280,7 @@ export async function setSongValidation(
 ): Promise<SongbookSong> {
   const raw = await apiJson<{
     item: {
-      id: string; title: string; artist: string; duration: string
+      id: string; title: string; artist: string; status: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
@@ -342,6 +353,73 @@ export async function fetchActiveSession(): Promise<SessionRecord | null> {
   }
 }
 
+export async function trimSong(songId: string, token: string, startMs: number, endMs: number, monitorId?: string): Promise<TrimResponse> {
+  return apiJson<TrimResponse>(
+    `/songs/${songId}/trim`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        trim_start_ms: startMs,
+        trim_end_ms: endMs,
+        monitor_id: monitorId,
+      }),
+    },
+    token,
+  )
+}
+
+export async function getTrimHistory(songId: string, token: string): Promise<TrimHistoryItem[]> {
+  const raw = await apiJson<{ items: TrimHistoryItem[] }>(`/songs/${songId}/trim-history`, {}, token)
+  return raw.items
+}
+
+export async function getTrimProgress(
+  songId: string,
+  monitorId: string,
+  token: string,
+): Promise<{ operation_id: string; status: string; progress_percent: number; message: string; error: string | null }> {
+  return apiJson(
+    `/songs/${songId}/trim-progress/${monitorId}`,
+    {},
+    token,
+  )
+}
+
+export async function restoreTrim(songId: string, token: string, historyId: string): Promise<RestoreResponse> {
+  return apiJson<RestoreResponse>(
+    `/songs/${songId}/trim/restore`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        trim_history_id: historyId,
+      }),
+    },
+    token,
+  )
+}
+
+export async function fixDuration(songId: string, token: string): Promise<{
+  song_id: string
+  old_duration: string
+  new_duration: string
+  status: string
+  message: string
+}> {
+  return apiJson<{
+    song_id: string
+    old_duration: string
+    new_duration: string
+    status: string
+    message: string
+  }>(
+    `/songs/${songId}/fix-duration`,
+    {
+      method: 'POST',
+    },
+    token,
+  )
+}
+
 export const adminService: AdminService = {
   fetchSongbook,
   searchSongbook,
@@ -360,4 +438,9 @@ export const adminService: AdminService = {
   archiveSong,
   setSongValidation,
   fetchActiveSession,
+  trimSong,
+  getTrimHistory,
+  getTrimProgress,
+  restoreTrim,
+  fixDuration,
 }
