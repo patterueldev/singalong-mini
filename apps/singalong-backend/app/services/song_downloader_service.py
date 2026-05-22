@@ -1,6 +1,7 @@
 import json
 import re
 import shutil
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -304,6 +305,7 @@ class SongDownloaderService:
 
             song.video_file = video_filename
             song.thumbnail_file = thumbnail_filename
+            song.duration = self._resolve_duration_seconds(artifact.info if artifact else {}, video_file_path)
             song.status = "published"
             song.published_at = datetime.utcnow()
 
@@ -492,6 +494,36 @@ class SongDownloaderService:
                         return candidate_url
 
         return ""
+
+    @staticmethod
+    def _resolve_duration_seconds(info: dict, video_file_path: Path) -> int | None:
+        raw_duration = info.get("duration")
+        if isinstance(raw_duration, (int, float)) and raw_duration > 0:
+            return int(raw_duration)
+
+        try:
+            result = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(video_file_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            parsed = float(result.stdout.strip())
+            if parsed > 0:
+                return int(parsed)
+        except (OSError, ValueError, subprocess.CalledProcessError):
+            return None
+
+        return None
 
     def _emit_downloads_updated(self, db: DBSession) -> None:
         download_items = self._build_download_items_for_broadcast(db)
