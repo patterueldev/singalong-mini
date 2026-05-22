@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import WebSocketException, status
@@ -15,6 +15,7 @@ from .models import User
 from .routers.media import router as media_router
 from .routers.songs import router as songs_router
 from .routers.sessions import router as sessions_router
+from .routers.users import legacy_router as users_legacy_router
 from .routers.users import router as users_router
 from .services.auth import authenticate_websocket_user, authenticate_websocket_user_optional
 from .services.sessions import get_active_session_by_code
@@ -29,6 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(users_router)
+app.include_router(users_legacy_router)
 app.include_router(sessions_router)
 app.include_router(songs_router)
 app.include_router(media_router)
@@ -65,6 +67,16 @@ def root():
 @app.get("/api")
 def api_root():
     return {"message": "Singalong API root"}
+
+
+@app.get("/api/public-config")
+def public_config(request: Request):
+    configured = settings.singalong_base_url.strip()
+    if configured != "":
+        return {"guest_base_url": configured.rstrip("/")}
+
+    request_base = str(request.base_url).rstrip("/")
+    return {"guest_base_url": request_base}
 
 
 @app.get("/client")

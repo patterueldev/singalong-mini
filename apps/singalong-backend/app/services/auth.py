@@ -147,3 +147,30 @@ def require_admin_user(current_user: User = Depends(get_current_user)) -> User:
             detail="Admin access required",
         )
     return current_user
+
+
+def require_admin_or_player_user(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in {"admin", "player"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or player access required",
+        )
+    return current_user
+
+
+def require_admin_or_guest_user(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in {"admin", "guest"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or guest access required",
+        )
+    return current_user
+
+
+def require_admin_player_guest_user(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in {"admin", "player", "guest"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin, player, or guest access required",
+        )
+    return current_user

@@ -12,6 +12,11 @@ type SuggestSearchPageProps = {
   onCancel: () => void
   onChangeNickname: () => void
   onIdentify: (sourceUrl: string) => void
+  searchPath?: string
+  identifyPath?: string
+  backToSongbookPath?: string
+  backToSongbookLabel?: string
+  showChangeNicknameAction?: boolean
 }
 
 function SkeletonSongItem() {
@@ -42,6 +47,11 @@ export function SuggestSearchPage({
   onCancel,
   onChangeNickname,
   onIdentify,
+  searchPath = '/songbook/suggest/search',
+  identifyPath = '/songbook/suggest/identify',
+  backToSongbookPath = '/songbook',
+  backToSongbookLabel = 'Back to Songbook',
+  showChangeNicknameAction = true,
 }: SuggestSearchPageProps) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -134,9 +144,11 @@ export function SuggestSearchPage({
         <h1>Suggest · Search YouTube</h1>
         <p className="subtitle">Signed in as <strong>{nickname}</strong></p>
         <div className="row-actions top-gap">
-          <button type="button" className="secondary" onClick={onChangeNickname}>
-            Change Nickname
-          </button>
+          {showChangeNicknameAction ? (
+            <button type="button" className="secondary" onClick={onChangeNickname}>
+              Change Nickname
+            </button>
+          ) : null}
           <button
             type="button"
             className="secondary"
@@ -150,10 +162,10 @@ export function SuggestSearchPage({
                 }
               }
               onCancel()
-              navigate('/songbook')
+              navigate(backToSongbookPath)
             }}
           >
-            Back to Songbook
+            {backToSongbookLabel}
           </button>
         </div>
         <form
@@ -168,7 +180,7 @@ export function SuggestSearchPage({
               return
             }
             navigate({
-              pathname: '/songbook/suggest/search',
+              pathname: searchPath,
               search: `?keyword=${encodeURIComponent(query.trim())}`,
             })
             executeSearch(query)
@@ -190,7 +202,7 @@ export function SuggestSearchPage({
             <button
               type="button"
               className="secondary"
-              onClick={() => navigate('/songbook/suggest/identify')}
+              onClick={() => navigate(identifyPath)}
             >
               Paste URL Instead
             </button>

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     media_root_dir: str = "/data/media"
     songs_media_dir: str = "/data/media/songs"
     ytdlp_cookies_file: str = "/data/cookies.txt"
+    singalong_base_url: str = "http://localhost:9000"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

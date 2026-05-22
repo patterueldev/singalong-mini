@@ -12,10 +12,12 @@ from ..schemas import (
     GuestUsernameSuggestionResponse,
     LoginResponse,
     LogoutResponse,
+    PlayerTokenResponse,
     UserResponse,
     UserLoginRequest,
     UserLogoutRequest,
 )
+from ..bootstrap import PLAYER_SERVICE_USERNAME
 from ..services.auth import create_access_token, get_current_user
 from ..security import verify_password
 
@@ -106,3 +108,26 @@ def get_guest_username(
     db: Session = Depends(get_db),
 ):
     return GuestUsernameSuggestionResponse(username=suggest_guest_username(db, nickname))
+
+
+def _build_player_token_response(db: Session) -> PlayerTokenResponse:
+    player_user = db.scalar(select(User).where(User.username == PLAYER_SERVICE_USERNAME))
+    if player_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Player service account unavailable",
+        )
+    return PlayerTokenResponse(access_token=create_access_token(player_user))
+
+
+@router.get("/player-token", response_model=PlayerTokenResponse)
+def get_player_token_users(db: Session = Depends(get_db)):
+    return _build_player_token_response(db)
+
+
+legacy_router = APIRouter(prefix="/api", tags=["users"])
+
+
+@legacy_router.get("/player-token", response_model=PlayerTokenResponse)
+def get_player_token_legacy(db: Session = Depends(get_db)):
+    return _build_player_token_response(db)

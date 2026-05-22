@@ -9,6 +9,7 @@ from ..models import User
 from ..schemas import (
     SessionArchiveResponse,
     SessionCreateRequest,
+    SessionExistsResponse,
     SessionParticipantItem,
     SessionParticipantListResponse,
     SessionQueueCreateRequest,
@@ -24,6 +25,7 @@ from ..services.session_queue import (
     SessionQueueNotFoundError,
     SessionQueueValidationError,
     cancel_pending_queue_item,
+    get_session_queue_item,
     list_session_queue_items,
     list_session_participant_stats,
     reserve_song_in_session,
@@ -39,7 +41,7 @@ from ..services.sessions import (
     list_sessions,
     update_session,
 )
-from ..services.auth import require_admin_user
+from ..services.auth import require_admin_or_guest_user, require_admin_player_guest_user, require_admin_user
 from ..services.ws import ws_hub
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -60,6 +62,14 @@ def get_active_session(db: Session = Depends(get_db)):
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active session")
     return session
+
+
+@router.get("/{session_code}/exists", response_model=SessionExistsResponse)
+def get_session_exists(session_code: str, db: Session = Depends(get_db)):
+    session = get_active_session_by_code(db, session_code)
+    if session is None:
+        return SessionExistsResponse(exists=False, session_code=session_code)
+    return SessionExistsResponse(exists=True, session_code=session.session_code, name=session.name)
 
 
 @router.post("", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
@@ -154,7 +164,7 @@ async def get_session_participants(
 def get_session_queue(
     session_code: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_admin_player_guest_user),
 ):
     _ = current_user
     try:
@@ -168,14 +178,35 @@ def post_session_queue(
     session_code: str,
     payload: SessionQueueCreateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_admin_or_guest_user),
 ):
     try:
+        reserved_by = current_user.id
+        requested_nickname = (payload.reserved_for_nickname or "").strip()
+        if requested_nickname != "":
+            if current_user.role != "admin":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only admin can reserve on behalf of another nickname",
+                )
+            target_user = db.query(User).filter(User.username == requested_nickname).first()
+            if target_user is None:
+                target_user = User(username=requested_nickname, role="guest", password_hash=None)
+                db.add(target_user)
+                db.commit()
+                db.refresh(target_user)
+            elif target_user.role != "guest":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Nickname is already in use by non-guest account",
+                )
+            reserved_by = target_user.id
+
         item = reserve_song_in_session(
             db=db,
             session_code=session_code,
             song_id=payload.song_id,
-            reserved_by=current_user.id,
+            reserved_by=reserved_by,
         )
         items = list_session_queue_items(db, session_code)
         anyio.from_thread.run(ws_hub.broadcast_queue_updated, session_code, items)
@@ -192,10 +223,21 @@ def patch_session_queue(
     queue_id: UUID,
     payload: SessionQueueUpdateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_admin_or_guest_user),
 ):
-    _ = current_user
     try:
+        if current_user.role == "guest":
+            if payload.action != "skip":
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Guest can only skip own playing song")
+            target_item = get_session_queue_item(db, session_code, queue_id)
+            if str(target_item.reserved_by) != str(current_user.id):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Guests can only update own queue item")
+            if target_item.status != "playing":
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Only currently playing own song can be skipped",
+                )
+
         item = update_queue_item_action(
             db=db,
             session_code=session_code,
@@ -217,10 +259,18 @@ def delete_session_queue(
     session_code: str,
     queue_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_admin_or_guest_user),
 ):
-    _ = current_user
     try:
+        if current_user.role == "guest":
+            target_item = get_session_queue_item(db, session_code, queue_id)
+            if str(target_item.reserved_by) != str(current_user.id):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Guests can only cancel own queue item")
+            if target_item.status != "pending":
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Only pending own song can be cancelled",
+                )
         cancel_pending_queue_item(db=db, session_code=session_code, queue_id=queue_id)
         items = list_session_queue_items(db, session_code)
         anyio.from_thread.run(ws_hub.broadcast_queue_updated, session_code, items)

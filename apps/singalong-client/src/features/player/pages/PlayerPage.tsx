@@ -7,10 +7,9 @@ import { buildGuestJoinUrl } from '../../guest/services/guestService'
 import { normalizeSessionQueueItems } from '../../shared/services/queueTransforms'
 import {
   PLAYER_ENCOURAGEMENTS,
-  PLAYER_QR_DOMAIN_LABEL,
-  SINGALONG_BASE_URL,
 } from '../../../shared/config/client'
 import { buildWSUrl } from '../../../shared/api/ws'
+import { fetchGuestBaseUrl } from '../../../shared/api/publicConfig'
 import { formatDurationClock } from '../../../shared/lib/format'
 import type {
   SessionRecord,
@@ -44,6 +43,7 @@ export function PlayerPage() {
   const [isFullscreen, setIsFullscreen] = useState(() => document.fullscreenElement !== null)
   const [guestQrDataUrl, setGuestQrDataUrl] = useState<string | null>(null)
   const [isGeneratingGuestQr, setIsGeneratingGuestQr] = useState(false)
+  const [guestJoinBaseUrl, setGuestJoinBaseUrl] = useState(() => window.location.origin)
   const socketRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
   const reconnectAttemptRef = useRef(0)
@@ -68,9 +68,16 @@ export function PlayerPage() {
   )
   const currentQueueItem = pendingQueueItems[0] ?? null
   const guestJoinUrl = useMemo(
-    () => buildGuestJoinUrl(SINGALONG_BASE_URL, activeSessionCode),
-    [activeSessionCode],
+    () => buildGuestJoinUrl(guestJoinBaseUrl, activeSessionCode),
+    [activeSessionCode, guestJoinBaseUrl],
   )
+  const guestJoinDomain = useMemo(() => {
+    try {
+      return new URL(guestJoinBaseUrl).hostname
+    } catch {
+      return window.location.hostname
+    }
+  }, [guestJoinBaseUrl])
   const songSrc =
     currentSong?.videoFile !== null &&
     currentSong?.videoFile !== undefined &&
@@ -83,6 +90,25 @@ export function PlayerPage() {
   const marqueeTransformStyle =
     marqueeDistancePx > 0 ? { transform: `translateX(-${marqueeOffsetPx}px)` } : undefined
   const isSocketConnected = socketStatus === 'Connected'
+
+  const stopMainVideoImmediately = useCallback(() => {
+    const video = videoRef.current
+    if (video === null) {
+      return
+    }
+    video.pause()
+    try {
+      video.currentTime = 0
+    } catch {
+      // Ignore reset errors for streams without a seekable timeline.
+    }
+    if (video.getAttribute('src') !== null) {
+      video.removeAttribute('src')
+      video.load()
+    }
+    setVideoPositionSeconds(0)
+    setVideoDurationSeconds(0)
+  }, [])
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement !== null) {
@@ -122,6 +148,24 @@ export function PlayerPage() {
       loopVideo.muted = clamped === 0
     }
     setIsPlayerMuted(clamped === 0)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchGuestBaseUrl()
+      .then((url) => {
+        if (!cancelled) {
+          setGuestJoinBaseUrl(url)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGuestJoinBaseUrl(window.location.origin)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -233,6 +277,7 @@ export function PlayerPage() {
     if (previousId === null || nextId === null || previousId === nextId) {
       return
     }
+    stopMainVideoImmediately()
     const randomMessage = PLAYER_ENCOURAGEMENTS[Math.floor(Math.random() * PLAYER_ENCOURAGEMENTS.length)]
     setTransitionMessage(randomMessage)
     setIsSongTransitioning(true)
@@ -242,7 +287,7 @@ export function PlayerPage() {
     return () => {
       window.clearTimeout(timer)
     }
-  }, [currentQueueItem?.id])
+  }, [currentQueueItem?.id, stopMainVideoImmediately])
 
   useEffect(() => {
     const clearReconnectTimer = () => {
@@ -363,8 +408,7 @@ export function PlayerPage() {
         if (incoming.type === 'playback.skip') {
           resumeIsPlayingRef.current = false
           resumePositionRef.current = 0
-          video.pause()
-          video.currentTime = 0
+          stopMainVideoImmediately()
           return
         }
 
@@ -392,7 +436,14 @@ export function PlayerPage() {
       clearReconnectTimer()
       closeSocket()
     }
-  }, [activeSessionCode, applyPlayerVolume, fetchSessionQueue, hostAllowed, playerToken])
+  }, [activeSessionCode, applyPlayerVolume, fetchSessionQueue, hostAllowed, playerToken, stopMainVideoImmediately])
+
+  useEffect(() => {
+    if (showMainVideo) {
+      return
+    }
+    stopMainVideoImmediately()
+  }, [showMainVideo, stopMainVideoImmediately])
 
   useEffect(() => {
     const socket = socketRef.current
@@ -775,7 +826,7 @@ export function PlayerPage() {
             {guestQrDataUrl ? <img src={guestQrDataUrl} alt="Guest join QR code" /> : null}
             {isGeneratingGuestQr ? <span className="subtitle">Generating QR…</span> : null}
           </div>
-          <p className="player-qr-domain">{PLAYER_QR_DOMAIN_LABEL}</p>
+          <p className="player-qr-domain">{guestJoinDomain}</p>
         </article>
       </section>
 

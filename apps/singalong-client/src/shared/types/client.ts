@@ -33,6 +33,12 @@ export type SessionRecord = {
   updated_at: string
 }
 
+export type SessionExistsResponse = {
+  exists: boolean
+  session_code: string
+  name: string | null
+}
+
 export type SessionArchiveResponse = {
   session: SessionRecord
   message: string
@@ -49,6 +55,7 @@ export type SessionQueueListResponse = {
     duration: string | null
     queue_order: number
     status: 'playing' | 'pending' | 'finished' | 'skipped'
+    reserved_by: string
     reserved_by_username: string | null
     reserved_at: string
     played_at: string | null
@@ -68,6 +75,7 @@ export type SongQueueItem = {
   duration: string | null
   queueOrder: number
   status: 'playing' | 'pending' | 'finished' | 'skipped'
+  reservedBy: string
   reservedByUsername: string | null
   reservedAt: string
   playedAt: string | null
@@ -87,6 +95,28 @@ export type DownloadProgressItem = {
   progressPct: number | null
   progressMessage: string | null
   errorMessage: string | null
+}
+
+export type SongDownloadListResponse = {
+  items: Array<{
+    song_id: string
+    title: string
+    artist: string
+    duration: string | null
+    added_by_username: string | null
+    source_thumbnail: string | null
+    source_id: string | null
+    source_url: string
+    status: string
+    progress_pct: number | null
+    current_step: string | null
+    progress_message: string | null
+    error_message: string | null
+    added_at: string
+    started_at: string | null
+    completed_at: string | null
+    updated_at: string
+  }>
 }
 
 export type SongDownloadRetryResponse = {

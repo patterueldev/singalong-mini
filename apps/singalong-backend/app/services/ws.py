@@ -291,7 +291,7 @@ class SessionWebSocketHub:
             "payload": {"items": [item.model_dump(mode="json") for item in items]},
         }
         await self._broadcast_all("admin", payload)
-        await self._broadcast(GLOBAL_DOWNLOAD_SCOPE, "guest", payload)
+        await self._broadcast_all("guest", payload)
 
     async def broadcast_queue_updated(self, session_code: str, items: list[SessionQueueItem]) -> None:
         payload = {
@@ -331,6 +331,11 @@ class SessionWebSocketHub:
         if self._event_loop is None:
             return
         asyncio.run_coroutine_threadsafe(self.broadcast_downloads_updated(items), self._event_loop)
+
+    def broadcast_queue_updated_threadsafe(self, session_code: str, items: list[SessionQueueItem]) -> None:
+        if self._event_loop is None:
+            return
+        asyncio.run_coroutine_threadsafe(self.broadcast_queue_updated(session_code, items), self._event_loop)
 
     async def _broadcast_all(self, target_channel: str, payload: dict[str, Any]) -> None:
         async with self._lock:

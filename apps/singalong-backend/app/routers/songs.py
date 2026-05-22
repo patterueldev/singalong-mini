@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import math
 import os
@@ -35,7 +36,7 @@ from ..schemas import (
     SongSuggestUpdateRequest,
     SongSuggestUpdateResponse,
 )
-from ..services.auth import get_current_user, require_admin_user
+from ..services.auth import get_current_user, require_admin_or_guest_user, require_admin_user
 from ..services.download_queue import list_active_download_items
 from ..services.thumbnail_service import convert_base64_to_jpg, save_thumbnail
 from ..services.ytdlp.naming import normalize_song_title
@@ -139,6 +140,16 @@ def _sanitize_filename_token(value: str) -> str:
     return token or "song"
 
 
+def _parse_song_extra_metadata(raw: str | None) -> dict[str, object]:
+    if raw is None or raw.strip() == "":
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _require_songbook_user(user: User = Depends(get_current_user)) -> User:
     if user.role not in {"guest", "admin"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Guest or admin access required")
@@ -153,7 +164,7 @@ def _require_songbook_user(user: User = Depends(get_current_user)) -> User:
 def suggest_song_download(
     payload: SongSuggestDownloadRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_or_guest_user),
 ):
     from datetime import datetime
     from uuid import uuid4
@@ -164,6 +175,13 @@ def suggest_song_download(
     print(f"[ENDPOINT] /suggest/download - title={payload.title}", flush=True)
 
     try:
+        reserve_session_code = (payload.reserve_session_code or "").strip()
+        reserve_session = None
+        if reserve_session_code != "":
+            reserve_session = get_active_session_by_code(db, reserve_session_code)
+            if reserve_session is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
         # Upsert: reuse existing record if same source_id exists
         existing = (
             db.query(Song).filter(Song.source_id == payload.source_id).first()
@@ -184,12 +202,22 @@ def suggest_song_download(
             existing.source = payload.source
             existing.source_url = payload.source_url
             existing.last_modified_by = user.id
+            existing.added_in_session = reserve_session.id if reserve_session is not None else existing.added_in_session
             existing.status = "downloading"
             existing.archived_at = None
             existing.video_file = None
             existing.thumbnail_file = None
             existing.duration = None
             existing.published_at = None
+            metadata = _parse_song_extra_metadata(existing.extra_metadata)
+            if reserve_session is not None:
+                metadata["reserve_intent"] = {
+                    "session_code": reserve_session.session_code,
+                    "reserved_by": str(user.id),
+                }
+            else:
+                metadata.pop("reserve_intent", None)
+            existing.extra_metadata = json.dumps(metadata) if metadata else None
             db.commit()
             db.refresh(existing)
             song = existing
@@ -208,8 +236,18 @@ def suggest_song_download(
                 source_id=payload.source_id,
                 source_url=payload.source_url,
                 added_by=user.id,
+                added_in_session=reserve_session.id if reserve_session is not None else None,
                 status="downloading",
             )
+            if reserve_session is not None:
+                song.extra_metadata = json.dumps(
+                    {
+                        "reserve_intent": {
+                            "session_code": reserve_session.session_code,
+                            "reserved_by": str(user.id),
+                        }
+                    }
+                )
             db.add(song)
             db.commit()
             db.refresh(song)
@@ -244,7 +282,7 @@ def suggest_song_download(
 @router.get("/downloads", response_model=SongDownloadListResponse)
 def list_song_downloads(
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin_user),
+    _: User = Depends(require_admin_or_guest_user),
 ):
     return SongDownloadListResponse(items=list_active_download_items(db))
 

@@ -32,7 +32,12 @@ export interface AdminService {
       source_thumbnail_data_url?: string | null
     },
   ) => Promise<SongbookSong>
-  reserveSessionQueueSong: (sessionCode: string, songId: string, token: string) => Promise<void>
+  reserveSessionQueueSong: (
+    sessionCode: string,
+    songId: string,
+    token: string,
+    reservedForNickname?: string,
+  ) => Promise<void>
   removeQueueItem: (sessionCode: string, queueItemId: string, token: string) => Promise<void>
   listSessions: (token: string) => Promise<SessionRecord[]>
   fetchCurrentUser: (token: string) => Promise<UserProfile>
@@ -241,12 +246,23 @@ export async function updateSongAdminDetails(
   return mapSong(raw.item)
 }
 
-export async function reserveSessionQueueSong(sessionCode: string, songId: string, token: string): Promise<void> {
+export async function reserveSessionQueueSong(
+  sessionCode: string,
+  songId: string,
+  token: string,
+  reservedForNickname?: string,
+): Promise<void> {
   await apiJson<{ message: string }>(
     `/sessions/${sessionCode}/queue`,
     {
       method: 'POST',
-      body: JSON.stringify({ song_id: songId }),
+      body: JSON.stringify({
+        song_id: songId,
+        reserved_for_nickname:
+          typeof reservedForNickname === 'string' && reservedForNickname.trim() !== ''
+            ? reservedForNickname.trim()
+            : undefined,
+      }),
     },
     token,
   )

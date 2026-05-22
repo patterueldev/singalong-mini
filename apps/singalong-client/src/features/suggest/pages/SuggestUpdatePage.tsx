@@ -24,6 +24,14 @@ type SuggestUpdatePageProps = {
   onDraftChange: (draft: SuggestDraft) => void
   onDownload: (title: string) => void
   onCancel: () => void
+  cancelPath?: string
+  backPath?: string
+  downloadPath?: string
+  downloadAndReservePath?: string
+  backButtonLabel?: string
+  showDownloadAndReserve?: boolean
+  reserveSessionCode?: string
+  onDownloadAndReserve?: (title: string) => void
 }
 
 export function SuggestUpdatePage({
@@ -33,6 +41,14 @@ export function SuggestUpdatePage({
   onDraftChange,
   onDownload,
   onCancel,
+  cancelPath = '/songbook',
+  backPath = '/songbook/suggest/search',
+  downloadPath = '/songbook',
+  downloadAndReservePath = '/songbook',
+  backButtonLabel = 'Back',
+  showDownloadAndReserve = false,
+  reserveSessionCode,
+  onDownloadAndReserve,
 }: SuggestUpdatePageProps) {
   const navigate = useNavigate()
   const {
@@ -248,7 +264,7 @@ export function SuggestUpdatePage({
               disabled={isEnhancing || isSubmitting}
               onClick={() => {
                 confirmExitUpdate(() => {
-                  navigate('/songbook')
+                  navigate(cancelPath)
                 })
               }}
             >
@@ -287,17 +303,29 @@ export function SuggestUpdatePage({
             const submitter = (event.nativeEvent as SubmitEvent).submitter as
               | HTMLButtonElement
               | null
-            if (submitter?.dataset.action !== 'download') {
+            const action = submitter?.dataset.action
+            if (action !== 'download' && action !== 'download-reserve') {
               return
             }
             setErrorMessage('')
             setIsSubmitting(true)
-            void suggestDownload(draft, authToken)
+            const shouldReserve = action === 'download-reserve'
+            void suggestDownload(
+              draft,
+              authToken,
+              shouldReserve && reserveSessionCode !== undefined
+                ? { reserveSessionCode }
+                : undefined,
+            )
               .then(() => {
-                onDownload(draft.title)
+                if (shouldReserve) {
+                  onDownloadAndReserve?.(draft.title)
+                } else {
+                  onDownload(draft.title)
+                }
                 clearSuggestDraft()
                 setIsSubmitting(false)
-                navigate('/songbook')
+                navigate(shouldReserve ? downloadAndReservePath : downloadPath)
               })
               .catch((error: unknown) => {
                 const message = error instanceof Error ? error.message : 'Download failed'
@@ -595,17 +623,26 @@ export function SuggestUpdatePage({
           >
             {isSubmitting ? 'Saving…' : 'Download'}
           </button>
+          {showDownloadAndReserve ? (
+            <button
+              type="submit"
+              data-action="download-reserve"
+              disabled={isSubmitting || draft.genre.trim() === '' || isEnhancing}
+            >
+              {isSubmitting ? 'Saving…' : 'Download & Reserve'}
+            </button>
+          ) : null}
           <button
             type="button"
             className="secondary"
             disabled={isEnhancing || isSubmitting}
             onClick={() => {
               confirmExitUpdate(() => {
-                navigate('/songbook/suggest/search')
+                navigate(backPath)
               })
             }}
           >
-            Back
+            {backButtonLabel}
           </button>
           {draft.genre.trim() === '' ? (
             <p className="subtitle">Add at least one genre before downloading.</p>

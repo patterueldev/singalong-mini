@@ -47,6 +47,11 @@ class LogoutResponse(BaseModel):
     message: str
 
 
+class PlayerTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
 class GuestCreateResponse(BaseModel):
     user: UserResponse
     message: str
@@ -86,6 +91,12 @@ class SessionArchiveResponse(BaseModel):
     message: str
 
 
+class SessionExistsResponse(BaseModel):
+    exists: bool
+    session_code: str
+    name: str | None = None
+
+
 class SessionQueueItem(BaseModel):
     id: UUID
     session_id: UUID
@@ -113,6 +124,7 @@ class SessionQueueListResponse(BaseModel):
 
 class SessionQueueCreateRequest(BaseModel):
     song_id: UUID
+    reserved_for_nickname: str | None = Field(default=None, min_length=1, max_length=50)
 
 
 class SessionQueueUpdateRequest(BaseModel):
@@ -165,6 +177,7 @@ class SongSuggestDownloadRequest(BaseModel):
     genre: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     lyrics: str = Field(default="", max_length=20000)
+    reserve_session_code: str | None = Field(default=None, min_length=6, max_length=6)
 
 
 class SongSuggestDownloadResponse(BaseModel):

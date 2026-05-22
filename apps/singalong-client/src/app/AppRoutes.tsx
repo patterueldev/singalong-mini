@@ -5,7 +5,13 @@ type AppRoutesProps = {
   rootElement: ReactNode
   adminElement: ReactNode
   adminLoginElement: ReactNode
-  guestElement: ReactNode
+  guestJoinElement: ReactNode
+  guestHomeElement: ReactNode
+  guestDownloadsElement: ReactNode
+  guestSongbookElement: ReactNode
+  guestSuggestSearchElement: ReactNode
+  guestSuggestIdentifyElement: ReactNode
+  guestSuggestUpdateElement: ReactNode
   playerElement: ReactNode
   songbookElement: ReactNode
   songDetailElement: ReactNode
@@ -21,7 +27,13 @@ export function AppRoutes({
   rootElement,
   adminElement,
   adminLoginElement,
-  guestElement,
+  guestJoinElement,
+  guestHomeElement,
+  guestDownloadsElement,
+  guestSongbookElement,
+  guestSuggestSearchElement,
+  guestSuggestIdentifyElement,
+  guestSuggestUpdateElement,
   playerElement,
   songbookElement,
   songDetailElement,
@@ -38,7 +50,15 @@ export function AppRoutes({
         <Route path="/" element={rootElement} />
         <Route path="/admin" element={adminElement} />
         <Route path="/admin/login" element={adminLoginElement} />
-        <Route path="/guest" element={guestElement} />
+        <Route path="/guest" element={guestJoinElement} />
+        <Route path="/guest/join" element={guestJoinElement} />
+        <Route path="/guest/login" element={guestJoinElement} />
+        <Route path="/guest/home" element={guestHomeElement} />
+        <Route path="/guest/downloads" element={guestDownloadsElement} />
+        <Route path="/guest/songbook" element={guestSongbookElement} />
+        <Route path="/guest/songbook/suggest/search" element={guestSuggestSearchElement} />
+        <Route path="/guest/songbook/suggest/identify" element={guestSuggestIdentifyElement} />
+        <Route path="/guest/songbook/suggest/update" element={guestSuggestUpdateElement} />
         <Route path="/player" element={playerElement} />
         <Route path="/songbook" element={songbookElement} />
         <Route path="/songbook/song/:id" element={songDetailElement} />
