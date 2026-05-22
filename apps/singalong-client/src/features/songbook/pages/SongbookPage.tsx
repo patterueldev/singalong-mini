@@ -179,6 +179,8 @@ export function SongbookPage({ notice, guestNickname, onChangeNickname }: Songbo
       })
   }, [])
 
+  const trimmedQuery = debouncedQuery.trim()
+
   return (
     <main className="app-shell">
       <section className="card">
@@ -228,7 +230,22 @@ export function SongbookPage({ notice, guestNickname, onChangeNickname }: Songbo
           {isLoading ? (
             <SkeletonList count={8} />
           ) : songs.length === 0 ? (
-            <p className="empty-state">No songs found. Try suggesting a new one.</p>
+            trimmedQuery !== '' ? (
+              <div>
+                <p className="empty-state">"{trimmedQuery}" is not available. Would you like to suggest?</p>
+                <div className="row-actions top-gap">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => navigate(`/songbook/suggest/search?keyword=${encodeURIComponent(trimmedQuery)}`)}
+                  >
+                    Suggest
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="empty-state">No songs found. Try suggesting a new one.</p>
+            )
           ) : (
             songs.map((song) => <SongbookListItem key={song.id} song={song} onClick={() => handleSongClick(song)} />)
           )}

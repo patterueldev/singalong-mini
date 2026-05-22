@@ -218,6 +218,7 @@ export function GuestSongbookPage() {
   }, [debouncedQuery, hasGuestSession, page, sessionCode])
 
   const activeSongbookCount = useMemo(() => songs.length, [songs])
+  const trimmedQuery = debouncedQuery.trim()
 
   if (!hasGuestSession || !isValidSessionCode(sessionCode) || guestAuth === null) {
     return <Navigate to="/guest/join" replace />
@@ -263,7 +264,22 @@ export function GuestSongbookPage() {
           {isLoading ? (
             <p className="empty-state">Loading songbook…</p>
           ) : activeSongbookCount === 0 ? (
-            <p className="empty-state">No songs found.</p>
+            trimmedQuery !== '' ? (
+              <div>
+                <p className="empty-state">"{trimmedQuery}" is not available. Would you like to suggest?</p>
+                <div className="row-actions top-gap">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => navigate(`/guest/songbook/suggest/search?keyword=${encodeURIComponent(trimmedQuery)}`)}
+                  >
+                    Suggest
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="empty-state">No songs found.</p>
+            )
           ) : (
             <div className="queue-list songbook-list guest-songbook-list">
               {songs.map((song) => (

@@ -824,6 +824,16 @@ button:disabled {
   font-weight: 700;
 }
 
+.suggest-url-prompt {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px dashed var(--border-primary);
+  border-radius: 12px;
+  text-align: center;
+}
+
 .search-result-menu {
   position: absolute;
   right: 0;
@@ -987,6 +997,7 @@ button:disabled {
   border-radius: 12px;
   overflow: hidden;
   background: var(--surface-input);
+  position: relative;
 }
 
 .thumbnail-upload-trigger {
@@ -1018,6 +1029,31 @@ button:disabled {
   place-items: center;
   min-height: 180px;
   color: var(--text-secondary);
+}
+
+.thumbnail-edit-button {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--border-primary);
+  background: color-mix(in srgb, var(--surface-card) 80%, black 20%);
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 1;
+}
+
+.thumbnail-edit-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-card) 70%, black 30%);
+}
+
+.thumbnail-edit-button .material-symbols-outlined {
+  font-size: 1.2rem;
 }
 
 .thumbnail-file-input {

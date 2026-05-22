@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useGuestSession } from '../hooks/useGuestSession'
-import { SuggestSearchRoute } from '../../suggest/pages/SuggestSearchRoute'
-import { SuggestIdentifyPage } from '../../suggest/pages/SuggestIdentifyPage'
+import { SuggestSearchPage } from '../../suggest/pages/SuggestSearchPage'
 import { SuggestUpdatePage } from '../../suggest/pages/SuggestUpdatePage'
 import {
   clearSuggestDraft,
@@ -22,19 +21,26 @@ function useGuestSuggestAccess() {
 
 export function GuestSuggestSearchRoute() {
   const access = useGuestSuggestAccess()
+  const navigate = useNavigate()
   if (access === null) {
     return <Navigate to="/guest/join" replace />
   }
 
   return (
-    <SuggestSearchRoute
+    <SuggestSearchPage
       nickname={access.guestAuth.nickname}
       authToken={access.guestAuth.accessToken}
       showChangeNicknameAction={false}
       searchPath="/guest/songbook/suggest/search"
       identifyPath="/guest/songbook/suggest/identify"
+      updatePath="/guest/songbook/suggest/update"
       backToSongbookPath="/guest/songbook"
       backToSongbookLabel="Back to Songbook"
+      singlePageUrlIdentify
+      onIdentifyDraft={saveSuggestDraft}
+      onIdentify={(sourceUrl) => {
+        navigate(`/guest/songbook/suggest/search?url=${encodeURIComponent(sourceUrl)}`)
+      }}
       onCancel={clearSuggestDraft}
       onChangeNickname={clearSuggestDraft}
     />
@@ -42,27 +48,13 @@ export function GuestSuggestSearchRoute() {
 }
 
 export function GuestSuggestIdentifyRoute() {
+  const location = useLocation()
   const access = useGuestSuggestAccess()
   if (access === null) {
     return <Navigate to="/guest/join" replace />
   }
 
-  return (
-    <SuggestIdentifyPage
-      nickname={access.guestAuth.nickname}
-      authToken={access.guestAuth.accessToken}
-      showChangeNicknameAction={false}
-      searchPath="/guest/songbook/suggest/search"
-      updatePath="/guest/songbook/suggest/update"
-      backToSongbookPath="/guest/songbook"
-      backToSongbookLabel="Back to Songbook"
-      onIdentify={(draft) => {
-        saveSuggestDraft(draft)
-      }}
-      onCancel={clearSuggestDraft}
-      onChangeNickname={clearSuggestDraft}
-    />
-  )
+  return <Navigate to={`/guest/songbook/suggest/search${location.search}`} replace />
 }
 
 export function GuestSuggestUpdateRoute() {

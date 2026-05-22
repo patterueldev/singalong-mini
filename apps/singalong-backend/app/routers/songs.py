@@ -440,8 +440,8 @@ async def suggest_song_identify(
     description = info.get("description") or ""
     thumbnail_url = _pick_thumbnail_url(info)
 
-    # Build initial response
-    identify_result = SongSuggestIdentifyResponse(
+    # Build initial response (enhance=false behavior and fallback on enhancement errors)
+    baseline_identify_result = SongSuggestIdentifyResponse(
         source_url=f"https://www.youtube.com/watch?v={youtube_id}",
         source_id=youtube_id,
         source="youtube",
@@ -456,47 +456,47 @@ async def suggest_song_identify(
         lyrics=None,
     )
 
-    # If enhance=true, apply enhancement
-    if enhance:
-        try:
-            orchestrator = OrchestratorAgent()
-            enhancement_payload = {
-                "source_url": identify_result.source_url,
-                "source_id": identify_result.source_id,
-                "source": identify_result.source,
-                "source_thumbnail": identify_result.source_thumbnail,
-                "title": identify_result.title,
-                "artist": identify_result.artist,
-                "language": identify_result.language or None,
-                "is_off_vocal": identify_result.is_off_vocal,
-                "video_has_lyrics": identify_result.video_has_lyrics,
-                "genre": identify_result.genre,
-                "tags": identify_result.tags,
-                "lyrics": identify_result.lyrics,
-                "_youtube_description": description,
-            }
-            enhanced_payload = await orchestrator.enhance(enhancement_payload)
-            
-            # Return enhanced result
-            identify_result = SongSuggestIdentifyResponse(
-                source_url=enhanced_payload.get("source_url", identify_result.source_url),
-                source_id=enhanced_payload.get("source_id", identify_result.source_id),
-                source=enhanced_payload.get("source", identify_result.source),
-                source_thumbnail=enhanced_payload.get("source_thumbnail", identify_result.source_thumbnail),
-                title=enhanced_payload.get("title", identify_result.title),
-                artist=enhanced_payload.get("artist", identify_result.artist),
-                language=enhanced_payload.get("language"),
-                is_off_vocal=enhanced_payload.get("is_off_vocal", False),
-                video_has_lyrics=enhanced_payload.get("video_has_lyrics", False),
-                genre=enhanced_payload.get("genre"),
-                tags=enhanced_payload.get("tags"),
-                lyrics=enhanced_payload.get("lyrics"),
-            )
-        except Exception as e:
-            logger.warning("[IDENTIFY] Enhancement failed, returning raw result: %s", e)
-            # If enhancement fails, return raw result without error
+    if not enhance:
+        return baseline_identify_result
 
-    return identify_result
+    try:
+        orchestrator = OrchestratorAgent()
+        enhancement_payload = {
+            "source_url": baseline_identify_result.source_url,
+            "source_id": baseline_identify_result.source_id,
+            "source": baseline_identify_result.source,
+            "source_thumbnail": baseline_identify_result.source_thumbnail,
+            "title": baseline_identify_result.title,
+            "artist": baseline_identify_result.artist,
+            "language": baseline_identify_result.language or None,
+            "is_off_vocal": baseline_identify_result.is_off_vocal,
+            "video_has_lyrics": baseline_identify_result.video_has_lyrics,
+            "genre": baseline_identify_result.genre,
+            "tags": baseline_identify_result.tags,
+            "lyrics": baseline_identify_result.lyrics,
+            "_youtube_description": description,
+        }
+        enhanced_payload = await orchestrator.enhance(enhancement_payload)
+        if not isinstance(enhanced_payload, dict):
+            raise ValueError("Enhanced payload is not a dictionary")
+
+        return SongSuggestIdentifyResponse(
+            source_url=enhanced_payload.get("source_url", baseline_identify_result.source_url),
+            source_id=enhanced_payload.get("source_id", baseline_identify_result.source_id),
+            source=enhanced_payload.get("source", baseline_identify_result.source),
+            source_thumbnail=enhanced_payload.get("source_thumbnail", baseline_identify_result.source_thumbnail),
+            title=enhanced_payload.get("title", baseline_identify_result.title),
+            artist=enhanced_payload.get("artist", baseline_identify_result.artist),
+            language=enhanced_payload.get("language"),
+            is_off_vocal=enhanced_payload.get("is_off_vocal", False),
+            video_has_lyrics=enhanced_payload.get("video_has_lyrics", False),
+            genre=enhanced_payload.get("genre"),
+            tags=enhanced_payload.get("tags"),
+            lyrics=enhanced_payload.get("lyrics"),
+        )
+    except Exception:
+        logger.exception("[IDENTIFY] Enhancement failed, returning baseline identify payload")
+        return baseline_identify_result
 
 
 @router.post("/suggest/update", response_model=SongSuggestUpdateResponse)

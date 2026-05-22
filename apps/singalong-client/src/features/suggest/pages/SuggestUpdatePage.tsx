@@ -72,6 +72,11 @@ export function SuggestUpdatePage({
   const previewUrl =
     draft.source_thumbnail_data_url !== '' ? draft.source_thumbnail_data_url : draft.source_thumbnail
 
+  const openThumbnailContextMenu = useCallback((element: HTMLElement) => {
+    const rect = element.getBoundingClientRect()
+    setContextMenu({ x: rect.left, y: rect.top + rect.height })
+  }, [])
+
   const updateDraft = useCallback(
     (patch: Partial<SuggestDraft>) => {
       const nextDraft = { ...draft, ...patch }
@@ -340,8 +345,7 @@ export function SuggestUpdatePage({
             <div
               className="thumbnail-preview"
               onClick={(e) => {
-                const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
-                setContextMenu({ x: rect.left, y: rect.top + rect.height })
+                openThumbnailContextMenu(e.currentTarget)
               }}
               style={{ cursor: 'pointer', position: 'relative' }}
               role="button"
@@ -349,8 +353,7 @@ export function SuggestUpdatePage({
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
-                  const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
-                  setContextMenu({ x: rect.left, y: rect.top + rect.height })
+                  openThumbnailContextMenu(e.currentTarget)
                 }
               }}
             >
@@ -359,21 +362,22 @@ export function SuggestUpdatePage({
               ) : (
                 <div className="thumbnail-placeholder">No thumbnail available</div>
               )}
-              <div style={{ position: 'absolute', bottom: 8, right: 8 }}>
-                <div style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: '50%',
-                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  fontSize: 20,
-                }}>
-                  📷
-                </div>
-              </div>
+              <button
+                type="button"
+                className="thumbnail-edit-button"
+                aria-label="Edit thumbnail"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  const previewElement = e.currentTarget.closest('.thumbnail-preview')
+                  if (previewElement instanceof HTMLElement) {
+                    openThumbnailContextMenu(previewElement)
+                  }
+                }}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true">
+                  photo_camera
+                </span>
+              </button>
             </div>
 
             {contextMenu && (
