@@ -291,7 +291,7 @@ class SessionWebSocketHub:
             "payload": {"items": [item.model_dump(mode="json") for item in items]},
         }
         await self._broadcast_all("admin", payload)
-        await self._broadcast(GLOBAL_DOWNLOAD_SCOPE, "guest", payload)
+        await self._broadcast_all("guest", payload)
 
     async def broadcast_queue_updated(self, session_code: str, items: list[SessionQueueItem]) -> None:
         payload = {
