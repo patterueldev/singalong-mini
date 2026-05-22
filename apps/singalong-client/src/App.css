@@ -1045,6 +1045,7 @@ button:disabled {
   background: var(--surface-card);
   box-shadow: var(--shadow-card);
   padding: 20px;
+  box-sizing: border-box;
 }
 
 .modal-header {
@@ -2967,6 +2968,37 @@ button.small {
 .trim-status--failed {
   background: color-mix(in srgb, #ea5b5b 20%, transparent);
   color: #8b2222;
+}
+
+/* Trim History Modal */
+.trim-history-modal {
+  width: min(600px, 100%);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.trim-history-modal .modal-body {
+  flex: 1;
+  overflow-y: auto;
+  display: block;
+  margin-top: 0;
+  grid-template-columns: unset;
+  gap: unset;
+}
+
+.trim-history-modal .modal-header {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-primary);
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+
+.trim-history-empty {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 20px;
+  font-size: 0.95rem;
 }
 
 @media (max-width: 600px) {

@@ -388,7 +388,7 @@ export async function restoreTrim(songId: string, token: string, historyId: stri
     {
       method: 'POST',
       body: JSON.stringify({
-        history_id: historyId,
+        trim_history_id: historyId,
       }),
     },
     token,

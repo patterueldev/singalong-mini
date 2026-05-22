@@ -30,6 +30,10 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   const [restoringHistoryId, setRestoringHistoryId] = useState<string | null>(null)
   const [trimProgress, setTrimProgress] = useState(0)
   const [trimProgressMessage, setTrimProgressMessage] = useState('')
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  // Local state for time input fields (for editing)
+  const [startTimeStr, setStartTimeStr] = useState('')
+  const [endTimeStr, setEndTimeStr] = useState('')
 
   // Load trim history on demand (button click), not on mount
   const loadTrimHistory = useCallback(async () => {
@@ -37,6 +41,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
     try {
       const history = await getTrimHistory(song.id, auth.accessToken)
       setTrimHistory(history)
+      setShowHistoryModal(true)
     } catch (error) {
       console.error('Failed to load trim history:', error)
       setErrorMessage('Failed to load trim history')
@@ -103,6 +108,34 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
       return false
     }
     return true
+  }
+
+  // Sync string values when time values change
+  useEffect(() => {
+    setStartTimeStr(formatTimeMs(startTimeMs))
+    setEndTimeStr(formatTimeMs(endTimeMs))
+  }, [startTimeMs, endTimeMs])
+
+  // Handle start time input change (allow typing)
+  const handleStartTimeChange = (value: string) => {
+    setStartTimeStr(value)
+  }
+
+  // Handle start time blur (validate and update)
+  const handleStartTimeBlur = () => {
+    const ms = parseTimeMs(startTimeStr)
+    setStartTimeMs(Math.max(0, Math.min(ms, endTimeMs - 1000)))
+  }
+
+  // Handle end time input change (allow typing)
+  const handleEndTimeChange = (value: string) => {
+    setEndTimeStr(value)
+  }
+
+  // Handle end time blur (validate and update)
+  const handleEndTimeBlur = () => {
+    const ms = parseTimeMs(endTimeStr)
+    setEndTimeMs(Math.max(startTimeMs + 1000, Math.min(ms, videoDurationMs)))
   }
 
   const handleTrimVideo = async () => {
@@ -336,10 +369,13 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
               <div className="time-input-with-actions">
                 <input
                   type="text"
-                  value={formatTimeMs(startTimeMs)}
-                  onChange={(e) => {
-                    const ms = parseTimeMs(e.target.value)
-                    setStartTimeMs(Math.max(0, Math.min(ms, endTimeMs - 1000)))
+                  value={startTimeStr}
+                  onChange={(e) => handleStartTimeChange(e.target.value)}
+                  onBlur={handleStartTimeBlur}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleStartTimeBlur()
+                    }
                   }}
                   disabled={isTrimming}
                 />
@@ -366,10 +402,13 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
               <div className="time-input-with-actions">
                 <input
                   type="text"
-                  value={formatTimeMs(endTimeMs)}
-                  onChange={(e) => {
-                    const ms = parseTimeMs(e.target.value)
-                    setEndTimeMs(Math.max(startTimeMs + 1000, Math.min(ms, videoDurationMs)))
+                  value={endTimeStr}
+                  onChange={(e) => handleEndTimeChange(e.target.value)}
+                  onBlur={handleEndTimeBlur}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleEndTimeBlur()
+                    }
                   }}
                   disabled={isTrimming}
                 />
@@ -421,40 +460,70 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
             >
               {isTrimming ? 'Trimming...' : 'Trim Video'}
             </button>
+            <button 
+              className="btn-secondary" 
+              onClick={loadTrimHistory}
+              disabled={isTrimming || isLoadingHistory}
+            >
+              {isLoadingHistory ? 'Loading...' : 'History'}
+            </button>
             <button className="btn-secondary" onClick={onClose} disabled={isTrimming}>
               Cancel
             </button>
           </div>
 
-          {/* Trim History */}
-          {trimHistory.length > 0 && (
-            <div className="trim-history">
-              <h3>Trim History</h3>
-              <div className="trim-history-list">
-                {trimHistory.map((item) => (
-                  <div key={item.id} className="trim-history-item">
-                    <div className="trim-history-info">
-                      <p className="trim-history-range">
-                        {formatTimeMs(item.trim_start_ms)} → {formatTimeMs(item.trim_end_ms)}
-                      </p>
-                      <p className="trim-history-meta">
-                        {new Date(item.created_at).toLocaleString()}
-                      </p>
-                      {item.backup_expires_at && (
-                        <p className="trim-history-expires">
-                          Backup expires: {new Date(item.backup_expires_at).toLocaleDateString()}
-                        </p>
-                      )}
+          {/* Trim History Modal */}
+          {showHistoryModal && (
+            <div 
+              className="modal-backdrop trim-history-backdrop"
+              role="presentation"
+              onClick={() => setShowHistoryModal(false)}
+            >
+              <div 
+                className="modal-card trim-history-modal"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-header">
+                  <h2>Trim History</h2>
+                  <button 
+                    className="close-button"
+                    onClick={() => setShowHistoryModal(false)}
+                  >
+                    <span className="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+                <div className="modal-body">
+                  {trimHistory.length === 0 ? (
+                    <p className="trim-history-empty">No trim history available</p>
+                  ) : (
+                    <div className="trim-history-list">
+                      {trimHistory.map((item) => (
+                        <div key={item.id} className="trim-history-item">
+                          <div className="trim-history-info">
+                            <p className="trim-history-range">
+                              {formatTimeMs(item.trim_start_ms)} → {formatTimeMs(item.trim_end_ms)}
+                            </p>
+                            <p className="trim-history-meta">
+                              {new Date(item.created_at).toLocaleString()}
+                            </p>
+                            {item.backup_expires_at && (
+                              <p className="trim-history-expires">
+                                Backup expires: {new Date(item.backup_expires_at).toLocaleDateString()}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            className="btn-restore"
+                            onClick={() => handleRestoreTrim(item.id)}
+                            disabled={restoringHistoryId === item.id || isTrimming}
+                          >
+                            {restoringHistoryId === item.id ? 'Restoring...' : 'Restore'}
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    <button
-                      className="btn-restore"
-                      onClick={() => handleRestoreTrim(item.id)}
-                      disabled={restoringHistoryId === item.id || isTrimming}
-                    >
-                      {restoringHistoryId === item.id ? 'Restoring...' : 'Restore'}
-                    </button>
-                  </div>
-                ))}
+                  )}
+                </div>
               </div>
             </div>
           )}
