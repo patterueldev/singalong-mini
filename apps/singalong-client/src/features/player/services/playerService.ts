@@ -18,12 +18,18 @@ export function isHostAllowed(hostname: string): boolean {
 }
 
 export async function loginPlayer(): Promise<string> {
-  const response = await fetch(`${API_ROOT}/users/player-token`)
-  if (!response.ok) {
-    throw new Error(`Failed to obtain player token: ${response.status}`)
+  const endpoints = [`${API_ROOT.replace(/\/$/, '')}/player-token`, `${API_ROOT}/users/player-token`]
+  for (const endpoint of endpoints) {
+    const response = await fetch(endpoint)
+    if (!response.ok) {
+      continue
+    }
+    const payload = (await response.json()) as { access_token?: string }
+    if (typeof payload.access_token === 'string' && payload.access_token !== '') {
+      return payload.access_token
+    }
   }
-  const payload = (await response.json()) as { access_token: string }
-  return payload.access_token
+  throw new Error('Failed to obtain player token')
 }
 
 export const playerService: PlayerService = {

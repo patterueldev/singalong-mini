@@ -107,8 +107,8 @@ export function GuestHomePage() {
   }
 
   return (
-    <main className="app-shell guest-shell">
-      <section className="card guest-home-card">
+    <main className="app-shell guest-fullscreen-shell">
+      <section className="card guest-fullscreen-card guest-home-screen">
         <div className="card-header">
           <div>
             <h1>Session {sessionCode}</h1>
@@ -116,30 +116,27 @@ export function GuestHomePage() {
               Welcome, <strong>{guestAuth.nickname}</strong>
             </p>
           </div>
-          <div className="row-actions">
-            <button type="button" className="secondary" onClick={() => navigate('/guest/downloads')}>
-              Downloads
+          <div className="row-actions guest-home-action-icons">
+            <button type="button" className="secondary icon-button" aria-label="Downloads" onClick={() => navigate('/guest/downloads')}>
+              <span className="material-symbols-outlined" aria-hidden="true">download</span>
             </button>
-            <button type="button" onClick={() => navigate('/guest/songbook')}>
-              Songbook
+            <button type="button" className="secondary icon-button" aria-label="Songbook" onClick={() => navigate('/guest/songbook')}>
+              <span className="material-symbols-outlined" aria-hidden="true">menu_book</span>
+            </button>
+            <button
+              type="button"
+              className="secondary icon-button"
+              aria-label="Leave session"
+              onClick={() => {
+                const confirmed = window.confirm('Leave this session?')
+                if (!confirmed) return
+                leaveGuestSession()
+                navigate('/guest/join', { replace: true })
+              }}
+            >
+              <span className="material-symbols-outlined" aria-hidden="true">exit_to_app</span>
             </button>
           </div>
-        </div>
-
-        <div className="row-actions top-gap">
-          <button type="button" className="secondary small" onClick={() => navigate('/guest/join')}>
-            Change nickname
-          </button>
-          <button
-            type="button"
-            className="secondary small"
-            onClick={() => {
-              leaveGuestSession()
-              navigate('/guest/join', { replace: true })
-            }}
-          >
-            Leave session
-          </button>
         </div>
 
         <p className="player-socket-status top-gap" aria-label="Guest queue status">
@@ -149,7 +146,7 @@ export function GuestHomePage() {
           {socketStatus}
         </p>
 
-        <div className="top-gap">
+        <div className="top-gap guest-scroll-content">
           {isLoading ? (
             <p className="empty-state">Loading reservations…</p>
           ) : queueItems.length === 0 ? (

@@ -33,6 +33,12 @@ export type SessionRecord = {
   updated_at: string
 }
 
+export type SessionExistsResponse = {
+  exists: boolean
+  session_code: string
+  name: string | null
+}
+
 export type SessionArchiveResponse = {
   session: SessionRecord
   message: string

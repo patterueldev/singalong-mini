@@ -1,8 +1,14 @@
 import { apiJson } from '../../../shared/api/httpClient'
-import type { GuestAuth, GuestLoginResponse, SongDownloadRetryResponse } from '../../../shared/types/client'
+import type {
+  GuestAuth,
+  GuestLoginResponse,
+  SessionExistsResponse,
+  SongDownloadRetryResponse,
+} from '../../../shared/types/client'
 
 export interface GuestService {
   buildGuestJoinUrl: (baseUrl: string, sessionCode: string | null) => string
+  checkSessionExists: (sessionCode: string) => Promise<boolean>
   loginWithNickname: (nickname: string) => Promise<GuestAuth>
   reserveSong: (sessionCode: string, songId: string, token: string) => Promise<void>
   retryDownload: (songId: string) => Promise<SongDownloadRetryResponse>
@@ -29,6 +35,11 @@ export async function loginWithNickname(nickname: string): Promise<GuestAuth> {
   }
 }
 
+export async function checkSessionExists(sessionCode: string): Promise<boolean> {
+  const payload = await apiJson<SessionExistsResponse>(`/sessions/${sessionCode}/exists`)
+  return payload.exists === true
+}
+
 export async function reserveSong(sessionCode: string, songId: string, token: string): Promise<void> {
   await apiJson(
     `/sessions/${sessionCode}/queue`,
@@ -48,12 +59,14 @@ export function retryDownload(songId: string): Promise<SongDownloadRetryResponse
 
 export const guestService: GuestService = {
   buildGuestJoinUrl,
+  checkSessionExists,
   loginWithNickname,
   reserveSong,
   retryDownload,
 }
 
 export const guestLoginWithNickname = loginWithNickname
+export const guestCheckSessionExists = checkSessionExists
 export const guestReserveSong = reserveSong
 export const retrySongDownload = retryDownload
 export const guestRetrySongDownload = retryDownload

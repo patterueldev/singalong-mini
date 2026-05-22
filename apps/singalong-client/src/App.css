@@ -23,6 +23,57 @@
   width: min(460px, 100%);
 }
 
+.guest-fullscreen-shell {
+  display: block;
+  padding: 0;
+}
+
+.guest-fullscreen-card {
+  width: 100%;
+  min-height: 100vh;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  box-shadow: none;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.guest-home-screen,
+.guest-downloads-screen,
+.guest-songbook-screen {
+  min-height: 100vh;
+}
+
+.guest-scroll-content {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.guest-home-action-icons {
+  gap: 10px;
+}
+
+.guest-songbook-list {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.songbook-guest-item {
+  min-width: 0;
+}
+
+.songbook-guest-actions {
+  justify-content: flex-end;
+}
+
+.guest-song-detail-modal {
+  width: min(960px, 100%);
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -1034,6 +1085,14 @@ textarea:focus-visible {
 
 @media (max-width: 720px) {
   .app-shell {
+    padding: 12px;
+  }
+
+  .guest-fullscreen-shell {
+    padding: 0;
+  }
+
+  .guest-fullscreen-card {
     padding: 12px;
   }
 

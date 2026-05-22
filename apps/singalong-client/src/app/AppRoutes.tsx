@@ -9,7 +9,6 @@ type AppRoutesProps = {
   guestHomeElement: ReactNode
   guestDownloadsElement: ReactNode
   guestSongbookElement: ReactNode
-  guestSongDetailElement: ReactNode
   playerElement: ReactNode
   songbookElement: ReactNode
   songDetailElement: ReactNode
@@ -29,7 +28,6 @@ export function AppRoutes({
   guestHomeElement,
   guestDownloadsElement,
   guestSongbookElement,
-  guestSongDetailElement,
   playerElement,
   songbookElement,
   songDetailElement,
@@ -52,7 +50,6 @@ export function AppRoutes({
         <Route path="/guest/home" element={guestHomeElement} />
         <Route path="/guest/downloads" element={guestDownloadsElement} />
         <Route path="/guest/songbook" element={guestSongbookElement} />
-        <Route path="/guest/song/:id" element={guestSongDetailElement} />
         <Route path="/player" element={playerElement} />
         <Route path="/songbook" element={songbookElement} />
         <Route path="/songbook/song/:id" element={songDetailElement} />

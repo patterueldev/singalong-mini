@@ -9,6 +9,7 @@ from ..models import User
 from ..schemas import (
     SessionArchiveResponse,
     SessionCreateRequest,
+    SessionExistsResponse,
     SessionParticipantItem,
     SessionParticipantListResponse,
     SessionQueueCreateRequest,
@@ -60,6 +61,14 @@ def get_active_session(db: Session = Depends(get_db)):
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active session")
     return session
+
+
+@router.get("/{session_code}/exists", response_model=SessionExistsResponse)
+def get_session_exists(session_code: str, db: Session = Depends(get_db)):
+    session = get_active_session_by_code(db, session_code)
+    if session is None:
+        return SessionExistsResponse(exists=False, session_code=session_code)
+    return SessionExistsResponse(exists=True, session_code=session.session_code, name=session.name)
 
 
 @router.post("", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)

@@ -11,7 +11,6 @@ import { GuestPage } from '../features/guest/pages/GuestPage'
 import { GuestHomePage } from '../features/guest/pages/GuestHomePage'
 import { GuestDownloadsPage } from '../features/guest/pages/GuestDownloadsPage'
 import { GuestSongbookPage } from '../features/guest/pages/GuestSongbookPage'
-import { GuestSongDetailPage } from '../features/guest/pages/GuestSongDetailPage'
 import { PlayerPage } from '../features/player/pages/PlayerPage'
 import { SuggestIdentifyPage } from '../features/suggest/pages/SuggestIdentifyPage'
 import { SuggestLoginPage } from '../features/suggest/pages/SuggestLoginPage'
@@ -316,7 +315,6 @@ function AppShell() {
   const guestHomeElement = <GuestHomePage />
   const guestDownloadsElement = <GuestDownloadsPage />
   const guestSongbookElement = <GuestSongbookPage />
-  const guestSongDetailElement = <GuestSongDetailPage />
   const playerElement = <PlayerPage />
   const songbookElement = <SongbookPage notice={songbookNotice} guestNickname={suggestAuth?.nickname ?? null} onChangeNickname={handleChangeSuggestNickname} />
   const songDetailElement = <SongDetailPage />
@@ -411,7 +409,6 @@ function AppShell() {
       guestHomeElement={guestHomeElement}
       guestDownloadsElement={guestDownloadsElement}
       guestSongbookElement={guestSongbookElement}
-      guestSongDetailElement={guestSongDetailElement}
       playerElement={playerElement}
       songbookElement={songbookElement}
       songDetailElement={songDetailElement}

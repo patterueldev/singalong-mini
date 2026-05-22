@@ -47,6 +47,11 @@ class LogoutResponse(BaseModel):
     message: str
 
 
+class PlayerTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
 class GuestCreateResponse(BaseModel):
     user: UserResponse
     message: str
@@ -84,6 +89,12 @@ class SessionResponse(BaseModel):
 class SessionArchiveResponse(BaseModel):
     session: SessionResponse
     message: str
+
+
+class SessionExistsResponse(BaseModel):
+    exists: bool
+    session_code: str
+    name: str | None = None
 
 
 class SessionQueueItem(BaseModel):

@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { isValidNickname, isValidSessionCode } from '../../../shared/lib/validation'
 import { useGuestSession } from '../hooks/useGuestSession'
+import { guestCheckSessionExists } from '../services/guestService'
 
 export function GuestPage() {
   const navigate = useNavigate()
@@ -60,6 +61,11 @@ export function GuestPage() {
 
     setIsSubmitting(true)
     try {
+      const exists = await guestCheckSessionExists(cleanedSessionCode)
+      if (!exists) {
+        setErrorMessage('Session code not found. Please check and try again.')
+        return
+      }
       await joinGuestSession(cleanedNickname, cleanedSessionCode)
       navigate('/guest/home', { replace: true })
     } catch (error) {
@@ -70,15 +76,15 @@ export function GuestPage() {
   }
 
   return (
-    <main className="app-shell">
-      <section className="card auth-card">
+    <main className="app-shell guest-fullscreen-shell">
+      <section className="card auth-card guest-fullscreen-card">
         <h1>Join the party</h1>
         <p className="subtitle">Enter your nickname and session code to continue.</p>
         <form className="form top-gap" onSubmit={handleSubmit}>
           <input
             value={nickname}
             onChange={(event) => setNickname(event.target.value)}
-            placeholder="Nickname (e.g. pat_kun)"
+            placeholder="Nickname (e.g. johnny_joestar)"
             autoComplete="nickname"
           />
           <input

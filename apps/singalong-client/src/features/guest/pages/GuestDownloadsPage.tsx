@@ -97,19 +97,19 @@ export function GuestDownloadsPage() {
   }
 
   return (
-    <main className="app-shell guest-shell">
-      <section className="card guest-home-card">
+    <main className="app-shell guest-fullscreen-shell">
+      <section className="card guest-fullscreen-card guest-downloads-screen">
         <div className="card-header">
           <div>
             <h1>Downloads</h1>
             <p className="subtitle">Status: {status}</p>
           </div>
-          <button type="button" className="secondary" onClick={() => navigate('/guest/home')}>
-            Back
+          <button type="button" className="secondary icon-button" aria-label="Back to guest home" onClick={() => navigate('/guest/home')}>
+            <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
           </button>
         </div>
 
-        <div className="top-gap">
+        <div className="top-gap guest-scroll-content">
           {items.length === 0 ? (
             <p className="empty-state">No active downloads.</p>
           ) : (
