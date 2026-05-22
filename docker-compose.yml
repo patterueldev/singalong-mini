@@ -19,10 +19,6 @@ services:
     build:
       context: .
       dockerfile: infrastructure/production/Singalong.dockerfile
-      args:
-        VITE_SINGALONG_BASE_URL: ${SINGALONG_BASE_URL:-http://localhost:9000}
-        VITE_SINGALONG_PLAYER_USERNAME: ${SINGALONG_PLAYER_USERNAME:-admin}
-        VITE_SINGALONG_PLAYER_PASSWORD: ${SINGALONG_PLAYER_PASSWORD:-password}
     container_name: singalong-app
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/singalong

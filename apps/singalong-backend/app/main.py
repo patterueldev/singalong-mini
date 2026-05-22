@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import WebSocketException, status
@@ -67,6 +67,16 @@ def root():
 @app.get("/api")
 def api_root():
     return {"message": "Singalong API root"}
+
+
+@app.get("/api/public-config")
+def public_config(request: Request):
+    configured = settings.singalong_base_url.strip()
+    if configured != "":
+        return {"guest_base_url": configured.rstrip("/")}
+
+    request_base = str(request.base_url).rstrip("/")
+    return {"guest_base_url": request_base}
 
 
 @app.get("/client")

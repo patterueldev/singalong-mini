@@ -66,6 +66,7 @@ export function normalizeSessionQueueItems(payload: unknown): SongQueueItem[] {
       typeof raw.artist !== 'string' ||
       typeof raw.queue_order !== 'number' ||
       status === null ||
+      typeof raw.reserved_by !== 'string' ||
       typeof raw.reserved_at !== 'string'
     ) {
       return []
@@ -85,6 +86,7 @@ export function normalizeSessionQueueItems(payload: unknown): SongQueueItem[] {
         duration: typeof raw.duration === 'string' && raw.duration !== '' ? raw.duration : null,
         queueOrder: raw.queue_order,
         status,
+        reservedBy: raw.reserved_by,
         reservedByUsername:
           typeof raw.reserved_by_username === 'string' && raw.reserved_by_username !== ''
             ? raw.reserved_by_username

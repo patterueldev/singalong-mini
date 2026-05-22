@@ -8,9 +8,12 @@ import type {
 
 export interface GuestService {
   buildGuestJoinUrl: (baseUrl: string, sessionCode: string | null) => string
+  fetchSessionInfo: (sessionCode: string) => Promise<SessionExistsResponse>
   checkSessionExists: (sessionCode: string) => Promise<boolean>
   loginWithNickname: (nickname: string) => Promise<GuestAuth>
   reserveSong: (sessionCode: string, songId: string, token: string) => Promise<void>
+  cancelQueueItem: (sessionCode: string, queueId: string, token: string) => Promise<void>
+  skipQueueItem: (sessionCode: string, queueId: string, token: string) => Promise<void>
   retryDownload: (songId: string) => Promise<SongDownloadRetryResponse>
 }
 
@@ -36,8 +39,27 @@ export async function loginWithNickname(nickname: string): Promise<GuestAuth> {
 }
 
 export async function checkSessionExists(sessionCode: string): Promise<boolean> {
-  const payload = await apiJson<SessionExistsResponse>(`/sessions/${sessionCode}/exists`)
+  const payload = await fetchSessionInfo(sessionCode)
   return payload.exists === true
+}
+
+export function fetchSessionInfo(sessionCode: string): Promise<SessionExistsResponse> {
+  return apiJson<SessionExistsResponse>(`/sessions/${sessionCode}/exists`)
+}
+
+export async function cancelQueueItem(sessionCode: string, queueId: string, token: string): Promise<void> {
+  await apiJson(`/sessions/${sessionCode}/queue/${queueId}`, { method: 'DELETE' }, token)
+}
+
+export async function skipQueueItem(sessionCode: string, queueId: string, token: string): Promise<void> {
+  await apiJson(
+    `/sessions/${sessionCode}/queue/${queueId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ action: 'skip' }),
+    },
+    token,
+  )
 }
 
 export async function reserveSong(sessionCode: string, songId: string, token: string): Promise<void> {
@@ -59,14 +81,20 @@ export function retryDownload(songId: string): Promise<SongDownloadRetryResponse
 
 export const guestService: GuestService = {
   buildGuestJoinUrl,
+  fetchSessionInfo,
   checkSessionExists,
   loginWithNickname,
   reserveSong,
+  cancelQueueItem,
+  skipQueueItem,
   retryDownload,
 }
 
 export const guestLoginWithNickname = loginWithNickname
 export const guestCheckSessionExists = checkSessionExists
+export const guestFetchSessionInfo = fetchSessionInfo
 export const guestReserveSong = reserveSong
+export const guestCancelQueueItem = cancelQueueItem
+export const guestSkipQueueItem = skipQueueItem
 export const retrySongDownload = retryDownload
 export const guestRetrySongDownload = retryDownload

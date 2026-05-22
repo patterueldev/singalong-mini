@@ -1,4 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { SongbookSong } from '../../../shared/types/client'
 
@@ -23,6 +24,8 @@ export function SongbookListItem({
   onEditDetails,
   detailsLabel = 'Edit Details',
 }: SongbookListItemProps) {
+  const [menuAlign, setMenuAlign] = useState<'start' | 'end'>('start')
+
   return (
     <DropdownMenu.Root open={isMenuOpen} onOpenChange={onMenuOpenChange}>
       <DropdownMenu.Trigger asChild>
@@ -31,6 +34,11 @@ export function SongbookListItem({
           role="button"
           tabIndex={0}
           onClick={onClick}
+          onPointerDown={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            const tapX = event.clientX - rect.left
+            setMenuAlign(tapX > rect.width / 2 ? 'end' : 'start')
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault()
@@ -63,8 +71,11 @@ export function SongbookListItem({
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           className="context-menu songbook-context-menu"
-          align="end"
+          side="bottom"
+          align={menuAlign}
           sideOffset={4}
+          collisionPadding={8}
+          avoidCollisions
         >
           <DropdownMenu.Item
             className="context-menu-item"

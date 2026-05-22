@@ -25,6 +25,7 @@ from ..services.session_queue import (
     SessionQueueNotFoundError,
     SessionQueueValidationError,
     cancel_pending_queue_item,
+    get_session_queue_item,
     list_session_queue_items,
     list_session_participant_stats,
     reserve_song_in_session,
@@ -201,10 +202,21 @@ def patch_session_queue(
     queue_id: UUID,
     payload: SessionQueueUpdateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_admin_or_guest_user),
 ):
-    _ = current_user
     try:
+        if current_user.role == "guest":
+            if payload.action != "skip":
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Guest can only skip own playing song")
+            target_item = get_session_queue_item(db, session_code, queue_id)
+            if str(target_item.reserved_by) != str(current_user.id):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Guests can only update own queue item")
+            if target_item.status != "playing":
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Only currently playing own song can be skipped",
+                )
+
         item = update_queue_item_action(
             db=db,
             session_code=session_code,
@@ -226,10 +238,18 @@ def delete_session_queue(
     session_code: str,
     queue_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin_user),
+    current_user: User = Depends(require_admin_or_guest_user),
 ):
-    _ = current_user
     try:
+        if current_user.role == "guest":
+            target_item = get_session_queue_item(db, session_code, queue_id)
+            if str(target_item.reserved_by) != str(current_user.id):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Guests can only cancel own queue item")
+            if target_item.status != "pending":
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Only pending own song can be cancelled",
+                )
         cancel_pending_queue_item(db=db, session_code=session_code, queue_id=queue_id)
         items = list_session_queue_items(db, session_code)
         anyio.from_thread.run(ws_hub.broadcast_queue_updated, session_code, items)

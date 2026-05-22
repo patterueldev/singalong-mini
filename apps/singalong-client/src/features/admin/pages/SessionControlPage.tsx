@@ -13,6 +13,7 @@ import {
 } from '../../shared/services/queueTransforms'
 import { apiJson } from '../../../shared/api/httpClient'
 import { buildWSUrl } from '../../../shared/api/ws'
+import { fetchGuestBaseUrl } from '../../../shared/api/publicConfig'
 import { formatDownloadStatus, formatDurationClock } from '../../../shared/lib/format'
 import { readFileAsDataUrl } from '../../../shared/lib/files'
 import { splitChipInput } from '../../../shared/lib/suggest'
@@ -305,6 +306,7 @@ export function SessionControlPage({
   const [isQrModalOpen, setIsQrModalOpen] = useState(false)
   const [guestJoinQrDataUrl, setGuestJoinQrDataUrl] = useState<string | null>(null)
   const [isGeneratingGuestQr, setIsGeneratingGuestQr] = useState(false)
+  const [guestJoinBaseUrl, setGuestJoinBaseUrl] = useState(() => window.location.origin)
   const [editingSong, setEditingSong] = useState<SongbookSong | null>(null)
   const [editingSongThumbnailDataUrl, setEditingSongThumbnailDataUrl] = useState<string | null>(null)
   const [, setWsMessage] = useState('')
@@ -326,9 +328,27 @@ export function SessionControlPage({
   const activeSessionCode = session?.session_code ?? null
   const activeSessionId = session?.id ?? null
   const guestJoinUrl = useMemo(
-    () => buildGuestJoinUrl(window.location.origin, activeSessionCode),
-    [activeSessionCode],
+    () => buildGuestJoinUrl(guestJoinBaseUrl, activeSessionCode),
+    [activeSessionCode, guestJoinBaseUrl],
   )
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchGuestBaseUrl()
+      .then((url) => {
+        if (!cancelled) {
+          setGuestJoinBaseUrl(url)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGuestJoinBaseUrl(window.location.origin)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     refreshSessionsRef.current = onRefreshSessions

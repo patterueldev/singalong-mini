@@ -55,6 +55,7 @@ export type SessionQueueListResponse = {
     duration: string | null
     queue_order: number
     status: 'playing' | 'pending' | 'finished' | 'skipped'
+    reserved_by: string
     reserved_by_username: string | null
     reserved_at: string
     played_at: string | null
@@ -74,6 +75,7 @@ export type SongQueueItem = {
   duration: string | null
   queueOrder: number
   status: 'playing' | 'pending' | 'finished' | 'skipped'
+  reservedBy: string
   reservedByUsername: string | null
   reservedAt: string
   playedAt: string | null

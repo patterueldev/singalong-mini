@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { SongbookListItem } from '../../songbook/components/SongbookListItem'
 import { adminService } from '../../admin/services/adminService'
 import { useGuestSession } from '../hooks/useGuestSession'
 import { guestReserveSong } from '../services/guestService'
@@ -11,7 +10,6 @@ import type { SongbookSong } from '../../../shared/types/client'
 type GuestSongDetailModalProps = {
   songId: string
   sessionCode: string
-  nickname: string
   authToken: string
   onClose: () => void
   onReserved: () => void
@@ -20,7 +18,6 @@ type GuestSongDetailModalProps = {
 function GuestSongDetailModal({
   songId,
   sessionCode,
-  nickname,
   authToken,
   onClose,
   onReserved,
@@ -80,93 +77,79 @@ function GuestSongDetailModal({
         aria-label={song?.title ?? 'Song details'}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="modal-header">
-          <div>
-            <h2>Song Details</h2>
-            <p className="subtitle">
-              Session <strong>{sessionCode}</strong> · {nickname}
-            </p>
-          </div>
-          <button type="button" className="secondary" onClick={onClose}>
-            Close
+        <div className="row-actions guest-song-detail-top-actions">
+          <button type="button" disabled={isReserving || isLoading || song === null} onClick={() => void handleReserve()}>
+            {isReserving ? 'Reserving…' : 'Reserve'}
+          </button>
+          <button type="button" className="icon-control-button" aria-label="Close song details" onClick={onClose}>
+            <span className="material-symbols-outlined" aria-hidden="true">close</span>
           </button>
         </div>
 
-        {isLoading ? (
-          <p className="empty-state top-gap">Loading song details…</p>
-        ) : errorMessage !== '' ? (
-          <p className="error-message top-gap">{errorMessage}</p>
-        ) : song !== null ? (
-          <div className="song-detail-layout">
-            <div className="song-detail-video-panel">
-              {song.videoFile ? (
-                <video controls className="song-detail-video" src={`/media/songs/${song.videoFile}`} />
-              ) : (
-                <p className="empty-state">Video not available.</p>
-              )}
-            </div>
-
-            <div className="song-detail-summary-panel">
-              <div className="song-detail-header-row">
-                {song.thumbnailUrl ? (
-                  <img className="song-detail-thumbnail song-detail-thumbnail--small" src={song.thumbnailUrl} alt={song.title} />
+        <div className="guest-song-detail-scroll">
+          {isLoading ? (
+            <p className="empty-state top-gap">Loading song details…</p>
+          ) : errorMessage !== '' ? (
+            <p className="error-message top-gap">{errorMessage}</p>
+          ) : song !== null ? (
+            <div className="song-detail-layout">
+              <div className="song-detail-video-panel">
+                {song.videoFile ? (
+                  <video controls className="song-detail-video" src={`/media/songs/${song.videoFile}`} />
                 ) : (
-                  <div className="song-detail-thumbnail song-detail-thumbnail--small song-detail-thumbnail--placeholder" />
+                  <p className="empty-state">Video not available.</p>
                 )}
-                <div className="song-detail-meta">
-                  <h2 className="song-detail-title">{song.title}</h2>
-                  <p className="subtitle">{song.artist}</p>
+              </div>
+
+              <div className="song-detail-summary-panel">
+                <div className="song-detail-header-row">
+                  {song.thumbnailUrl ? (
+                    <img className="song-detail-thumbnail song-detail-thumbnail--small" src={song.thumbnailUrl} alt={song.title} />
+                  ) : (
+                    <div className="song-detail-thumbnail song-detail-thumbnail--small song-detail-thumbnail--placeholder" />
+                  )}
+                  <div className="song-detail-meta">
+                    <h2 className="song-detail-title">{song.title}</h2>
+                    <p className="subtitle">{song.artist}</p>
+                  </div>
+                </div>
+
+                <dl className="song-detail-grid top-gap">
+                  <div>
+                    <dt>Language</dt>
+                    <dd>{formatLanguageLabel(song.language)}</dd>
+                  </div>
+                  <div>
+                    <dt>Genre</dt>
+                    <dd>{song.genre ?? '—'}</dd>
+                  </div>
+                  <div className="song-detail-grid-wide">
+                    <dt>Duration</dt>
+                    <dd>{song.duration}</dd>
+                  </div>
+                </dl>
+
+                <div className="song-detail-chips top-gap">
+                  {song.language ? <span className="chip-badge">{formatLanguageLabel(song.language)}</span> : null}
+                  {song.genre ? <span className="chip-badge">{song.genre}</span> : null}
+                  {song.duration ? <span className="chip-badge">{song.duration}</span> : null}
+                  {song.tags.map((tag) => (
+                    <span key={tag} className="chip-badge chip-badge--tag">
+                      {tag}
+                    </span>
+                  ))}
                 </div>
               </div>
 
-              <dl className="song-detail-grid top-gap">
-                <div>
-                  <dt>Language</dt>
-                  <dd>{formatLanguageLabel(song.language)}</dd>
-                </div>
-                <div>
-                  <dt>Genre</dt>
-                  <dd>{song.genre ?? '—'}</dd>
-                </div>
-                <div>
-                  <dt>Duration</dt>
-                  <dd>{song.duration}</dd>
-                </div>
-                <div>
-                  <dt>Added by</dt>
-                  <dd>{song.addedByUsername ?? '—'}</dd>
-                </div>
-              </dl>
-
-              <div className="song-detail-chips top-gap">
-                {song.language ? <span className="chip-badge">{formatLanguageLabel(song.language)}</span> : null}
-                {song.genre ? <span className="chip-badge">{song.genre}</span> : null}
-                {song.duration ? <span className="chip-badge">{song.duration}</span> : null}
-                {song.tags.map((tag) => (
-                  <span key={tag} className="chip-badge chip-badge--tag">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-
-              <div className="row-actions song-detail-actions top-gap">
-                <button type="button" className="secondary" onClick={onClose}>
-                  Back
-                </button>
-                <button type="button" disabled={isReserving} onClick={() => void handleReserve()}>
-                  {isReserving ? 'Reserving…' : 'Reserve'}
-                </button>
+              <div className="song-detail-lyrics-panel">
+                <h3>Lyrics</h3>
+                <p className="song-detail-lyrics">
+                  {song.lyrics !== null && song.lyrics.trim() !== '' ? song.lyrics : 'No lyrics available.'}
+                </p>
               </div>
             </div>
-
-            <div className="song-detail-lyrics-panel">
-              <h3>Lyrics</h3>
-              <p className="song-detail-lyrics">
-                {song.lyrics !== null && song.lyrics.trim() !== '' ? song.lyrics : 'No lyrics available.'}
-              </p>
-            </div>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </section>
     </div>
   )
@@ -184,7 +167,6 @@ export function GuestSongbookPage() {
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [activeSongId, setActiveSongId] = useState<string | null>(null)
-  const [activeSongMenuId, setActiveSongMenuId] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300)
@@ -244,37 +226,35 @@ export function GuestSongbookPage() {
   return (
     <main className="app-shell guest-fullscreen-shell">
       <section className="card guest-fullscreen-card guest-songbook-screen">
-        <div className="card-header">
-          <div>
-            <h1>Songbook</h1>
-            <p className="subtitle">
-              Session <strong>{sessionCode}</strong> · {guestAuth.nickname}
-            </p>
-          </div>
-          <div className="row-actions">
-            <button
-              type="button"
-              className="secondary icon-button"
-              aria-label="Suggest a song"
-              title="Suggest a song"
-              onClick={() => navigate('/guest/songbook/suggest/search')}
-            >
-              <span className="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
-            </button>
-            <button type="button" className="secondary icon-button" aria-label="Back to guest home" onClick={() => navigate('/guest/home')}>
-              <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
-            </button>
+        <div className="guest-songbook-sticky-top">
+          <div className="guest-songbook-search-row">
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search songs..." />
+            <div className="row-actions guest-songbook-header-actions">
+              <button
+                type="button"
+                className="icon-control-button"
+                aria-label="Suggest a song"
+                title="Suggest a song"
+                onClick={() => navigate('/guest/songbook/suggest/search')}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+              </button>
+              <button
+                type="button"
+                className="icon-control-button"
+                aria-label="Close songbook"
+                onClick={() => navigate('/guest/home')}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true">close</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        {message !== '' ? <p className="success-message top-gap">{message}</p> : null}
-        {errorMessage !== '' ? <p className="error-message top-gap">{errorMessage}</p> : null}
+        {message !== '' ? <p className="success-message">{message}</p> : null}
+        {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
 
-        <div className="form top-gap">
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search songbook" />
-        </div>
-
-        <div className="top-gap guest-scroll-content">
+        <div className="guest-scroll-content">
           {isLoading ? (
             <p className="empty-state">Loading songbook…</p>
           ) : activeSongbookCount === 0 ? (
@@ -282,51 +262,58 @@ export function GuestSongbookPage() {
           ) : (
             <div className="queue-list songbook-list guest-songbook-list">
               {songs.map((song) => (
-                 <SongbookListItem
-                   key={song.id}
-                   song={song}
-                   onClick={() => {
-                     setActiveSongMenuId((current) => (current === song.id ? null : song.id))
-                   }}
-                   isMenuOpen={activeSongMenuId === song.id}
-                   onMenuOpenChange={(open) => {
-                     setActiveSongMenuId(open ? song.id : null)
-                   }}
-                   onReserve={() => {
-                     setActiveSongMenuId(null)
+                <article
+                 key={song.id}
+                 className="queue-item songbook-item"
+                 role="button"
+                 tabIndex={0}
+                 onClick={() => setActiveSongId(song.id)}
+                 onKeyDown={(event) => {
+                   if (event.key === 'Enter' || event.key === ' ') {
+                     event.preventDefault()
                      setActiveSongId(song.id)
-                   }}
-                   onEditDetails={() => {
-                     setActiveSongMenuId(null)
-                     setActiveSongId(song.id)
-                   }}
-                   detailsLabel="Details"
-                 />
+                   }
+                 }}
+                >
+                 {song.thumbnailUrl ? (
+                   <img className="songbook-thumbnail" src={song.thumbnailUrl} alt={song.title} loading="lazy" />
+                 ) : (
+                   <div className="songbook-thumbnail songbook-thumbnail--placeholder" />
+                 )}
+                 <div className="songbook-info">
+                   <div className="songbook-item-header">
+                     <strong>{song.title}</strong>
+                   </div>
+                   <p className="session-meta">
+                     {song.artist}
+                     {song.duration ? ` · ${song.duration}` : ''}
+                   </p>
+                 </div>
+                </article>
               ))}
             </div>
           )}
-        </div>
 
-        {pages > 1 ? (
-          <div className="pagination songbook-pagination top-gap">
-            <button type="button" className="pagination-arrow-button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>
-              ‹
-            </button>
-            <span className="pagination-info">
-              Page {page} / {pages}
-            </span>
-            <button type="button" className="pagination-arrow-button" disabled={page >= pages} onClick={() => setPage((current) => current + 1)}>
-              ›
-            </button>
-          </div>
-        ) : null}
+          {pages > 1 ? (
+            <div className="pagination songbook-pagination top-gap">
+              <button type="button" className="pagination-arrow-button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>
+                ‹
+              </button>
+              <span className="pagination-info">
+                Page {page} / {pages}
+              </span>
+              <button type="button" className="pagination-arrow-button" disabled={page >= pages} onClick={() => setPage((current) => current + 1)}>
+                ›
+              </button>
+            </div>
+          ) : null}
+        </div>
       </section>
 
       {activeSongId !== null ? (
         <GuestSongDetailModal
           songId={activeSongId}
           sessionCode={sessionCode}
-          nickname={guestAuth.nickname}
           authToken={guestAuth.accessToken}
           onClose={() => setActiveSongId(null)}
           onReserved={() => {

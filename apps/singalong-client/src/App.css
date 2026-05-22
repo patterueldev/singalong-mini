@@ -62,6 +62,29 @@
   overflow-x: hidden;
 }
 
+.guest-songbook-header {
+  align-items: center;
+}
+
+.guest-songbook-header-actions {
+  width: auto;
+}
+
+.guest-songbook-sticky-top {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  background: var(--surface-card);
+  padding-bottom: 8px;
+}
+
+.guest-songbook-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .songbook-guest-item {
   min-width: 0;
 }
@@ -72,6 +95,25 @@
 
 .guest-song-detail-modal {
   width: min(960px, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.guest-song-detail-top-actions {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-card);
+  justify-content: space-between;
+  padding-bottom: 8px;
+}
+
+.guest-song-detail-scroll {
+  min-height: 0;
+  overflow: auto;
+  flex: 1 1 auto;
+  padding-right: 2px;
 }
 
 .card-header {
@@ -176,6 +218,15 @@ button:disabled {
 
 .secondary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--surface-button-secondary) 82%, white 18%);
+}
+
+.danger-button {
+  background: #b3261e;
+  color: #fff;
+}
+
+.danger-button:hover:not(:disabled) {
+  background: #8c1d18;
 }
 
 .youtube-button {
@@ -1120,6 +1171,22 @@ textarea:focus-visible {
     display: flex;
   }
 
+  .guest-songbook-header {
+    display: flex;
+    grid-template-columns: none;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .guest-songbook-header .row-actions,
+  .guest-songbook-sticky-top .row-actions {
+    width: auto;
+  }
+
+  .guest-songbook-search-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   .control-layout {
     grid-template-columns: 1fr;
   }
@@ -1341,7 +1408,6 @@ textarea:focus-visible {
 
 /* ── Context menu ───────────────────────────────────────── */
 .context-menu {
-  position: absolute;
   z-index: 200;
   background: #1e1e2e;
   border: 1px solid #444;
@@ -1423,6 +1489,7 @@ textarea:focus-visible {
 
 .songbook-context-menu {
   min-width: 168px;
+  max-width: min(220px, calc(100vw - 16px));
   z-index: 9999;
 }
 
@@ -1588,9 +1655,9 @@ button.small {
 }
 
 .song-detail-thumbnail--small {
-  width: 96px;
-  height: 96px;
-  max-width: 96px;
+  width: 72px;
+  height: 72px;
+  max-width: 72px;
   flex-shrink: 0;
   object-fit: cover;
   background: #2a2a2a;
