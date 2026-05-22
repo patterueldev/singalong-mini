@@ -5,8 +5,12 @@ import type {
   SessionQueueListResponse,
   SessionRecord,
   SessionWorkspace,
+  SongQualityFlag,
   SongbookListResponse,
   SongbookSong,
+  TrimHistoryItem,
+  TrimResponse,
+  RestoreResponse,
   UserProfile,
 } from '../../../shared/types/client'
 import { normalizeSessionQueueItems } from '../../shared/services/queueTransforms'
@@ -32,6 +36,12 @@ export interface AdminService {
       source_thumbnail_data_url?: string | null
     },
   ) => Promise<SongbookSong>
+  setSongValidation: (songId: string, token: string, validated: boolean) => Promise<SongbookSong>
+  trimSong: (songId: string, token: string, startMs: number, endMs: number, monitorId?: string) => Promise<TrimResponse>
+  getTrimHistory: (songId: string, token: string) => Promise<TrimHistoryItem[]>
+  getTrimProgress: (songId: string, monitorId: string, token: string) => Promise<{ operation_id: string; status: string; progress_percent: number; message: string; error: string | null }>
+  restoreTrim: (songId: string, token: string, historyId: string) => Promise<RestoreResponse>
+  fixDuration: (songId: string, token: string) => Promise<{ song_id: string; old_duration: string; new_duration: string; status: string; message: string }>
   reserveSessionQueueSong: (
     sessionCode: string,
     songId: string,
@@ -43,20 +53,24 @@ export interface AdminService {
   fetchCurrentUser: (token: string) => Promise<UserProfile>
   createSession: (name: string, token: string) => Promise<SessionRecord>
   archiveSession: (sessionId: string, token: string) => Promise<SessionArchiveResponse>
+  archiveSong: (songId: string, token: string) => Promise<{ message: string }>
   fetchActiveSession: () => Promise<SessionRecord | null>
 }
 
 function mapSong(raw: {
-  id: string; title: string; artist: string; duration: string
+  id: string; title: string; artist: string; status: string; duration: string
   language: string | null; genre: string | null; tags: string[]
   thumbnail_url: string | null; source_id: string | null; source_url: string | null
   video_file: string | null; lyrics: string | null; added_by_username: string | null
   queued_count_in_session?: number; was_queued_in_session?: boolean
+  quality_score?: number; quality_flags?: SongQualityFlag[]
+  validated_by_admin?: boolean
 }): SongbookSong {
   return {
     id: raw.id,
     title: raw.title,
     artist: raw.artist,
+    status: raw.status,
     duration: raw.duration,
     language: raw.language,
     genre: raw.genre,
@@ -69,6 +83,9 @@ function mapSong(raw: {
     addedByUsername: raw.added_by_username,
     queuedCountInSession: typeof raw.queued_count_in_session === 'number' ? raw.queued_count_in_session : 0,
     wasQueuedInSession: raw.was_queued_in_session === true,
+    qualityScore: typeof raw.quality_score === 'number' ? raw.quality_score : 0,
+    qualityFlags: Array.isArray(raw.quality_flags) ? raw.quality_flags : [],
+    validatedByAdmin: raw.validated_by_admin === true,
   }
 }
 
@@ -79,6 +96,7 @@ export async function fetchSongbook(
   sessionId?: string,
 ): Promise<SongbookListResponse> {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+  params.set('include_unpublished', 'true')
   if (typeof sessionId === 'string' && sessionId !== '') {
     params.set('sessionId', sessionId)
   }
@@ -87,11 +105,12 @@ export async function fetchSongbook(
   }
   const raw = await apiJson<{
     items: Array<{
-      id: string; title: string; artist: string; duration: string
+      id: string; title: string; artist: string; status: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
       queued_count_in_session?: number; was_queued_in_session?: boolean
+      quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
     }>
     total: number; page: number; pages: number
   }>(`/songs?${params.toString()}`)
@@ -110,6 +129,7 @@ export async function searchSongbook(
   sessionId?: string,
 ): Promise<SongbookListResponse> {
   const params = new URLSearchParams({ q, page: String(page), limit: String(limit) })
+  params.set('include_unpublished', 'true')
   if (typeof sessionId === 'string' && sessionId !== '') {
     params.set('sessionId', sessionId)
   }
@@ -118,11 +138,12 @@ export async function searchSongbook(
   }
   const raw = await apiJson<{
     items: Array<{
-      id: string; title: string; artist: string; duration: string
+      id: string; title: string; artist: string; status: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
       queued_count_in_session?: number; was_queued_in_session?: boolean
+      quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
     }>
     total: number; page: number; pages: number
   }>(`/songs/search?${params.toString()}`)
@@ -143,11 +164,12 @@ export async function fetchSongDetail(id: string, sessionCode?: string, sessionI
   }
   const suffix = params.toString()
   const raw = await apiJson<{
-    id: string; title: string; artist: string; duration: string
+    id: string; title: string; artist: string; status: string; duration: string
     language: string | null; genre: string | null; tags: string[]
     thumbnail_url: string | null; source_id: string | null; source_url: string | null
     video_file: string | null; lyrics: string | null; added_by_username: string | null
     queued_count_in_session?: number; was_queued_in_session?: boolean
+    quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
   }>(`/songs/${id}${suffix ? `?${suffix}` : ''}`)
   return mapSong(raw)
 }
@@ -227,11 +249,12 @@ export async function updateSongAdminDetails(
 ): Promise<SongbookSong> {
   const raw = await apiJson<{
     item: {
-      id: string; title: string; artist: string; duration: string
+      id: string; title: string; artist: string; status: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
       queued_count_in_session?: number; was_queued_in_session?: boolean
+      quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
     }
     message: string
   }>(
@@ -239,6 +262,37 @@ export async function updateSongAdminDetails(
     {
       method: 'PATCH',
       body: JSON.stringify(payload),
+    },
+    token,
+  )
+
+  return mapSong(raw.item)
+}
+
+export async function archiveSong(songId: string, token: string): Promise<{ message: string }> {
+  return apiJson<{ message: string }>(`/songs/${songId}/archive`, { method: 'PATCH' }, token)
+}
+
+export async function setSongValidation(
+  songId: string,
+  token: string,
+  validated: boolean,
+): Promise<SongbookSong> {
+  const raw = await apiJson<{
+    item: {
+      id: string; title: string; artist: string; status: string; duration: string
+      language: string | null; genre: string | null; tags: string[]
+      thumbnail_url: string | null; source_id: string | null; source_url: string | null
+      video_file: string | null; lyrics: string | null; added_by_username: string | null
+      queued_count_in_session?: number; was_queued_in_session?: boolean
+      quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
+    }
+    message: string
+  }>(
+    `/songs/${songId}/validation`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ validated }),
     },
     token,
   )
@@ -299,6 +353,73 @@ export async function fetchActiveSession(): Promise<SessionRecord | null> {
   }
 }
 
+export async function trimSong(songId: string, token: string, startMs: number, endMs: number, monitorId?: string): Promise<TrimResponse> {
+  return apiJson<TrimResponse>(
+    `/songs/${songId}/trim`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        trim_start_ms: startMs,
+        trim_end_ms: endMs,
+        monitor_id: monitorId,
+      }),
+    },
+    token,
+  )
+}
+
+export async function getTrimHistory(songId: string, token: string): Promise<TrimHistoryItem[]> {
+  const raw = await apiJson<{ items: TrimHistoryItem[] }>(`/songs/${songId}/trim-history`, {}, token)
+  return raw.items
+}
+
+export async function getTrimProgress(
+  songId: string,
+  monitorId: string,
+  token: string,
+): Promise<{ operation_id: string; status: string; progress_percent: number; message: string; error: string | null }> {
+  return apiJson(
+    `/songs/${songId}/trim-progress/${monitorId}`,
+    {},
+    token,
+  )
+}
+
+export async function restoreTrim(songId: string, token: string, historyId: string): Promise<RestoreResponse> {
+  return apiJson<RestoreResponse>(
+    `/songs/${songId}/trim/restore`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        trim_history_id: historyId,
+      }),
+    },
+    token,
+  )
+}
+
+export async function fixDuration(songId: string, token: string): Promise<{
+  song_id: string
+  old_duration: string
+  new_duration: string
+  status: string
+  message: string
+}> {
+  return apiJson<{
+    song_id: string
+    old_duration: string
+    new_duration: string
+    status: string
+    message: string
+  }>(
+    `/songs/${songId}/fix-duration`,
+    {
+      method: 'POST',
+    },
+    token,
+  )
+}
+
 export const adminService: AdminService = {
   fetchSongbook,
   searchSongbook,
@@ -314,5 +435,12 @@ export const adminService: AdminService = {
   fetchCurrentUser,
   createSession,
   archiveSession,
+  archiveSong,
+  setSongValidation,
   fetchActiveSession,
+  trimSong,
+  getTrimHistory,
+  getTrimProgress,
+  restoreTrim,
+  fixDuration,
 }

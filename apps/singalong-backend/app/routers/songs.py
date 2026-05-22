@@ -5,6 +5,7 @@ import math
 import os
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yt_dlp
@@ -16,13 +17,17 @@ from sqlalchemy.orm import Session
 from ..agents.orchestrator import OrchestratorAgent
 from ..config import settings
 from ..db import get_db
-from ..models import Session as KaraokeSession, Song, SongDownload, SongQueue, User
+from ..models import Session as KaraokeSession, Song, SongDownload, SongQueue, SongTrimHistory, User
 from ..schemas import (
+    FixDurationResponse,
     SongDownloadListResponse,
     SongbookItem,
     SongbookListResponse,
+    SongArchiveResponse,
     SongAdminUpdateRequest,
     SongAdminUpdateResponse,
+    SongAdminValidationRequest,
+    SongAdminValidationResponse,
     SongSuggestDownloadRequest,
     SongSuggestDownloadResponse,
     SongSuggestEnhanceRequest,
@@ -35,13 +40,23 @@ from ..schemas import (
     SongSuggestSuggestionsResponse,
     SongSuggestUpdateRequest,
     SongSuggestUpdateResponse,
+    TrimHistoryItem,
+    TrimHistoryListResponse,
+    TrimProgressEvent,
+    TrimRestoreRequest,
+    TrimRestoreResponse,
+    TrimSongRequest,
+    TrimSongResponse,
 )
 from ..services.auth import get_current_user, require_admin_or_guest_user, require_admin_user
 from ..services.download_queue import list_active_download_items
+from ..services.progress_tracker import ProgressEvent, get_progress_tracker
 from ..services.thumbnail_service import convert_base64_to_jpg, save_thumbnail
+from ..services.song_quality import assess_song_quality
 from ..services.ytdlp.naming import normalize_song_title
 from ..services.songs_download import extract_youtube_video_id, run_song_download
 from ..services.sessions import get_active_session_by_code
+from ..services.songs import cleanup_expired_archives, fix_video_duration, restore_backup, trim_video
 
 router = APIRouter(prefix="/api/songs", tags=["songs"])
 logger = logging.getLogger(__name__)
@@ -150,6 +165,11 @@ def _parse_song_extra_metadata(raw: str | None) -> dict[str, object]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _song_validation_state(song: Song) -> bool:
+    metadata = _parse_song_extra_metadata(song.extra_metadata)
+    return metadata.get("validated_by_admin") is True
+
+
 def _require_songbook_user(user: User = Depends(get_current_user)) -> User:
     if user.role not in {"guest", "admin"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Guest or admin access required")
@@ -167,6 +187,7 @@ def suggest_song_download(
     user: User = Depends(require_admin_or_guest_user),
 ):
     from datetime import datetime
+    from datetime import timezone
     from uuid import uuid4
 
     from ..models import Song
@@ -440,8 +461,8 @@ async def suggest_song_identify(
     description = info.get("description") or ""
     thumbnail_url = _pick_thumbnail_url(info)
 
-    # Build initial response
-    identify_result = SongSuggestIdentifyResponse(
+    # Build initial response (enhance=false behavior and fallback on enhancement errors)
+    baseline_identify_result = SongSuggestIdentifyResponse(
         source_url=f"https://www.youtube.com/watch?v={youtube_id}",
         source_id=youtube_id,
         source="youtube",
@@ -456,47 +477,47 @@ async def suggest_song_identify(
         lyrics=None,
     )
 
-    # If enhance=true, apply enhancement
-    if enhance:
-        try:
-            orchestrator = OrchestratorAgent()
-            enhancement_payload = {
-                "source_url": identify_result.source_url,
-                "source_id": identify_result.source_id,
-                "source": identify_result.source,
-                "source_thumbnail": identify_result.source_thumbnail,
-                "title": identify_result.title,
-                "artist": identify_result.artist,
-                "language": identify_result.language or None,
-                "is_off_vocal": identify_result.is_off_vocal,
-                "video_has_lyrics": identify_result.video_has_lyrics,
-                "genre": identify_result.genre,
-                "tags": identify_result.tags,
-                "lyrics": identify_result.lyrics,
-                "_youtube_description": description,
-            }
-            enhanced_payload = await orchestrator.enhance(enhancement_payload)
-            
-            # Return enhanced result
-            identify_result = SongSuggestIdentifyResponse(
-                source_url=enhanced_payload.get("source_url", identify_result.source_url),
-                source_id=enhanced_payload.get("source_id", identify_result.source_id),
-                source=enhanced_payload.get("source", identify_result.source),
-                source_thumbnail=enhanced_payload.get("source_thumbnail", identify_result.source_thumbnail),
-                title=enhanced_payload.get("title", identify_result.title),
-                artist=enhanced_payload.get("artist", identify_result.artist),
-                language=enhanced_payload.get("language"),
-                is_off_vocal=enhanced_payload.get("is_off_vocal", False),
-                video_has_lyrics=enhanced_payload.get("video_has_lyrics", False),
-                genre=enhanced_payload.get("genre"),
-                tags=enhanced_payload.get("tags"),
-                lyrics=enhanced_payload.get("lyrics"),
-            )
-        except Exception as e:
-            logger.warning("[IDENTIFY] Enhancement failed, returning raw result: %s", e)
-            # If enhancement fails, return raw result without error
+    if not enhance:
+        return baseline_identify_result
 
-    return identify_result
+    try:
+        orchestrator = OrchestratorAgent()
+        enhancement_payload = {
+            "source_url": baseline_identify_result.source_url,
+            "source_id": baseline_identify_result.source_id,
+            "source": baseline_identify_result.source,
+            "source_thumbnail": baseline_identify_result.source_thumbnail,
+            "title": baseline_identify_result.title,
+            "artist": baseline_identify_result.artist,
+            "language": baseline_identify_result.language or None,
+            "is_off_vocal": baseline_identify_result.is_off_vocal,
+            "video_has_lyrics": baseline_identify_result.video_has_lyrics,
+            "genre": baseline_identify_result.genre,
+            "tags": baseline_identify_result.tags,
+            "lyrics": baseline_identify_result.lyrics,
+            "_youtube_description": description,
+        }
+        enhanced_payload = await orchestrator.enhance(enhancement_payload)
+        if not isinstance(enhanced_payload, dict):
+            raise ValueError("Enhanced payload is not a dictionary")
+
+        return SongSuggestIdentifyResponse(
+            source_url=enhanced_payload.get("source_url", baseline_identify_result.source_url),
+            source_id=enhanced_payload.get("source_id", baseline_identify_result.source_id),
+            source=enhanced_payload.get("source", baseline_identify_result.source),
+            source_thumbnail=enhanced_payload.get("source_thumbnail", baseline_identify_result.source_thumbnail),
+            title=enhanced_payload.get("title", baseline_identify_result.title),
+            artist=enhanced_payload.get("artist", baseline_identify_result.artist),
+            language=enhanced_payload.get("language"),
+            is_off_vocal=enhanced_payload.get("is_off_vocal", False),
+            video_has_lyrics=enhanced_payload.get("video_has_lyrics", False),
+            genre=enhanced_payload.get("genre"),
+            tags=enhanced_payload.get("tags"),
+            lyrics=enhanced_payload.get("lyrics"),
+        )
+    except Exception:
+        logger.exception("[IDENTIFY] Enhancement failed, returning baseline identify payload")
+        return baseline_identify_result
 
 
 @router.post("/suggest/update", response_model=SongSuggestUpdateResponse)
@@ -752,10 +773,12 @@ def _song_to_item(
     added_by_username: str | None = None,
     queued_count_in_session: int = 0,
 ) -> SongbookItem:
+    quality_score, quality_flags = assess_song_quality(song)
     return SongbookItem(
         id=song.id,
         title=song.title,
         artist=song.artist,
+        status=song.status,
         duration=_format_duration(song.duration),
         language=song.language,
         genre=song.genre,
@@ -768,6 +791,9 @@ def _song_to_item(
         added_by_username=added_by_username,
         queued_count_in_session=queued_count_in_session,
         was_queued_in_session=queued_count_in_session > 0,
+        quality_score=quality_score,
+        quality_flags=quality_flags,
+        validated_by_admin=_song_validation_state(song),
     )
 
 
@@ -779,6 +805,7 @@ def _song_to_item(
 def list_songs(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    include_unpublished: bool = Query(False),
     session_id: uuid.UUID | None = Query(default=None, alias="sessionId"),
     session_code: str | None = Query(default=None, min_length=6, max_length=6),
     db: Session = Depends(get_db),
@@ -786,7 +813,9 @@ def list_songs(
     session = _resolve_songbook_session(db, session_id, session_code)
     queued_song_ids = _load_session_queue_song_ids(db, session)
 
-    base_query = db.query(Song).filter(Song.status == "published", Song.archived_at.is_(None))
+    base_query = db.query(Song).filter(Song.archived_at.is_(None))
+    if not include_unpublished:
+        base_query = base_query.filter(Song.status == "published")
     if len(queued_song_ids) > 0:
         base_query = base_query.filter(~Song.id.in_(queued_song_ids))
 
@@ -835,15 +864,15 @@ def search_songs(
     q: str = Query("", alias="q"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    include_unpublished: bool = Query(False),
     session_id: uuid.UUID | None = Query(default=None, alias="sessionId"),
     session_code: str | None = Query(default=None, min_length=6, max_length=6),
     db: Session = Depends(get_db),
 ):
     session = _resolve_songbook_session(db, session_id, session_code)
-    base_query = (
-        db.query(Song)
-        .filter(Song.status == "published", Song.archived_at.is_(None))
-    )
+    base_query = db.query(Song).filter(Song.archived_at.is_(None))
+    if not include_unpublished:
+        base_query = base_query.filter(Song.status == "published")
     keyword = q.strip()
     if keyword:
         pattern = f"%{keyword}%"
@@ -927,7 +956,7 @@ def patch_song(
 
     song = (
         db.query(Song)
-        .filter(Song.id == uid, Song.status == "published", Song.archived_at.is_(None))
+        .filter(Song.id == uid, Song.archived_at.is_(None))
         .first()
     )
     if not song:
@@ -945,6 +974,10 @@ def patch_song(
     song.tags = ",".join([entry.strip() for entry in payload.tags if entry.strip() != ""]) or None
     song.lyrics = payload.lyrics.strip() if isinstance(payload.lyrics, str) and payload.lyrics.strip() != "" else None
     song.last_modified_by = current_user.id
+    metadata = _parse_song_extra_metadata(song.extra_metadata)
+    metadata.pop("validated_by_admin", None)
+    metadata.pop("validated_at", None)
+    song.extra_metadata = json.dumps(metadata) if metadata else None
 
     if isinstance(payload.source_thumbnail_data_url, str) and payload.source_thumbnail_data_url.strip() != "":
         try:
@@ -963,3 +996,283 @@ def patch_song(
         item=_song_to_item(song, added_by_username, 0),
         message="Song updated",
     )
+
+
+@router.patch("/{song_id}/validation", response_model=SongAdminValidationResponse)
+def update_song_validation(
+    song_id: str,
+    payload: SongAdminValidationRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    import uuid as _uuid
+
+    try:
+        uid = _uuid.UUID(song_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    song = (
+        db.query(Song)
+        .filter(Song.id == uid, Song.archived_at.is_(None))
+        .first()
+    )
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    metadata = _parse_song_extra_metadata(song.extra_metadata)
+    if payload.validated:
+        metadata["validated_by_admin"] = True
+        metadata["validated_at"] = datetime.now(timezone.utc).isoformat()
+    else:
+        metadata.pop("validated_by_admin", None)
+        metadata.pop("validated_at", None)
+
+    song.extra_metadata = json.dumps(metadata) if metadata else None
+    song.last_modified_by = current_user.id
+    db.commit()
+    db.refresh(song)
+    added_by_username = db.query(User.username).filter(User.id == song.added_by).scalar()
+    return SongAdminValidationResponse(
+        item=_song_to_item(song, added_by_username, 0),
+        message="Song validated" if payload.validated else "Song validation cleared",
+    )
+
+
+@router.patch("/{song_id}/archive", response_model=SongArchiveResponse)
+def archive_song(
+    song_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    import uuid as _uuid
+
+    try:
+        uid = _uuid.UUID(song_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    song = (
+        db.query(Song)
+        .filter(Song.id == uid, Song.archived_at.is_(None))
+        .first()
+    )
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    active_session_codes = [
+        code
+        for (code,) in (
+            db.query(KaraokeSession.session_code)
+            .join(SongQueue, SongQueue.session_id == KaraokeSession.id)
+            .filter(
+                SongQueue.song_id == uid,
+                SongQueue.status.in_(("playing", "pending")),
+                KaraokeSession.archived_at.is_(None),
+            )
+            .distinct()
+            .all()
+        )
+        if isinstance(code, str) and code.strip() != ""
+    ]
+    if len(active_session_codes) > 0:
+        session_list = ", ".join(active_session_codes)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot archive while the song is queued in active session(s): {session_list}",
+        )
+
+    song.archived_at = datetime.now(timezone.utc)
+    song.status = "archived"
+    song.last_modified_by = current_user.id
+    db.commit()
+    return SongArchiveResponse(message="Song archived")
+
+
+@router.post("/{song_id}/trim", response_model=TrimSongResponse, status_code=status.HTTP_200_OK)
+def trim_song(
+    song_id: uuid.UUID,
+    request: TrimSongRequest,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Trim a song video.
+    
+    Requires admin role.
+    
+    Optionally accepts monitor_id for progress tracking.
+    Frontend can poll GET /api/songs/{song_id}/trim-progress/{monitor_id} to check progress.
+    """
+    tracker = get_progress_tracker()
+    monitor_id = request.monitor_id
+    
+    if monitor_id:
+        tracker.update(monitor_id, 10, "Validating trim parameters...")
+    
+    result = trim_video(
+        db=db,
+        song_id=song_id,
+        trim_start_ms=request.trim_start_ms,
+        trim_end_ms=request.trim_end_ms,
+        admin_id=current_user.id,
+        backup_expiry_days=30,
+    )
+
+    if result.get("status") == "failed":
+        error_msg = result.get("error", "Unknown error")
+        if monitor_id:
+            tracker.fail(monitor_id, error_msg)
+        if "trim_start_ms" in error_msg or "trim_end_ms" in error_msg or "Trimmed duration" in error_msg:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg)
+        elif "not found" in error_msg.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=error_msg)
+        else:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_msg)
+
+    if monitor_id:
+        tracker.complete(monitor_id, "Video trimmed successfully")
+    
+    return TrimSongResponse(
+        song_id=result["song_id"],
+        trim_start_ms=result["trim_start_ms"],
+        trim_end_ms=result["trim_end_ms"],
+        old_duration_ms=result.get("old_duration_ms"),
+        new_duration_ms=result["new_duration_ms"],
+        backup_file=result["backup_file"],
+        backup_expires_at=result["backup_expires_at"],
+        status=result["status"],
+    )
+
+
+@router.post(
+    "/{song_id}/trim/restore",
+    response_model=TrimRestoreResponse,
+    status_code=status.HTTP_200_OK,
+)
+def restore_trim(
+    song_id: uuid.UUID,
+    request: TrimRestoreRequest,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Restore a trimmed song from backup.
+    
+    Requires admin role.
+    """
+    result = restore_backup(
+        db=db,
+        trim_history_id=request.trim_history_id,
+        admin_id=current_user.id,
+    )
+
+    if result.get("status") == "failed":
+        message = result.get("message", "Unknown error")
+        if "not found" in message.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
+        else:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=message)
+
+    return TrimRestoreResponse(
+        status=result["status"],
+        message=result["message"],
+    )
+
+
+@router.get("/{song_id}/trim-history", response_model=TrimHistoryListResponse)
+def get_trim_history(
+    song_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get trim history for a song.
+    
+    Requires authentication.
+    """
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    histories = (
+        db.query(SongTrimHistory)
+        .filter(SongTrimHistory.song_id == song_id)
+        .order_by(SongTrimHistory.created_at.desc())
+        .all()
+    )
+
+    items = []
+    for history in histories:
+        # can_restore: true if status is completed or restored, and not already restored
+        can_restore = history.status == "completed"
+        items.append(
+            TrimHistoryItem(
+                id=history.id,
+                trim_start_ms=history.trim_start_ms,
+                trim_end_ms=history.trim_end_ms,
+                old_duration_ms=history.old_duration_ms,
+                new_duration_ms=history.new_duration_ms,
+                status=history.status,
+                backup_expires_at=history.backup_expires_at,
+                created_at=history.created_at,
+                can_restore=can_restore,
+            )
+        )
+
+    return TrimHistoryListResponse(items=items)
+
+
+@router.post("/{song_id}/fix-duration", response_model=FixDurationResponse)
+def fix_duration(
+    song_id: uuid.UUID,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Re-scan video file and fix duration metadata.
+    
+    Fixes mismatches where the video player shows wrong duration.
+    Requires admin authentication.
+    """
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+    
+    if not song.video_file:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Song has no video file")
+
+    result = fix_video_duration(db, song)
+
+    if result["status"] == "failed":
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result["message"])
+
+    return FixDurationResponse(
+        song_id=song_id,
+        old_duration=result["old_duration"],
+        new_duration=result["new_duration"],
+        status=result["status"],
+        message=result["message"],
+    )
+
+
+@router.get("/{song_id}/trim-progress/{operation_id}", response_model=TrimProgressEvent)
+def get_trim_progress(
+    song_id: uuid.UUID,
+    operation_id: str,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get progress of a trim operation.
+    
+    Returns progress percentage (0-100), status, and any error messages.
+    Useful for polling while trimming is in progress.
+    """
+    tracker = get_progress_tracker()
+    progress_event = tracker.get(operation_id)
+    
+    if not progress_event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operation not found")
+    
+    return progress_event.to_dict()

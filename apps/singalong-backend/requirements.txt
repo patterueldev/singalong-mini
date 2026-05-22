@@ -10,3 +10,4 @@ yt-dlp==2026.3.17
 openai==1.59.4
 Pillow==12.2.0
 requests==2.32.3
+apscheduler==3.10.4

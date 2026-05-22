@@ -278,10 +278,19 @@ class SongSuggestEnhanceResponse(BaseModel):
     enhanced: SongSuggestIdentifyResponse
 
 
+class SongQualityFlag(BaseModel):
+    code: str
+    label: str
+    message: str
+    points: int
+    severity: Literal["low", "medium", "high"]
+
+
 class SongbookItem(BaseModel):
     id: UUID
     title: str
     artist: str
+    status: str
     duration: str
     language: str | None
     genre: str | None
@@ -294,6 +303,9 @@ class SongbookItem(BaseModel):
     added_by_username: str | None = None
     queued_count_in_session: int = 0
     was_queued_in_session: bool = False
+    quality_score: int = 0
+    quality_flags: list[SongQualityFlag] = Field(default_factory=list)
+    validated_by_admin: bool = False
 
 
 class SongAdminUpdateRequest(BaseModel):
@@ -308,6 +320,19 @@ class SongAdminUpdateRequest(BaseModel):
 
 class SongAdminUpdateResponse(BaseModel):
     item: SongbookItem
+    message: str
+
+
+class SongAdminValidationRequest(BaseModel):
+    validated: bool
+
+
+class SongAdminValidationResponse(BaseModel):
+    item: SongbookItem
+    message: str
+
+
+class SongArchiveResponse(BaseModel):
     message: str
 
 
@@ -340,3 +365,65 @@ class SongDownloadItem(BaseModel):
 
 class SongDownloadListResponse(BaseModel):
     items: list[SongDownloadItem]
+
+
+class TrimSongRequest(BaseModel):
+    trim_start_ms: int
+    trim_end_ms: int
+    monitor_id: str | None = None  # Optional: for progress tracking
+
+
+class TrimSongResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    song_id: UUID
+    trim_start_ms: int
+    trim_end_ms: int
+    old_duration_ms: int | None
+    new_duration_ms: int
+    backup_file: str
+    backup_expires_at: datetime
+    status: str
+
+
+class TrimHistoryItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    trim_start_ms: int
+    trim_end_ms: int
+    old_duration_ms: int | None
+    new_duration_ms: int | None
+    status: str
+    backup_expires_at: datetime | None
+    created_at: datetime
+    can_restore: bool
+
+
+class TrimHistoryListResponse(BaseModel):
+    items: list[TrimHistoryItem]
+
+
+class TrimRestoreRequest(BaseModel):
+    trim_history_id: UUID
+
+
+class TrimRestoreResponse(BaseModel):
+    status: str
+    message: str
+
+
+class FixDurationResponse(BaseModel):
+    song_id: UUID
+    old_duration: str
+    new_duration: str
+    status: str
+    message: str
+
+
+class TrimProgressEvent(BaseModel):
+    operation_id: str
+    status: Literal['started', 'processing', 'completed', 'failed']
+    progress_percent: int
+    message: str
+    error: str | None = None

@@ -136,6 +136,26 @@ function buildCompactPagination(page: number, totalPages: number): Array<number 
   return items
 }
 
+function formatSongQualitySummary(song: SongbookSong): string {
+  if (song.qualityFlags.length === 0) {
+    return 'No quality issues detected.'
+  }
+
+  return song.qualityFlags
+    .map((flag) => `${flag.label}: ${flag.message}`)
+    .join(' • ')
+}
+
+function getSongQualityBadgeClass(score: number): string {
+  if (score >= 50) {
+    return 'critical'
+  }
+  if (score >= 20) {
+    return 'warning'
+  }
+  return 'notice'
+}
+
 type DownloadProgressModalProps = {
   isOpen: boolean
   status: string
@@ -964,9 +984,9 @@ export function SessionControlPage({
           shouldReconnectRef.current = false
           clearReconnectTimer()
           closeSocket()
-          setWsMessage('Session ended. Returning to sessions.')
+          setWsMessage('Session ended. Returning to dashboard.')
           refreshSessionsRef.current()
-          window.setTimeout(() => navigate('/admin/sessions'), 500)
+          window.setTimeout(() => navigate('/admin/dashboard'), 500)
           return
         }
 
@@ -994,8 +1014,8 @@ export function SessionControlPage({
         <section className="card">
           <h1>Session Control</h1>
           <p className="error-message">Session not found or inactive.</p>
-          <button type="button" className="secondary" onClick={() => navigate('/admin/sessions')}>
-            Back to sessions
+          <button type="button" className="secondary" onClick={() => navigate('/admin/dashboard')}>
+            Back to dashboard
           </button>
         </section>
       </main>
@@ -1012,9 +1032,9 @@ export function SessionControlPage({
                 <button
                   type="button"
                   className="icon-control-button"
-                  onClick={() => navigate('/admin/sessions')}
-                  title="Back to sessions"
-                  aria-label="Back to sessions"
+                  onClick={() => navigate('/admin/dashboard')}
+                  title="Back to dashboard"
+                  aria-label="Back to dashboard"
                 >
                   <span className="material-symbols-outlined">arrow_back</span>
                 </button>
@@ -1259,40 +1279,63 @@ export function SessionControlPage({
             <div className="songbook-body">
               <div className="songbook-scrollframe">
                 <div className="queue-list songbook-list">
-                  {songbookItems.map((song) => (
-                    <SongbookListItem
-                      key={song.id}
-                      song={song}
-                      onClick={() => {
-                        setActiveSongMenuId((current) => (current === song.id ? null : song.id))
-                      }}
-                      isMenuOpen={activeSongMenuId === song.id}
-                      onMenuOpenChange={(open) => {
-                        setActiveSongMenuId(open ? song.id : null)
-                      }}
-                      onReserve={() => {
-                        setActiveSongMenuId(null)
-                        setReserveSongTarget(song)
-                        setIsReserveModalOpen(true)
-                      }}
-                      onEditDetails={() => void handleOpenSongEditor(song.id)}
-                      badge={
-                        song.wasQueuedInSession ? (
-                          Math.max(song.queuedCountInSession, 1) === 1 ? (
-                            <span className="songbook-played-indicator one" aria-label="Played once">
-                              <span className="material-symbols-outlined" aria-hidden="true">
-                                check_circle
-                              </span>
+                  {songbookItems.map((song) => {
+                    const qualityBadge =
+                      song.qualityScore > 0 ? (
+                        <span
+                          className={`songbook-quality-indicator ${getSongQualityBadgeClass(song.qualityScore)}`}
+                          title={formatSongQualitySummary(song)}
+                          aria-label={`Quality score ${song.qualityScore}`}
+                        >
+                          <span className="material-symbols-outlined" aria-hidden="true">
+                            priority_high
+                          </span>
+                          {song.qualityScore}
+                        </span>
+                      ) : null
+                    const playedBadge =
+                      song.wasQueuedInSession ? (
+                        Math.max(song.queuedCountInSession, 1) === 1 ? (
+                          <span className="songbook-played-indicator one" aria-label="Played once">
+                            <span className="material-symbols-outlined" aria-hidden="true">
+                              check_circle
                             </span>
-                          ) : (
-                            <span className="songbook-played-indicator many" aria-label="Played multiple times">
-                              {Math.max(song.queuedCountInSession, 1)}
+                          </span>
+                        ) : (
+                          <span className="songbook-played-indicator many" aria-label="Played multiple times">
+                            {Math.max(song.queuedCountInSession, 1)}
+                          </span>
+                        )
+                      ) : null
+
+                    return (
+                      <SongbookListItem
+                        key={song.id}
+                        song={song}
+                        onClick={() => {
+                          setActiveSongMenuId((current) => (current === song.id ? null : song.id))
+                        }}
+                        isMenuOpen={activeSongMenuId === song.id}
+                        onMenuOpenChange={(open) => {
+                          setActiveSongMenuId(open ? song.id : null)
+                        }}
+                        onReserve={() => {
+                          setActiveSongMenuId(null)
+                          setReserveSongTarget(song)
+                          setIsReserveModalOpen(true)
+                        }}
+                        onEditDetails={() => void handleOpenSongEditor(song.id)}
+                        badge={
+                          qualityBadge !== null || playedBadge !== null ? (
+                            <span className="songbook-item-badges">
+                              {qualityBadge}
+                              {playedBadge}
                             </span>
-                          )
-                        ) : undefined
-                      }
-                    />
-                  ))}
+                          ) : undefined
+                        }
+                      />
+                    )
+                  })}
                 </div>
               </div>
             </div>
@@ -1574,7 +1617,12 @@ export function SessionControlPage({
               <button type="button" disabled={isSavingSessionMeta} onClick={() => void handleSaveSessionVibes()}>
                 {isSavingSessionMeta ? 'Saving…' : 'Save'}
               </button>
-              <button type="button" className="secondary" onClick={() => onArchiveSession(session.id)} disabled={isSavingSessionMeta}>
+              <button
+                type="button"
+                className="danger-button"
+                onClick={() => onArchiveSession(session.id)}
+                disabled={isSavingSessionMeta}
+              >
                 End Session
               </button>
             </div>

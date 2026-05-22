@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useSuggestService } from '../hooks/useSuggestService'
-import { normalizeSuggestQuery } from '../../../shared/lib/suggest'
-import type { SuggestResult } from '../../../shared/types/client'
+import { buildInitialSuggestDraft, normalizeSuggestQuery, parseYouTubeVideoId } from '../../../shared/lib/suggest'
+import type { SuggestDraft, SuggestResult } from '../../../shared/types/client'
 import { IdentifyOverrideModal } from '../components/IdentifyOverrideModal'
 import { SearchResultModal } from '../components/SearchResultModal'
+import { BlockingHud } from '../components/BlockingHud'
 
 type SuggestSearchPageProps = {
   nickname: string
@@ -17,6 +18,9 @@ type SuggestSearchPageProps = {
   backToSongbookPath?: string
   backToSongbookLabel?: string
   showChangeNicknameAction?: boolean
+  singlePageUrlIdentify?: boolean
+  onIdentifyDraft?: (draft: SuggestDraft) => void
+  updatePath?: string
 }
 
 function SkeletonSongItem() {
@@ -49,14 +53,18 @@ export function SuggestSearchPage({
   onIdentify,
   searchPath = '/songbook/suggest/search',
   identifyPath = '/songbook/suggest/identify',
+  updatePath = '/songbook/suggest/update',
   backToSongbookPath = '/songbook',
   backToSongbookLabel = 'Back to Songbook',
   showChangeNicknameAction = true,
+  singlePageUrlIdentify = false,
+  onIdentifyDraft,
 }: SuggestSearchPageProps) {
   const navigate = useNavigate()
   const location = useLocation()
-  const { search: suggestSearch } = useSuggestService()
+  const { search: suggestSearch, identify: suggestIdentify } = useSuggestService()
   const lastSearchedKeywordRef = useRef('')
+  const lastAutoIdentifyUrlRef = useRef('')
   const [query, setQuery] = useState('')
   const [effectiveQuery, setEffectiveQuery] = useState('')
   const [queryInfo, setQueryInfo] = useState('')
@@ -65,6 +73,9 @@ export function SuggestSearchPage({
   const [pendingIdentifyResult, setPendingIdentifyResult] = useState<SuggestResult | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [isSearching, setIsSearching] = useState(false)
+  const [isIdentifyingUrl, setIsIdentifyingUrl] = useState(false)
+  const isYouTubeUrlQuery = parseYouTubeVideoId(query) !== null
+  const shouldShowUrlPrompt = singlePageUrlIdentify && query.trim() !== '' && isYouTubeUrlQuery
 
   const requestIdentify = useCallback(
     (result: SuggestResult) => {
@@ -73,9 +84,27 @@ export function SuggestSearchPage({
         return
       }
 
+      if (singlePageUrlIdentify && onIdentifyDraft !== undefined) {
+        setErrorMessage('')
+        setIsIdentifyingUrl(true)
+        void suggestIdentify(result.sourceUrl, authToken, true)
+          .then((response) => {
+            onIdentifyDraft(buildInitialSuggestDraft(response))
+            navigate(updatePath, { replace: true })
+          })
+          .catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : 'Identify failed'
+            setErrorMessage(message)
+          })
+          .finally(() => {
+            setIsIdentifyingUrl(false)
+          })
+        return
+      }
+
       onIdentify(result.sourceUrl)
     },
-    [onIdentify],
+    [authToken, navigate, onIdentify, onIdentifyDraft, singlePageUrlIdentify, suggestIdentify, updatePath],
   )
 
   const executeSearch = useCallback(
@@ -131,12 +160,116 @@ export function SuggestSearchPage({
   )
 
   useEffect(() => {
-    const keyword = new URLSearchParams(location.search).get('keyword') ?? ''
-    if (keyword !== '' && keyword.trim() !== lastSearchedKeywordRef.current) {
+    const keyword = new URLSearchParams(location.search).get('keyword')?.trim() ?? ''
+    if (keyword === '') {
+      return
+    }
+
+    if (singlePageUrlIdentify) {
+      setQuery(keyword)
+      return
+    }
+
+    if (keyword !== lastSearchedKeywordRef.current) {
       setQuery(keyword)
       executeSearch(keyword)
     }
-  }, [executeSearch, location.search])
+  }, [executeSearch, location.search, singlePageUrlIdentify])
+
+  useEffect(() => {
+    if (!singlePageUrlIdentify) {
+      return
+    }
+
+    const trimmed = query.trim()
+    if (trimmed === '') {
+      setResults([])
+      setEffectiveQuery('')
+      setQueryInfo('')
+      setErrorMessage('')
+      return
+    }
+
+    if (parseYouTubeVideoId(trimmed) !== null) {
+      setResults([])
+      setEffectiveQuery('')
+      setQueryInfo('')
+      setErrorMessage('')
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      executeSearch(trimmed)
+    }, 400)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [executeSearch, query, singlePageUrlIdentify])
+
+  useEffect(() => {
+    if (!singlePageUrlIdentify || onIdentifyDraft === undefined) {
+      return
+    }
+    const sourceUrl = new URLSearchParams(location.search).get('url')?.trim() ?? ''
+    if (sourceUrl === '' || sourceUrl === lastAutoIdentifyUrlRef.current) {
+      return
+    }
+    lastAutoIdentifyUrlRef.current = sourceUrl
+    navigate(searchPath, { replace: true })
+    setErrorMessage('')
+    setIsIdentifyingUrl(true)
+    void suggestIdentify(sourceUrl, authToken, true)
+      .then((response) => {
+        onIdentifyDraft(buildInitialSuggestDraft(response))
+        navigate(updatePath, { replace: true })
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Identify failed'
+        setErrorMessage(message)
+      })
+      .finally(() => {
+        setIsIdentifyingUrl(false)
+      })
+  }, [
+    authToken,
+    location.search,
+    navigate,
+    onIdentifyDraft,
+    searchPath,
+    singlePageUrlIdentify,
+    suggestIdentify,
+    updatePath,
+  ])
+
+  const handleIdentifyUrl = useCallback(() => {
+    const normalizedUrl = query.trim()
+    const videoId = parseYouTubeVideoId(normalizedUrl)
+    if (videoId === null) {
+      setErrorMessage('Enter a valid YouTube URL.')
+      return
+    }
+
+    setErrorMessage('')
+    setIsIdentifyingUrl(true)
+
+    void suggestIdentify(normalizedUrl, authToken, true)
+      .then((response) => {
+        if (onIdentifyDraft !== undefined) {
+          onIdentifyDraft(buildInitialSuggestDraft(response))
+          navigate(updatePath, { replace: true })
+          return
+        }
+        onIdentify(normalizedUrl)
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Identify failed'
+        setErrorMessage(message)
+      })
+      .finally(() => {
+        setIsIdentifyingUrl(false)
+      })
+  }, [authToken, navigate, onIdentify, onIdentifyDraft, query, suggestIdentify, updatePath])
 
   return (
     <main className="app-shell">
@@ -172,6 +305,16 @@ export function SuggestSearchPage({
           className="form top-gap"
           onSubmit={(event) => {
             event.preventDefault()
+            if (singlePageUrlIdentify) {
+              if (shouldShowUrlPrompt) {
+                handleIdentifyUrl()
+                return
+              }
+              if (query.trim() !== '') {
+                executeSearch(query)
+              }
+              return
+            }
             const normalized = normalizeSuggestQuery(query)
             if (normalized.effectiveQuery === '') {
               setQueryInfo('Please enter a search query.')
@@ -187,28 +330,40 @@ export function SuggestSearchPage({
           }}
         >
           <label>
-            Search query
+            {singlePageUrlIdentify ? 'Search query or YouTube URL' : 'Search query'}
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="song title"
-              required
+              placeholder={singlePageUrlIdentify ? 'Enter song keyword or URL' : 'song title'}
+              required={!singlePageUrlIdentify}
             />
           </label>
-          <div className="row-actions">
-            <button type="submit" disabled={isSearching}>
-              {isSearching ? 'Searching…' : 'Search'}
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => navigate(identifyPath)}
-            >
-              Paste URL Instead
-            </button>
-          </div>
+          {!singlePageUrlIdentify ? (
+            <div className="row-actions">
+              <button type="submit" disabled={isSearching}>
+                {isSearching ? 'Searching…' : 'Search'}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => navigate(identifyPath)}
+              >
+                Paste URL Instead
+              </button>
+            </div>
+          ) : null}
         </form>
         {errorMessage !== '' ? <p className="error-message top-gap">{errorMessage}</p> : null}
+        {shouldShowUrlPrompt ? (
+          <div className="suggest-url-prompt top-gap">
+            <p className="subtitle">
+              You seem to have typed a YouTube URL. Do you want me to identify?
+            </p>
+            <button type="button" onClick={handleIdentifyUrl} disabled={isIdentifyingUrl}>
+              {isIdentifyingUrl ? 'Identifying…' : 'Identify'}
+            </button>
+          </div>
+        ) : null}
         {queryInfo !== '' ? <p className="subtitle top-gap">{queryInfo}</p> : null}
         {effectiveQuery !== '' ? (
           <p className="subtitle">
@@ -216,7 +371,7 @@ export function SuggestSearchPage({
           </p>
         ) : null}
         <div className="queue-list top-gap">
-          {isSearching ? (
+          {shouldShowUrlPrompt ? null : isSearching ? (
             <SkeletonList count={5} />
           ) : results.length === 0 ? (
             null
@@ -256,11 +411,29 @@ export function SuggestSearchPage({
             result={pendingIdentifyResult}
             onCancel={() => setPendingIdentifyResult(null)}
             onConfirm={() => {
-              onIdentify(pendingIdentifyResult.sourceUrl)
+              if (singlePageUrlIdentify && onIdentifyDraft !== undefined) {
+                setErrorMessage('')
+                setIsIdentifyingUrl(true)
+                void suggestIdentify(pendingIdentifyResult.sourceUrl, authToken, true)
+                  .then((response) => {
+                    onIdentifyDraft(buildInitialSuggestDraft(response))
+                    navigate(updatePath, { replace: true })
+                  })
+                  .catch((error: unknown) => {
+                    const message = error instanceof Error ? error.message : 'Identify failed'
+                    setErrorMessage(message)
+                  })
+                  .finally(() => {
+                    setIsIdentifyingUrl(false)
+                  })
+              } else {
+                onIdentify(pendingIdentifyResult.sourceUrl)
+              }
               setPendingIdentifyResult(null)
             }}
           />
         ) : null}
+        {isIdentifyingUrl ? <BlockingHud message="Identifying song details..." /> : null}
       </section>
     </main>
   )
