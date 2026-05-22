@@ -184,6 +184,7 @@ export function GuestSongbookPage() {
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [activeSongId, setActiveSongId] = useState<string | null>(null)
+  const [activeSongMenuId, setActiveSongMenuId] = useState<string | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300)
@@ -250,9 +251,20 @@ export function GuestSongbookPage() {
               Session <strong>{sessionCode}</strong> · {guestAuth.nickname}
             </p>
           </div>
-          <button type="button" className="secondary icon-button" aria-label="Back to guest home" onClick={() => navigate('/guest/home')}>
-            <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
-          </button>
+          <div className="row-actions">
+            <button
+              type="button"
+              className="secondary icon-button"
+              aria-label="Suggest a song"
+              title="Suggest a song"
+              onClick={() => navigate('/guest/songbook/suggest/search')}
+            >
+              <span className="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+            </button>
+            <button type="button" className="secondary icon-button" aria-label="Back to guest home" onClick={() => navigate('/guest/home')}>
+              <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+            </button>
+          </div>
         </div>
 
         {message !== '' ? <p className="success-message top-gap">{message}</p> : null}
@@ -270,14 +282,26 @@ export function GuestSongbookPage() {
           ) : (
             <div className="queue-list songbook-list guest-songbook-list">
               {songs.map((song) => (
-                <article key={song.id} className="songbook-guest-item">
-                  <SongbookListItem song={song} onClick={() => setActiveSongId(song.id)} />
-                  <div className="row-actions top-gap songbook-guest-actions">
-                    <button type="button" className="secondary small" onClick={() => setActiveSongId(song.id)}>
-                      Details
-                    </button>
-                  </div>
-                </article>
+                 <SongbookListItem
+                   key={song.id}
+                   song={song}
+                   onClick={() => {
+                     setActiveSongMenuId((current) => (current === song.id ? null : song.id))
+                   }}
+                   isMenuOpen={activeSongMenuId === song.id}
+                   onMenuOpenChange={(open) => {
+                     setActiveSongMenuId(open ? song.id : null)
+                   }}
+                   onReserve={() => {
+                     setActiveSongMenuId(null)
+                     setActiveSongId(song.id)
+                   }}
+                   onEditDetails={() => {
+                     setActiveSongMenuId(null)
+                     setActiveSongId(song.id)
+                   }}
+                   detailsLabel="Details"
+                 />
               ))}
             </div>
           )}

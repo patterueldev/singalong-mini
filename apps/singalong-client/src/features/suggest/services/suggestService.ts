@@ -11,9 +11,17 @@ import type {
 export interface SuggestService {
   search: (query: string, token: string) => Promise<SuggestSearchResponse>
   identify: (url: string, token: string, enhance?: boolean) => Promise<SuggestIdentifyResponse>
-  download: (draft: SuggestDraft, token: string) => Promise<{ status: string; message: string; song_id: string }>
+  download: (
+    draft: SuggestDraft,
+    token: string,
+    options?: SuggestDownloadOptions,
+  ) => Promise<{ status: string; message: string; song_id: string }>
   enhance: (draft: SuggestDraft, token: string) => Promise<SuggestEnhanceResponse>
   metadataSuggestions: (keyword: string, token: string) => Promise<SuggestMetadataSuggestionsResponse>
+}
+
+export type SuggestDownloadOptions = {
+  reserveSessionCode?: string
 }
 
 export function search(query: string, token: string): Promise<SuggestSearchResponse> {
@@ -47,6 +55,7 @@ export function identify(url: string, token: string, enhance: boolean = false): 
 export function download(
   draft: SuggestDraft,
   token: string,
+  options?: SuggestDownloadOptions,
 ): Promise<{ status: string; message: string; song_id: string }> {
   const normalizedGenre = draft.genre.trim()
   const normalizedSource = draft.source.trim()
@@ -69,6 +78,7 @@ export function download(
         genre: normalizedGenres,
         tags: normalizeTagList(draft.tags),
         lyrics: draft.lyrics,
+        reserve_session_code: options?.reserveSessionCode ?? null,
       }),
     },
     token,

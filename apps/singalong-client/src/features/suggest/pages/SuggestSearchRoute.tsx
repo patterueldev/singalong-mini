@@ -6,6 +6,11 @@ type SuggestSearchRouteProps = {
   authToken: string
   onCancel: () => void
   onChangeNickname: () => void
+  identifyPath?: string
+  searchPath?: string
+  backToSongbookPath?: string
+  backToSongbookLabel?: string
+  showChangeNicknameAction?: boolean
 }
 
 export function SuggestSearchRoute({
@@ -13,6 +18,11 @@ export function SuggestSearchRoute({
   authToken,
   onCancel,
   onChangeNickname,
+  identifyPath = '/songbook/suggest/identify',
+  searchPath = '/songbook/suggest/search',
+  backToSongbookPath = '/songbook',
+  backToSongbookLabel = 'Back to Songbook',
+  showChangeNicknameAction = true,
 }: SuggestSearchRouteProps) {
   const navigate = useNavigate()
 
@@ -22,8 +32,13 @@ export function SuggestSearchRoute({
       authToken={authToken}
       onCancel={onCancel}
       onChangeNickname={onChangeNickname}
+      searchPath={searchPath}
+      identifyPath={identifyPath}
+      backToSongbookPath={backToSongbookPath}
+      backToSongbookLabel={backToSongbookLabel}
+      showChangeNicknameAction={showChangeNicknameAction}
       onIdentify={(sourceUrl) => {
-        navigate(`/songbook/suggest/identify?url=${encodeURIComponent(sourceUrl)}`)
+        navigate(`${identifyPath}?url=${encodeURIComponent(sourceUrl)}`)
       }}
     />
   )

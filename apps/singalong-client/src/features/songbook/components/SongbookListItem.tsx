@@ -10,6 +10,7 @@ type SongbookListItemProps = {
   onMenuOpenChange?: (open: boolean) => void
   onReserve?: () => void
   onEditDetails?: () => void
+  detailsLabel?: string
 }
 
 export function SongbookListItem({
@@ -20,6 +21,7 @@ export function SongbookListItem({
   onMenuOpenChange,
   onReserve,
   onEditDetails,
+  detailsLabel = 'Edit Details',
 }: SongbookListItemProps) {
   return (
     <DropdownMenu.Root open={isMenuOpen} onOpenChange={onMenuOpenChange}>
@@ -76,7 +78,7 @@ export function SongbookListItem({
             onSelect={onEditDetails}
             disabled={onEditDetails === undefined}
           >
-            Edit Details
+            {detailsLabel}
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

@@ -11,6 +11,11 @@ type SuggestIdentifyPageProps = {
   onIdentify: (draft: SuggestDraft) => void
   onCancel: () => void
   onChangeNickname: () => void
+  updatePath?: string
+  searchPath?: string
+  backToSongbookPath?: string
+  backToSongbookLabel?: string
+  showChangeNicknameAction?: boolean
 }
 
 export function SuggestIdentifyPage({
@@ -19,6 +24,11 @@ export function SuggestIdentifyPage({
   onIdentify,
   onCancel,
   onChangeNickname,
+  updatePath = '/songbook/suggest/update',
+  searchPath = '/songbook/suggest/search',
+  backToSongbookPath = '/songbook',
+  backToSongbookLabel = 'Back to Songbook',
+  showChangeNicknameAction = true,
 }: SuggestIdentifyPageProps) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -45,7 +55,7 @@ export function SuggestIdentifyPage({
         .then((response) => {
           setIsSubmitting(false)
           onIdentify(buildInitialSuggestDraft(response))
-          navigate('/songbook/suggest/update', { replace: true })
+          navigate(updatePath, { replace: true })
         })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : 'Identify failed'
@@ -76,9 +86,11 @@ export function SuggestIdentifyPage({
         <h1>Suggest · Identify URL</h1>
         <p className="subtitle">Signed in as <strong>{nickname}</strong></p>
         <div className="row-actions top-gap">
-          <button type="button" className="secondary" onClick={onChangeNickname}>
-            Change Nickname
-          </button>
+          {showChangeNicknameAction ? (
+            <button type="button" className="secondary" onClick={onChangeNickname}>
+              Change Nickname
+            </button>
+          ) : null}
           <button
             type="button"
             className="secondary"
@@ -92,10 +104,10 @@ export function SuggestIdentifyPage({
                 }
               }
               onCancel()
-              navigate('/songbook')
+              navigate(backToSongbookPath)
             }}
           >
-            Back to Songbook
+            {backToSongbookLabel}
           </button>
         </div>
         <form
@@ -122,7 +134,7 @@ export function SuggestIdentifyPage({
             <button
               type="button"
               className="secondary"
-              onClick={() => navigate('/songbook/suggest/search')}
+              onClick={() => navigate(searchPath)}
             >
               Back to Search
             </button>
