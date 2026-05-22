@@ -771,6 +771,18 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
                   <button type="button" className="secondary" onClick={() => setPreviewSong(song)}>
                     View Details
                   </button>
+                  {song.videoFile ? (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => {
+                        setSelectedSongForTrim(song)
+                        setShowTrimModal(true)
+                      }}
+                    >
+                      ✂️ Trim Video
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="danger-button"
