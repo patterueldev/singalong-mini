@@ -20,7 +20,6 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   const [videoDurationMs, setVideoDurationMs] = useState(0)
   const [trimHistory, setTrimHistory] = useState<TrimHistoryItem[]>([])
   const [isTrimming, setIsTrimming] = useState(false)
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [restoringHistoryId, setRestoringHistoryId] = useState<string | null>(null)
@@ -28,31 +27,13 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   // Load trim history when modal opens
   useEffect(() => {
     if (!isOpen) {
+      setTrimHistory([])
       return
     }
-
-    const loadHistory = async () => {
-      setIsLoadingHistory(true)
-      setErrorMessage('')
-      try {
-        const history = await getTrimHistory(song.id, auth.accessToken)
-        setTrimHistory(history)
-      } catch (error) {
-        console.error('Failed to load trim history:', error)
-        setTrimHistory([])
-        // Don't show error for history load - it's not critical
-      } finally {
-        setIsLoadingHistory(false)
-      }
-    }
-
-    // Delay to ensure modal is rendered first
-    const timer = setTimeout(() => {
-      void loadHistory()
-    }, 100)
-
-    return () => clearTimeout(timer)
-  }, [isOpen, song.id])
+    // TODO: Load trim history in a future update
+    // For now, just render empty to avoid React errors
+    setTrimHistory([])
+  }, [isOpen])
 
   // Initialize end time when video duration changes
   const handleVideoDurationChange = useCallback(() => {
@@ -316,7 +297,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
           )}
 
           {/* Trim History */}
-          {!isLoadingHistory && trimHistory.length > 0 && (
+          {trimHistory.length > 0 && (
             <div className="trim-history top-gap">
               <h3>Trim History</h3>
               <div className="trim-history-list">
