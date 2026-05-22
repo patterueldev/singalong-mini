@@ -26,14 +26,23 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
 
   // Load trim history when modal opens
   useEffect(() => {
-    if (!isOpen) {
+    if (!isOpen || !song) {
       setTrimHistory([])
       return
     }
-    // TODO: Load trim history in a future update
-    // For now, just render empty to avoid React errors
-    setTrimHistory([])
-  }, [isOpen])
+
+    const loadHistory = async () => {
+      try {
+        const history = await getTrimHistory(song.id, auth.accessToken)
+        setTrimHistory(history)
+      } catch (error) {
+        console.error('Failed to load trim history:', error)
+        setTrimHistory([])
+      }
+    }
+
+    loadHistory()
+  }, [isOpen, song.id, auth.accessToken, getTrimHistory])
 
   // Initialize end time when video duration changes
   const handleVideoDurationChange = useCallback(() => {
