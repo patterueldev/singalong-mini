@@ -40,6 +40,7 @@ export interface AdminService {
   trimSong: (songId: string, token: string, startMs: number, endMs: number) => Promise<TrimResponse>
   getTrimHistory: (songId: string, token: string) => Promise<TrimHistoryItem[]>
   restoreTrim: (songId: string, token: string, historyId: string) => Promise<RestoreResponse>
+  fixDuration: (songId: string, token: string) => Promise<{ song_id: string; old_duration: string; new_duration: string; status: string; message: string }>
   reserveSessionQueueSong: (
     sessionCode: string,
     songId: string,
@@ -380,6 +381,28 @@ export async function restoreTrim(songId: string, token: string, historyId: stri
   )
 }
 
+export async function fixDuration(songId: string, token: string): Promise<{
+  song_id: string
+  old_duration: string
+  new_duration: string
+  status: string
+  message: string
+}> {
+  return apiJson<{
+    song_id: string
+    old_duration: string
+    new_duration: string
+    status: string
+    message: string
+  }>(
+    `/songs/${songId}/fix-duration`,
+    {
+      method: 'POST',
+    },
+    token,
+  )
+}
+
 export const adminService: AdminService = {
   fetchSongbook,
   searchSongbook,
@@ -401,4 +424,5 @@ export const adminService: AdminService = {
   trimSong,
   getTrimHistory,
   restoreTrim,
+  fixDuration,
 }

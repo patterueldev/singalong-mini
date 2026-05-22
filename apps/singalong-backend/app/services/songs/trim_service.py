@@ -439,3 +439,64 @@ def cleanup_expired_archives(db: Session) -> dict:
             "space_freed_bytes": 0,
             "error": str(e),
         }
+
+
+def fix_video_duration(db: Session, song: Song) -> dict:
+    """
+    Re-scan video file with ffprobe and update duration in database.
+    Fixes metadata mismatches where video player reports wrong duration.
+    
+    Args:
+        db: Database session
+        song: Song object to fix
+        
+    Returns:
+        dict with keys: status, old_duration, new_duration, message
+    """
+    try:
+        video_path = SONGS_DIR / song.video_file
+        if not video_path.exists():
+            return {
+                "status": "failed",
+                "message": f"Video file not found: {song.video_file}",
+                "old_duration": str(song.duration),
+                "new_duration": None,
+            }
+
+        # Get actual duration from ffprobe
+        actual_duration_ms = _get_video_duration_ms(str(video_path))
+        if actual_duration_ms is None:
+            return {
+                "status": "failed",
+                "message": "Could not scan video duration with ffprobe",
+                "old_duration": str(song.duration),
+                "new_duration": None,
+            }
+
+        # Convert to HH:MM:SS format
+        actual_duration_seconds = actual_duration_ms // 1000
+        old_duration = song.duration
+        
+        # Update database
+        song.duration = actual_duration_seconds
+        song.updated_at = datetime.now(timezone.utc)
+        db.commit()
+
+        logger.info(f"Fixed duration for song {song.id}: {old_duration}s → {actual_duration_seconds}s")
+
+        return {
+            "status": "success",
+            "message": f"Duration fixed successfully",
+            "old_duration": f"{old_duration // 3600:02d}:{(old_duration % 3600) // 60:02d}:{old_duration % 60:02d}",
+            "new_duration": f"{actual_duration_seconds // 3600:02d}:{(actual_duration_seconds % 3600) // 60:02d}:{actual_duration_seconds % 60:02d}",
+        }
+
+    except Exception as e:
+        logger.error(f"Error fixing duration for song {song.id}: {e}")
+        db.rollback()
+        return {
+            "status": "failed",
+            "message": f"Error: {str(e)[:100]}",
+            "old_duration": str(song.duration),
+            "new_duration": None,
+        }

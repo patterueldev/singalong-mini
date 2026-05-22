@@ -409,3 +409,19 @@ class TrimRestoreRequest(BaseModel):
 class TrimRestoreResponse(BaseModel):
     status: str
     message: str
+
+
+class FixDurationResponse(BaseModel):
+    song_id: UUID
+    old_duration: str
+    new_duration: str
+    status: str
+    message: str
+
+
+class TrimProgressEvent(BaseModel):
+    operation_id: str
+    status: Literal['started', 'processing', 'completed', 'failed']
+    progress_percent: int
+    message: str
+    error: str | None = None

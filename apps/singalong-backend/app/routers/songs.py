@@ -19,6 +19,7 @@ from ..config import settings
 from ..db import get_db
 from ..models import Session as KaraokeSession, Song, SongDownload, SongQueue, SongTrimHistory, User
 from ..schemas import (
+    FixDurationResponse,
     SongDownloadListResponse,
     SongbookItem,
     SongbookListResponse,
@@ -53,7 +54,7 @@ from ..services.song_quality import assess_song_quality
 from ..services.ytdlp.naming import normalize_song_title
 from ..services.songs_download import extract_youtube_video_id, run_song_download
 from ..services.sessions import get_active_session_by_code
-from ..services.songs import cleanup_expired_archives, restore_backup, trim_video
+from ..services.songs import cleanup_expired_archives, fix_video_duration, restore_backup, trim_video
 
 router = APIRouter(prefix="/api/songs", tags=["songs"])
 logger = logging.getLogger(__name__)
@@ -1200,3 +1201,36 @@ def get_trim_history(
         )
 
     return TrimHistoryListResponse(items=items)
+
+
+@router.post("/{song_id}/fix-duration", response_model=FixDurationResponse)
+def fix_duration(
+    song_id: uuid.UUID,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Re-scan video file and fix duration metadata.
+    
+    Fixes mismatches where the video player shows wrong duration.
+    Requires admin authentication.
+    """
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+    
+    if not song.video_file:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Song has no video file")
+
+    result = fix_video_duration(db, song)
+
+    if result["status"] == "failed":
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result["message"])
+
+    return FixDurationResponse(
+        song_id=song_id,
+        old_duration=result["old_duration"],
+        new_duration=result["new_duration"],
+        status=result["status"],
+        message=result["message"],
+    )
