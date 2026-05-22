@@ -49,7 +49,9 @@ def _get_video_duration_ms(file_path: str) -> int | None:
             return None
         data = json.loads(result.stdout)
         duration_s = float(data.get("format", {}).get("duration", 0))
-        return int(duration_s * 1000)
+        duration_ms = int(duration_s * 1000)
+        logger.info(f"🎬 ffprobe detected duration for {file_path}: {duration_s}s = {duration_ms}ms")
+        return duration_ms
     except (subprocess.TimeoutExpired, json.JSONDecodeError, ValueError, FileNotFoundError) as e:
         logger.error(f"Error getting video duration: {e}")
         return None

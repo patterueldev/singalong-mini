@@ -49,6 +49,11 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
       const durationMs = videoRef.current.duration * 1000
       setVideoDurationMs(durationMs)
       setEndTimeMs(durationMs)
+      console.log('🎬 Video loaded:', {
+        durationSeconds: videoRef.current.duration,
+        durationMs: durationMs,
+        durationFormatted: `${Math.floor(durationMs / 60000)}:${String(Math.floor((durationMs % 60000) / 1000)).padStart(2, '0')}`,
+      })
     }
   }, [])
 
@@ -106,6 +111,13 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
     }
 
     setIsTrimming(true)
+    console.log('📹 Trimming video:', {
+      startTimeMs: Math.round(startTimeMs),
+      endTimeMs: Math.round(endTimeMs),
+      videoDurationMs: videoDurationMs,
+      startFormatted: formatTimeMs(startTimeMs),
+      endFormatted: formatTimeMs(endTimeMs),
+    })
     try {
       // Round to integers to avoid fractional milliseconds
       await trimSong(song.id, auth.accessToken, Math.round(startTimeMs), Math.round(endTimeMs))
@@ -225,7 +237,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
           <div className="trim-video-container">
             <video
               ref={videoRef}
-              src={`/media/songs/${song.videoFile}`}
+              src={`/media/songs/${song.videoFile}?t=${Date.now()}`}
               controls
               className="trim-video-player"
               onLoadedMetadata={handleVideoDurationChange}
