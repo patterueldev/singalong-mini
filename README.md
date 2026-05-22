@@ -9,9 +9,9 @@ I want this to be a very simple and straightforward implementation of the Singal
   - `/client/songbook` - Songbook list + search
   - `/client/songbook/suggest/*` - Song suggestion wizard
 
-Legacy frontend note:
-- `apps/singalong-admin` is deprecated and marked for archive.
-- Active frontend development should target `apps/singalong-client`.
+Frontend note:
+- Active frontend development is in `apps/singalong-client`.
+- The legacy `apps/singalong-admin` app has been removed.
 
 Unlike the original Singalong Karaoke system, I want this to be less restrictive, assume a one-off application (but still reusable if data is kept intact).
 
