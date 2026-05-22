@@ -25,7 +25,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   const [successMessage, setSuccessMessage] = useState('')
   const [restoringHistoryId, setRestoringHistoryId] = useState<string | null>(null)
 
-  // Load trim history
+  // Load trim history when modal opens
   useEffect(() => {
     if (!isOpen) {
       return
@@ -33,18 +33,26 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
 
     const loadHistory = async () => {
       setIsLoadingHistory(true)
+      setErrorMessage('')
       try {
         const history = await getTrimHistory(song.id, auth.accessToken)
         setTrimHistory(history)
       } catch (error) {
         console.error('Failed to load trim history:', error)
+        setTrimHistory([])
+        // Don't show error for history load - it's not critical
       } finally {
         setIsLoadingHistory(false)
       }
     }
 
-    void loadHistory()
-  }, [isOpen, song.id, getTrimHistory, auth.accessToken])
+    // Delay to ensure modal is rendered first
+    const timer = setTimeout(() => {
+      void loadHistory()
+    }, 100)
+
+    return () => clearTimeout(timer)
+  }, [isOpen, song.id])
 
   // Initialize end time when video duration changes
   const handleVideoDurationChange = useCallback(() => {
