@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import type { StoredAuth, SongbookSong } from '../../../shared/types/client'
 import { useAdminService } from '../hooks/useAdminService'
 import { formatLanguageLabel } from '../../../shared/lib/format'
-import { splitChipInput } from '../../../shared/lib/suggest'
 import { readFileAsDataUrl } from '../../../shared/lib/files'
 import { SkeletonList } from '../../songbook/components/SkeletonList'
 
@@ -198,6 +197,11 @@ function SongEditModal({
   onThumbnailDataUrlChange: (value: string | null) => void
   onSave: () => void
 }) {
+  const [showThumbnailPreview, setShowThumbnailPreview] = useState(false)
+  const [tagInput, setTagInput] = useState('')
+
+  const displayedThumbnail = thumbnailDataUrl ?? song.thumbnailUrl
+
   return (
     <div className="modal-backdrop song-detail-backdrop" role="presentation" onClick={onClose}>
       <section
@@ -217,76 +221,231 @@ function SongEditModal({
           </button>
         </div>
 
-        <div className="song-detail-layout song-editor-layout">
-          <div className="song-detail-video-panel">
-            {song.videoFile ? (
-              <video controls className="song-detail-video" src={`/media/songs/${song.videoFile}`} />
+        {/* Linear form layout */}
+        <div className="song-editor-form top-gap">
+          {/* Song Title */}
+          <label className="form-field">
+            <span className="form-label">Title</span>
+            <input
+              className="form-input"
+              type="text"
+              value={song.title}
+              onChange={(event) => onSongChange({ ...song, title: event.target.value })}
+              placeholder="Song title"
+              disabled={isSaving}
+            />
+          </label>
+
+          {/* Artist */}
+          <label className="form-field">
+            <span className="form-label">Artist</span>
+            <input
+              className="form-input"
+              type="text"
+              value={song.artist}
+              onChange={(event) => onSongChange({ ...song, artist: event.target.value })}
+              placeholder="Artist name"
+              disabled={isSaving}
+            />
+          </label>
+
+          {/* Thumbnail - Tappable to view/change */}
+          <div className="form-field">
+            <span className="form-label">Thumbnail</span>
+            <div className="thumbnail-preview-container">
+              {displayedThumbnail ? (
+                <img
+                  className="thumbnail-preview"
+                  src={displayedThumbnail}
+                  alt={song.title}
+                  onClick={() => setShowThumbnailPreview(true)}
+                  style={{ cursor: 'pointer' }}
+                />
+              ) : (
+                <div className="thumbnail-preview thumbnail-preview--empty" onClick={() => setShowThumbnailPreview(true)}>
+                  No thumbnail
+                </div>
+              )}
+            </div>
+            <input
+              className="hidden-file-input"
+              id="thumbnail-file-input"
+              type="file"
+              accept="image/*"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file === undefined) {
+                  return
+                }
+                void readFileAsDataUrl(file).then((dataUrl) => onThumbnailDataUrlChange(dataUrl))
+              }}
+              disabled={isSaving}
+            />
+          </div>
+
+          {/* Duration with Fix button */}
+          <div className="form-field form-field--inline">
+            <label className="form-field-inline">
+              <span className="form-label">Duration</span>
+              <input
+                className="form-input form-input--small"
+                type="text"
+                value={song.duration}
+                onChange={(event) => {
+                  onSongChange({ ...song, duration: event.target.value })
+                }}
+                placeholder="0:00"
+                disabled={isSaving}
+              />
+            </label>
+            <button
+              type="button"
+              className="secondary small"
+              onClick={() => {
+                // TODO: Implement fix duration from video metadata
+                // await fetchDurationFromVideo(song.videoFile)
+              }}
+              disabled={isSaving || !song.videoFile}
+              title="Sync duration from saved video file"
+            >
+              Fix Duration
+            </button>
+          </div>
+
+          {/* Lyrics - Large textarea */}
+          <label className="form-field form-field--tall">
+            <span className="form-label">Lyrics</span>
+            <textarea
+              className="form-textarea"
+              value={song.lyrics ?? ''}
+              onChange={(event) => onSongChange({ ...song, lyrics: event.target.value || null })}
+              placeholder="Song lyrics..."
+              rows={10}
+              disabled={isSaving}
+            />
+            <button
+              type="button"
+              className="secondary small top-gap"
+              onClick={() => {
+                // TODO: Implement lyrics search from Google
+              }}
+              disabled={isSaving}
+            >
+              Search Lyrics from Google
+            </button>
+          </label>
+
+          {/* Tags - Capsule editor */}
+          <div className="form-field">
+            <div className="chip-tags">
+              {song.tags.map((tag) => (
+                <span key={tag} className="chip-tag">
+                  {tag}
+                  <button
+                    type="button"
+                    className="chip-tag-remove"
+                    onClick={() => onSongChange({ ...song, tags: song.tags.filter((t) => t !== tag) })}
+                    disabled={isSaving}
+                    aria-label={`Remove tag: ${tag}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+            <input
+              className="form-input form-input--tags"
+              type="text"
+              value={tagInput}
+              onChange={(event) => setTagInput(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.key === 'Enter' || event.key === ',') && tagInput.trim()) {
+                  event.preventDefault()
+                  const newTag = tagInput.trim().toLowerCase()
+                  if (!song.tags.includes(newTag)) {
+                    onSongChange({ ...song, tags: [...song.tags, newTag] })
+                  }
+                  setTagInput('')
+                }
+              }}
+              placeholder="Add tags (Enter or comma-separated)"
+              disabled={isSaving}
+            />
+          </div>
+
+          {/* Language */}
+          <label className="form-field">
+            <span className="form-label">Language</span>
+            <input
+              className="form-input"
+              type="text"
+              value={song.language ?? ''}
+              onChange={(event) => onSongChange({ ...song, language: event.target.value || null })}
+              placeholder="Language (optional)"
+              disabled={isSaving}
+            />
+          </label>
+
+          {/* Genre */}
+          <label className="form-field">
+            <span className="form-label">Genre</span>
+            <input
+              className="form-input"
+              type="text"
+              value={song.genre ?? ''}
+              onChange={(event) => onSongChange({ ...song, genre: event.target.value || null })}
+              placeholder="Genre (optional)"
+              disabled={isSaving}
+            />
+          </label>
+
+          {/* Source URL - YouTube link */}
+          <div className="form-field">
+            <span className="form-label">Source</span>
+            {song.sourceUrl ? (
+              <a href={song.sourceUrl} target="_blank" rel="noopener noreferrer" className="youtube-link">
+                View on Youtube →
+              </a>
             ) : (
-              <p className="empty-state">Video not available.</p>
+              <p className="text-secondary">No source URL</p>
             )}
           </div>
 
-          <div className="song-detail-panels song-editor-panels">
-            <div className="song-detail-summary-panel">
-              <div className="song-detail-header-row song-editor-header-row">
-                {thumbnailDataUrl !== null ? (
-                  <img className="song-detail-thumbnail song-detail-thumbnail--small" src={thumbnailDataUrl} alt={song.title} />
-                ) : song.thumbnailUrl ? (
-                  <img className="song-detail-thumbnail song-detail-thumbnail--small" src={song.thumbnailUrl} alt={song.title} />
-                ) : (
-                  <div className="song-detail-thumbnail song-detail-thumbnail--small song-detail-thumbnail--placeholder" />
-                )}
+          {/* Validated checkbox */}
+          <label className="form-field form-field--checkbox">
+            <input
+              type="checkbox"
+              checked={song.validatedByAdmin ?? false}
+              onChange={(event) => onSongChange({ ...song, validatedByAdmin: event.target.checked })}
+              disabled={isSaving}
+            />
+            <span>Marked as validated by admin</span>
+          </label>
+        </div>
 
-                <div className="song-detail-meta song-editor-meta">
-                  <input
-                    className="song-editor-input song-editor-input--title"
-                    value={song.title}
-                    onChange={(event) => onSongChange({ ...song, title: event.target.value })}
-                    placeholder="Title"
-                    aria-label="Title"
-                  />
-                  <input
-                    className="song-editor-input song-editor-input--artist"
-                    value={song.artist}
-                    onChange={(event) => onSongChange({ ...song, artist: event.target.value })}
-                    placeholder="Artist"
-                    aria-label="Artist"
-                  />
-                </div>
+        <div className="row-actions top-gap">
+          <button type="button" onClick={onSave} disabled={isSaving}>
+            {isSaving ? 'Saving…' : 'Save'}
+          </button>
+          <button type="button" className="secondary" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </button>
+        </div>
+
+        {/* Thumbnail preview modal */}
+        {showThumbnailPreview && displayedThumbnail ? (
+          <div className="modal-backdrop" role="presentation" onClick={() => setShowThumbnailPreview(false)}>
+            <div className="modal-card thumbnail-preview-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>Thumbnail Preview</h3>
+                <button type="button" className="secondary" onClick={() => setShowThumbnailPreview(false)}>
+                  Close
+                </button>
               </div>
-
-              <div className="song-editor-meta-grid top-gap">
-                <label>
-                  Language
+              <img src={displayedThumbnail} alt={song.title} className="thumbnail-preview-large" />
+              <div className="row-actions top-gap">
+                <label className="primary">
                   <input
-                    className="song-editor-input"
-                    value={song.language ?? ''}
-                    onChange={(event) => onSongChange({ ...song, language: event.target.value || null })}
-                    placeholder="Language"
-                  />
-                </label>
-                <label>
-                  Genre
-                  <input
-                    className="song-editor-input"
-                    value={song.genre ?? ''}
-                    onChange={(event) => onSongChange({ ...song, genre: event.target.value || null })}
-                    placeholder="Genre"
-                  />
-                </label>
-                <label className="song-editor-meta-grid-wide">
-                  Tags (comma-separated)
-                  <input
-                    className="song-editor-input"
-                    value={song.tags.join(', ')}
-                    onChange={(event) => onSongChange({ ...song, tags: splitChipInput(event.target.value) })}
-                    placeholder="tag one, tag two"
-                  />
-                </label>
-                <label className="song-editor-meta-grid-wide">
-                  Thumbnail image
-                  <input
-                    className="song-editor-file-input"
                     type="file"
                     accept="image/*"
                     onChange={(event) => {
@@ -294,29 +453,19 @@ function SongEditModal({
                       if (file === undefined) {
                         return
                       }
-                      void readFileAsDataUrl(file).then((dataUrl) => onThumbnailDataUrlChange(dataUrl))
+                      void readFileAsDataUrl(file).then((dataUrl) => {
+                        onThumbnailDataUrlChange(dataUrl)
+                        setShowThumbnailPreview(false)
+                      })
                     }}
+                    style={{ display: 'none' }}
                   />
+                  Change Thumbnail
                 </label>
               </div>
             </div>
-
-            <div className="song-detail-lyrics-panel">
-              <h3>Lyrics</h3>
-              <textarea
-                value={song.lyrics ?? ''}
-                onChange={(event) => onSongChange({ ...song, lyrics: event.target.value || null })}
-                placeholder="Lyrics"
-              />
-            </div>
           </div>
-        </div>
-
-        <div className="row-actions top-gap">
-          <button type="button" onClick={onSave} disabled={isSaving}>
-            {isSaving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
+        ) : null}
       </section>
     </div>
   )
@@ -354,7 +503,9 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
         query.trim() === ''
           ? await fetchSongbook(page, 25)
           : await searchSongbook(query.trim(), page, 25)
-      setSongs(payload.items)
+      // Sort by quality score descending (highest/dirtiest first)
+      const sortedSongs = [...payload.items].sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0))
+      setSongs(sortedSongs)
       setPages(payload.pages)
       setTotal(payload.total)
     } catch (error) {

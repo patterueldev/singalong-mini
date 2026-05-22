@@ -2069,6 +2069,216 @@ button.small {
   background: transparent;
 }
 
+/* Linear form layout for song editor */
+.song-editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 0 1.5rem;
+  max-height: min(70vh, 800px);
+  overflow-y: auto;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-field--inline {
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 1rem;
+}
+
+.form-field--inline .form-field-inline {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-field--tall {
+  flex-direction: column;
+}
+
+.form-field--checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.form-field--checkbox input[type="checkbox"] {
+  margin: 0;
+}
+
+.form-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.form-input,
+.form-textarea {
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.form-input {
+  height: 2.5rem;
+}
+
+.form-input--small {
+  flex: 0 1 100px;
+}
+
+.form-input--tags {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+}
+
+.form-textarea {
+  min-height: 200px;
+  resize: vertical;
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 0.9rem;
+}
+
+.form-input:focus-visible,
+.form-textarea:focus-visible {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.form-input:disabled,
+.form-textarea:disabled {
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+/* Thumbnail preview */
+.thumbnail-preview-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  min-height: 150px;
+}
+
+.thumbnail-preview {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.thumbnail-preview:hover {
+  transform: scale(1.02);
+}
+
+.thumbnail-preview--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-style: italic;
+  cursor: pointer;
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+/* Thumbnail preview modal */
+.thumbnail-preview-modal {
+  max-width: 600px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.thumbnail-preview-large {
+  width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  margin: 1.5rem 0;
+}
+
+/* Tags editor */
+.chip-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  min-height: 1.5rem;
+}
+
+.chip-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--primary-color);
+  color: white;
+  border-radius: 16px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.chip-tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  border-radius: 50%;
+}
+
+.chip-tag-remove:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.chip-tag-remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* YouTube link */
+.youtube-link {
+  display: inline-block;
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 500;
+  padding: 0.5rem;
+  margin: -0.5rem;
+}
+
+.youtube-link:hover {
+  text-decoration: underline;
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin: 0;
+}
+
 .reservations-modal-card {
   width: min(1120px, 100%);
 }
