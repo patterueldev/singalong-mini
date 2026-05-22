@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { SongbookSong, TrimHistoryItem, StoredAuth } from '../../../shared/types/client'
 import { formatTimeMs, parseTimeMs } from '../../../shared/lib/format'
 import { useAdminService } from '../hooks/useAdminService'
@@ -20,18 +20,27 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   const [videoDurationMs, setVideoDurationMs] = useState(0)
   const [trimHistory, setTrimHistory] = useState<TrimHistoryItem[]>([])
   const [isTrimming, setIsTrimming] = useState(false)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [restoringHistoryId, setRestoringHistoryId] = useState<string | null>(null)
 
-  // Reset trim history when modal closes (trim history loading disabled for now)
-  useEffect(() => {
-    if (!isOpen) {
+  // Load trim history on demand (button click), not on mount
+  const loadTrimHistory = useCallback(async () => {
+    setIsLoadingHistory(true)
+    try {
+      const history = await getTrimHistory(song.id, auth.accessToken)
+      setTrimHistory(history)
+    } catch (error) {
+      console.error('Failed to load trim history:', error)
+      setErrorMessage('Failed to load trim history')
       setTrimHistory([])
+    } finally {
+      setIsLoadingHistory(false)
     }
-  }, [isOpen])
+  }, [song.id, auth.accessToken, getTrimHistory])
 
-  // Initialize end time when video duration changes
+  // Initialize end time when video loads
   const handleVideoDurationChange = useCallback(() => {
     if (videoRef.current) {
       const durationMs = videoRef.current.duration * 1000
@@ -39,14 +48,6 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
       setEndTimeMs(durationMs)
     }
   }, [])
-
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-
-    video.addEventListener('loadedmetadata', handleVideoDurationChange)
-    return () => video.removeEventListener('loadedmetadata', handleVideoDurationChange)
-  }, [handleVideoDurationChange])
 
   const validateTimeRange = (): boolean => {
     if (startTimeMs < 0) {
@@ -104,8 +105,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
       await restoreTrim(song.id, auth.accessToken, historyId)
       setSuccessMessage('Video restored successfully!')
       // Reload history
-      const history = await getTrimHistory(song.id, auth.accessToken)
-      setTrimHistory(history)
+      await loadTrimHistory()
       setTimeout(() => {
         onTrimComplete()
       }, 1500)
@@ -133,164 +133,110 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
     }
   }
 
+  if (!isOpen || !song) return null
+
   const startPercentage = videoDurationMs > 0 ? (startTimeMs / videoDurationMs) * 100 : 0
   const endPercentage = videoDurationMs > 0 ? (endTimeMs / videoDurationMs) * 100 : 0
 
-  if (!isOpen) {
-    return null
-  }
-
   return (
-    <div className="modal-backdrop song-detail-backdrop" role="presentation" onClick={onClose}>
-      <section
-        className="modal-card song-detail-modal song-trim-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Trim Video: ${song.title}`}
-        onClick={(event) => event.stopPropagation()}
-      >
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="song-trim-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <div>
-            <h2>Trim Video</h2>
-            <p className="subtitle">{song.title}</p>
-          </div>
-          <button type="button" className="secondary" onClick={onClose} disabled={isTrimming || restoringHistoryId !== null}>
-            Close
-          </button>
+          <h2>Trim Video: {song.title}</h2>
+          <button className="close-button" onClick={onClose}>✕</button>
         </div>
 
-        <div className="song-trim-content top-gap">
+        <div className="modal-body">
           {/* Video Player */}
-          {song.videoFile ? (
-            <div className="trim-video-container">
-              <video
-                ref={videoRef}
-                controls
-                className="trim-video-player"
-                src={`/media/songs/${song.videoFile}`}
+          <div className="trim-video-container top-gap">
+            <video
+              ref={videoRef}
+              src={`/media/songs/${song.videoFile}`}
+              controls
+              className="trim-video-player"
+              onLoadedMetadata={handleVideoDurationChange}
+            />
+          </div>
+
+          {/* Timeline */}
+          <div className="trim-timeline-section top-gap">
+            <div className="trim-timeline" onClick={handleTimelineClick}>
+              <div
+                className="trim-range"
+                style={{
+                  left: `${startPercentage}%`,
+                  right: `${100 - endPercentage}%`,
+                }}
+              />
+              <div className="trim-marker trim-marker-start" style={{ left: `${startPercentage}%` }} />
+              <div className="trim-marker trim-marker-end" style={{ left: `${endPercentage}%` }} />
+            </div>
+          </div>
+
+          {/* Time Inputs */}
+          <div className="trim-time-inputs top-gap">
+            <div className="time-input-group">
+              <label>Start Time</label>
+              <input
+                type="text"
+                value={formatTimeMs(startTimeMs)}
+                onChange={(e) => {
+                  const ms = parseTimeMs(e.target.value)
+                  setStartTimeMs(Math.max(0, Math.min(ms, endTimeMs - 1000)))
+                }}
+                disabled={isTrimming}
               />
             </div>
-          ) : (
-            <p className="empty-state">Video not available.</p>
-          )}
+            <div className="time-input-group">
+              <label>End Time</label>
+              <input
+                type="text"
+                value={formatTimeMs(endTimeMs)}
+                onChange={(e) => {
+                  const ms = parseTimeMs(e.target.value)
+                  setEndTimeMs(Math.max(startTimeMs + 1000, Math.min(ms, videoDurationMs)))
+                }}
+                disabled={isTrimming}
+              />
+            </div>
+            <div className="time-input-group">
+              <label>Duration</label>
+              <input
+                type="text"
+                value={formatTimeMs(endTimeMs - startTimeMs)}
+                disabled
+              />
+            </div>
+          </div>
 
           {/* Messages */}
-          {errorMessage && <p className="error-message" role="alert">{errorMessage}</p>}
-          {successMessage && <p className="success-message">{successMessage}</p>}
+          {errorMessage && <div className="error-message top-gap">{errorMessage}</div>}
+          {successMessage && <div className="success-message top-gap">{successMessage}</div>}
 
-          {/* Trim Controls */}
-          {song.videoFile && (
-            <div className="trim-controls top-gap">
-              <div className="trim-time-inputs">
-                <label className="form-field form-field--inline">
-                  <span className="form-label">Start (MM:SS)</span>
-                  <input
-                    type="text"
-                    className="form-input form-input--small"
-                    value={formatTimeMs(startTimeMs)}
-                    onChange={(e) => {
-                      const ms = parseTimeMs(e.target.value)
-                      setStartTimeMs(Math.max(0, Math.min(ms, endTimeMs - 1000)))
-                    }}
-                    disabled={isTrimming}
-                  />
-                </label>
+          {/* Trim Button */}
+          <div className="modal-actions top-gap">
+            <button
+              className="btn-primary"
+              onClick={handleTrimVideo}
+              disabled={isTrimming || videoDurationMs === 0}
+            >
+              {isTrimming ? 'Trimming...' : 'Trim Video'}
+            </button>
+            <button className="btn-secondary" onClick={onClose} disabled={isTrimming}>
+              Cancel
+            </button>
+          </div>
 
-                <label className="form-field form-field--inline">
-                  <span className="form-label">End (MM:SS)</span>
-                  <input
-                    type="text"
-                    className="form-input form-input--small"
-                    value={formatTimeMs(endTimeMs)}
-                    onChange={(e) => {
-                      const ms = parseTimeMs(e.target.value)
-                      setEndTimeMs(Math.max(startTimeMs + 1000, Math.min(ms, videoDurationMs)))
-                    }}
-                    disabled={isTrimming}
-                  />
-                </label>
-              </div>
-
-              <p className="trim-duration-info">
-                Duration: {formatTimeMs(videoDurationMs)} → {formatTimeMs(endTimeMs - startTimeMs)}
-              </p>
-
-              {/* Timeline Visualization */}
-              <div className="trim-timeline" onClick={handleTimelineClick}>
-                {/* Background bar */}
-                <div className="trim-timeline-bar">
-                  {/* Trimmed region highlight */}
-                  <div
-                    className="trim-timeline-trimmed"
-                    style={{
-                      left: `${startPercentage}%`,
-                      right: `${100 - endPercentage}%`,
-                    }}
-                  />
-
-                  {/* Start marker */}
-                  <div
-                    className="trim-marker trim-marker--start"
-                    style={{ left: `${startPercentage}%` }}
-                    role="slider"
-                    aria-label="Start trim point"
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      const startX = e.clientX
-                      const startValue = startTimeMs
-
-                      const handleMouseMove = (moveEvent: MouseEvent) => {
-                        const rect = (e.currentTarget as HTMLElement).parentElement?.getBoundingClientRect()
-                        if (!rect) return
-                        const deltaX = moveEvent.clientX - startX
-                        const percentage = deltaX / rect.width
-                        const newTimeMs = startValue + percentage * videoDurationMs
-                        setStartTimeMs(Math.max(0, Math.min(newTimeMs, endTimeMs - 1000)))
-                      }
-
-                      const handleMouseUp = () => {
-                        document.removeEventListener('mousemove', handleMouseMove)
-                        document.removeEventListener('mouseup', handleMouseUp)
-                      }
-
-                      document.addEventListener('mousemove', handleMouseMove)
-                      document.addEventListener('mouseup', handleMouseUp)
-                    }}
-                  />
-
-                  {/* End marker */}
-                  <div
-                    className="trim-marker trim-marker--end"
-                    style={{ left: `${endPercentage}%` }}
-                    role="slider"
-                    aria-label="End trim point"
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      const startX = e.clientX
-                      const startValue = endTimeMs
-
-                      const handleMouseMove = (moveEvent: MouseEvent) => {
-                        const rect = (e.currentTarget as HTMLElement).parentElement?.getBoundingClientRect()
-                        if (!rect) return
-                        const deltaX = moveEvent.clientX - startX
-                        const percentage = deltaX / rect.width
-                        const newTimeMs = startValue + percentage * videoDurationMs
-                        setEndTimeMs(Math.max(startTimeMs + 1000, Math.min(newTimeMs, videoDurationMs)))
-                      }
-
-                      const handleMouseUp = () => {
-                        document.removeEventListener('mousemove', handleMouseMove)
-                        document.removeEventListener('mouseup', handleMouseUp)
-                      }
-
-                      document.addEventListener('mousemove', handleMouseMove)
-                      document.addEventListener('mouseup', handleMouseUp)
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Load History Button */}
+          <div className="top-gap">
+            <button
+              className="btn-link"
+              onClick={loadTrimHistory}
+              disabled={isLoadingHistory || isTrimming}
+            >
+              {isLoadingHistory ? 'Loading...' : trimHistory.length > 0 ? 'Reload History' : 'Load History'}
+            </button>
+          </div>
 
           {/* Trim History */}
           {trimHistory.length > 0 && (
@@ -304,57 +250,28 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
                         {formatTimeMs(item.trim_start_ms)} → {formatTimeMs(item.trim_end_ms)}
                       </p>
                       <p className="trim-history-meta">
-                        <span className={`trim-status trim-status--${item.status}`}>{item.status}</span>
-                        {item.created_at && (
-                          <span className="trim-history-date">
-                            {new Date(item.created_at).toLocaleDateString()}
-                          </span>
-                        )}
+                        {new Date(item.created_at).toLocaleString()}
                       </p>
                       {item.backup_expires_at && (
-                        <p className="trim-history-expiry">
+                        <p className="trim-history-expires">
                           Backup expires: {new Date(item.backup_expires_at).toLocaleDateString()}
                         </p>
                       )}
                     </div>
-                    {item.can_restore && item.status === 'completed' && (
-                      <button
-                        type="button"
-                        className="secondary small"
-                        onClick={() => void handleRestoreTrim(item.id)}
-                        disabled={restoringHistoryId !== null || isTrimming}
-                      >
-                        {restoringHistoryId === item.id ? 'Restoring…' : 'Restore'}
-                      </button>
-                    )}
+                    <button
+                      className="btn-restore"
+                      onClick={() => handleRestoreTrim(item.id)}
+                      disabled={restoringHistoryId === item.id || isTrimming}
+                    >
+                      {restoringHistoryId === item.id ? 'Restoring...' : 'Restore'}
+                    </button>
                   </div>
                 ))}
               </div>
             </div>
           )}
         </div>
-
-        {/* Action Buttons */}
-        {song.videoFile && (
-          <div className="row-actions top-gap">
-            <button
-              type="button"
-              onClick={() => void handleTrimVideo()}
-              disabled={isTrimming || !validateTimeRange() || restoringHistoryId !== null}
-            >
-              {isTrimming ? 'Trimming…' : '✂️ Trim Video'}
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              onClick={onClose}
-              disabled={isTrimming || restoringHistoryId !== null}
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-      </section>
+      </div>
     </div>
   )
 }
