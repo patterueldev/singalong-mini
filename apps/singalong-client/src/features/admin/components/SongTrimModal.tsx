@@ -34,6 +34,8 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   // Local state for time input fields (for editing)
   const [startTimeStr, setStartTimeStr] = useState('')
   const [endTimeStr, setEndTimeStr] = useState('')
+  const [isEditingStart, setIsEditingStart] = useState(false)
+  const [isEditingEnd, setIsEditingEnd] = useState(false)
 
   // Load trim history on demand (button click), not on mount
   const loadTrimHistory = useCallback(async () => {
@@ -51,12 +53,16 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
     }
   }, [song.id, auth.accessToken, getTrimHistory])
 
-  // Initialize end time when video loads
+  // Initialize end time when video loads (only if not yet set)
   const handleVideoDurationChange = useCallback(() => {
     if (videoRef.current) {
       const durationMs = videoRef.current.duration * 1000
       setVideoDurationMs(durationMs)
-      setEndTimeMs(durationMs)
+      // Only set endTimeMs to full duration if it hasn't been explicitly changed by user
+      setEndTimeMs((prevEndTimeMs) => {
+        // If endTimeMs is 0 (initial state) or somehow greater than new duration, set to duration
+        return prevEndTimeMs === 0 ? durationMs : Math.min(prevEndTimeMs, durationMs)
+      })
       console.log('🎬 Video loaded:', {
         durationSeconds: videoRef.current.duration,
         durationMs: durationMs,
@@ -110,14 +116,19 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
     return true
   }
 
-  // Sync string values when time values change
+  // Sync string values when time values change (but not while user is editing)
   useEffect(() => {
-    setStartTimeStr(formatTimeMs(startTimeMs))
-    setEndTimeStr(formatTimeMs(endTimeMs))
-  }, [startTimeMs, endTimeMs])
+    if (!isEditingStart) {
+      setStartTimeStr(formatTimeMs(startTimeMs))
+    }
+    if (!isEditingEnd) {
+      setEndTimeStr(formatTimeMs(endTimeMs))
+    }
+  }, [startTimeMs, endTimeMs, isEditingStart, isEditingEnd])
 
   // Handle start time input change (allow typing)
   const handleStartTimeChange = (value: string) => {
+    setIsEditingStart(true)
     setStartTimeStr(value)
   }
 
@@ -125,10 +136,12 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   const handleStartTimeBlur = () => {
     const ms = parseTimeMs(startTimeStr)
     setStartTimeMs(Math.max(0, Math.min(ms, endTimeMs - 1000)))
+    setIsEditingStart(false)
   }
 
   // Handle end time input change (allow typing)
   const handleEndTimeChange = (value: string) => {
+    setIsEditingEnd(true)
     setEndTimeStr(value)
   }
 
@@ -136,6 +149,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   const handleEndTimeBlur = () => {
     const ms = parseTimeMs(endTimeStr)
     setEndTimeMs(Math.max(startTimeMs + 1000, Math.min(ms, videoDurationMs)))
+    setIsEditingEnd(false)
   }
 
   const handleTrimVideo = async () => {
@@ -225,6 +239,15 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
     try {
       await restoreTrim(song.id, auth.accessToken, historyId)
       setSuccessMessage('Video restored successfully!')
+      
+      // Force video metadata reload by updating src (cache bust)
+      if (videoRef.current) {
+        const src = videoRef.current.src
+        videoRef.current.src = ''
+        videoRef.current.src = src + (src.includes('?') ? '&' : '?') + 't=' + Date.now()
+        videoRef.current.load()
+      }
+      
       // Reload history
       await loadTrimHistory()
       setTimeout(() => {
@@ -459,13 +482,6 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
               disabled={isTrimming || videoDurationMs === 0}
             >
               {isTrimming ? 'Trimming...' : 'Trim Video'}
-            </button>
-            <button 
-              className="btn-secondary" 
-              onClick={loadTrimHistory}
-              disabled={isTrimming || isLoadingHistory}
-            >
-              {isLoadingHistory ? 'Loading...' : 'History'}
             </button>
             <button className="btn-secondary" onClick={onClose} disabled={isTrimming}>
               Cancel
