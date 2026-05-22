@@ -160,11 +160,17 @@ export function SuggestSearchPage({
   )
 
   useEffect(() => {
-    if (singlePageUrlIdentify) {
+    const keyword = new URLSearchParams(location.search).get('keyword')?.trim() ?? ''
+    if (keyword === '') {
       return
     }
-    const keyword = new URLSearchParams(location.search).get('keyword') ?? ''
-    if (keyword !== '' && keyword.trim() !== lastSearchedKeywordRef.current) {
+
+    if (singlePageUrlIdentify) {
+      setQuery(keyword)
+      return
+    }
+
+    if (keyword !== lastSearchedKeywordRef.current) {
       setQuery(keyword)
       executeSearch(keyword)
     }
@@ -328,7 +334,7 @@ export function SuggestSearchPage({
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={singlePageUrlIdentify ? 'song title or https://youtube.com/watch?v=...' : 'song title'}
+              placeholder={singlePageUrlIdentify ? 'Enter song keyword or URL' : 'song title'}
               required={!singlePageUrlIdentify}
             />
           </label>

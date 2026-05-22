@@ -141,6 +141,17 @@ export type SongbookSong = {
   addedByUsername: string | null
   queuedCountInSession: number
   wasQueuedInSession: boolean
+  qualityScore: number
+  qualityFlags: SongQualityFlag[]
+  validatedByAdmin: boolean
+}
+
+export type SongQualityFlag = {
+  code: string
+  label: string
+  message: string
+  points: number
+  severity: 'low' | 'medium' | 'high'
 }
 
 export type SessionParticipant = {

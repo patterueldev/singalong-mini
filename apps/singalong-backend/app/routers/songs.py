@@ -5,6 +5,7 @@ import math
 import os
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yt_dlp
@@ -21,8 +22,11 @@ from ..schemas import (
     SongDownloadListResponse,
     SongbookItem,
     SongbookListResponse,
+    SongArchiveResponse,
     SongAdminUpdateRequest,
     SongAdminUpdateResponse,
+    SongAdminValidationRequest,
+    SongAdminValidationResponse,
     SongSuggestDownloadRequest,
     SongSuggestDownloadResponse,
     SongSuggestEnhanceRequest,
@@ -39,6 +43,7 @@ from ..schemas import (
 from ..services.auth import get_current_user, require_admin_or_guest_user, require_admin_user
 from ..services.download_queue import list_active_download_items
 from ..services.thumbnail_service import convert_base64_to_jpg, save_thumbnail
+from ..services.song_quality import assess_song_quality
 from ..services.ytdlp.naming import normalize_song_title
 from ..services.songs_download import extract_youtube_video_id, run_song_download
 from ..services.sessions import get_active_session_by_code
@@ -150,6 +155,11 @@ def _parse_song_extra_metadata(raw: str | None) -> dict[str, object]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _song_validation_state(song: Song) -> bool:
+    metadata = _parse_song_extra_metadata(song.extra_metadata)
+    return metadata.get("validated_by_admin") is True
+
+
 def _require_songbook_user(user: User = Depends(get_current_user)) -> User:
     if user.role not in {"guest", "admin"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Guest or admin access required")
@@ -167,6 +177,7 @@ def suggest_song_download(
     user: User = Depends(require_admin_or_guest_user),
 ):
     from datetime import datetime
+    from datetime import timezone
     from uuid import uuid4
 
     from ..models import Song
@@ -752,6 +763,7 @@ def _song_to_item(
     added_by_username: str | None = None,
     queued_count_in_session: int = 0,
 ) -> SongbookItem:
+    quality_score, quality_flags = assess_song_quality(song)
     return SongbookItem(
         id=song.id,
         title=song.title,
@@ -768,6 +780,9 @@ def _song_to_item(
         added_by_username=added_by_username,
         queued_count_in_session=queued_count_in_session,
         was_queued_in_session=queued_count_in_session > 0,
+        quality_score=quality_score,
+        quality_flags=quality_flags,
+        validated_by_admin=_song_validation_state(song),
     )
 
 
@@ -945,6 +960,10 @@ def patch_song(
     song.tags = ",".join([entry.strip() for entry in payload.tags if entry.strip() != ""]) or None
     song.lyrics = payload.lyrics.strip() if isinstance(payload.lyrics, str) and payload.lyrics.strip() != "" else None
     song.last_modified_by = current_user.id
+    metadata = _parse_song_extra_metadata(song.extra_metadata)
+    metadata.pop("validated_by_admin", None)
+    metadata.pop("validated_at", None)
+    song.extra_metadata = json.dumps(metadata) if metadata else None
 
     if isinstance(payload.source_thumbnail_data_url, str) and payload.source_thumbnail_data_url.strip() != "":
         try:
@@ -963,3 +982,94 @@ def patch_song(
         item=_song_to_item(song, added_by_username, 0),
         message="Song updated",
     )
+
+
+@router.patch("/{song_id}/validation", response_model=SongAdminValidationResponse)
+def update_song_validation(
+    song_id: str,
+    payload: SongAdminValidationRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    import uuid as _uuid
+
+    try:
+        uid = _uuid.UUID(song_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    song = (
+        db.query(Song)
+        .filter(Song.id == uid, Song.status == "published", Song.archived_at.is_(None))
+        .first()
+    )
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    metadata = _parse_song_extra_metadata(song.extra_metadata)
+    if payload.validated:
+        metadata["validated_by_admin"] = True
+        metadata["validated_at"] = datetime.now(timezone.utc).isoformat()
+    else:
+        metadata.pop("validated_by_admin", None)
+        metadata.pop("validated_at", None)
+
+    song.extra_metadata = json.dumps(metadata) if metadata else None
+    song.last_modified_by = current_user.id
+    db.commit()
+    db.refresh(song)
+    added_by_username = db.query(User.username).filter(User.id == song.added_by).scalar()
+    return SongAdminValidationResponse(
+        item=_song_to_item(song, added_by_username, 0),
+        message="Song validated" if payload.validated else "Song validation cleared",
+    )
+
+
+@router.patch("/{song_id}/archive", response_model=SongArchiveResponse)
+def archive_song(
+    song_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    import uuid as _uuid
+
+    try:
+        uid = _uuid.UUID(song_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    song = (
+        db.query(Song)
+        .filter(Song.id == uid, Song.status == "published", Song.archived_at.is_(None))
+        .first()
+    )
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    active_session_codes = [
+        code
+        for (code,) in (
+            db.query(KaraokeSession.session_code)
+            .join(SongQueue, SongQueue.session_id == KaraokeSession.id)
+            .filter(
+                SongQueue.song_id == uid,
+                SongQueue.status.in_(("playing", "pending")),
+                KaraokeSession.archived_at.is_(None),
+            )
+            .distinct()
+            .all()
+        )
+        if isinstance(code, str) and code.strip() != ""
+    ]
+    if len(active_session_codes) > 0:
+        session_list = ", ".join(active_session_codes)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot archive while the song is queued in active session(s): {session_list}",
+        )
+
+    song.archived_at = datetime.now(timezone.utc)
+    song.status = "archived"
+    song.last_modified_by = current_user.id
+    db.commit()
+    return SongArchiveResponse(message="Song archived")

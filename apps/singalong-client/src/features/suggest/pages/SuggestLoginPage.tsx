@@ -5,9 +5,14 @@ import { isValidSuggestNickname } from '../../../shared/storage/suggestStorage'
 type SuggestLoginPageProps = {
   initialNickname: string
   onLogin: (nickname: string) => Promise<void>
+  nextPath?: string
 }
 
-export function SuggestLoginPage({ initialNickname, onLogin }: SuggestLoginPageProps) {
+export function SuggestLoginPage({
+  initialNickname,
+  onLogin,
+  nextPath = '/songbook/suggest/search',
+}: SuggestLoginPageProps) {
   const navigate = useNavigate()
   const [nickname, setNickname] = useState(initialNickname)
   const [errorMessage, setErrorMessage] = useState('')
@@ -29,7 +34,7 @@ export function SuggestLoginPage({ initialNickname, onLogin }: SuggestLoginPageP
             setErrorMessage('')
             setIsSubmitting(true)
             void onLogin(nickname)
-              .then(() => navigate('/songbook/suggest/search'))
+              .then(() => navigate(nextPath))
               .catch((error: unknown) => {
                 const message =
                   error instanceof Error ? error.message : 'Guest login failed'

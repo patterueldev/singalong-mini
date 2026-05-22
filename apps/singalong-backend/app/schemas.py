@@ -278,6 +278,14 @@ class SongSuggestEnhanceResponse(BaseModel):
     enhanced: SongSuggestIdentifyResponse
 
 
+class SongQualityFlag(BaseModel):
+    code: str
+    label: str
+    message: str
+    points: int
+    severity: Literal["low", "medium", "high"]
+
+
 class SongbookItem(BaseModel):
     id: UUID
     title: str
@@ -294,6 +302,9 @@ class SongbookItem(BaseModel):
     added_by_username: str | None = None
     queued_count_in_session: int = 0
     was_queued_in_session: bool = False
+    quality_score: int = 0
+    quality_flags: list[SongQualityFlag] = Field(default_factory=list)
+    validated_by_admin: bool = False
 
 
 class SongAdminUpdateRequest(BaseModel):
@@ -308,6 +319,19 @@ class SongAdminUpdateRequest(BaseModel):
 
 class SongAdminUpdateResponse(BaseModel):
     item: SongbookItem
+    message: str
+
+
+class SongAdminValidationRequest(BaseModel):
+    validated: bool
+
+
+class SongAdminValidationResponse(BaseModel):
+    item: SongbookItem
+    message: str
+
+
+class SongArchiveResponse(BaseModel):
     message: str
 
 

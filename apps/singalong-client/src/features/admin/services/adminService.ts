@@ -5,6 +5,7 @@ import type {
   SessionQueueListResponse,
   SessionRecord,
   SessionWorkspace,
+  SongQualityFlag,
   SongbookListResponse,
   SongbookSong,
   UserProfile,
@@ -32,6 +33,7 @@ export interface AdminService {
       source_thumbnail_data_url?: string | null
     },
   ) => Promise<SongbookSong>
+  setSongValidation: (songId: string, token: string, validated: boolean) => Promise<SongbookSong>
   reserveSessionQueueSong: (
     sessionCode: string,
     songId: string,
@@ -43,6 +45,7 @@ export interface AdminService {
   fetchCurrentUser: (token: string) => Promise<UserProfile>
   createSession: (name: string, token: string) => Promise<SessionRecord>
   archiveSession: (sessionId: string, token: string) => Promise<SessionArchiveResponse>
+  archiveSong: (songId: string, token: string) => Promise<{ message: string }>
   fetchActiveSession: () => Promise<SessionRecord | null>
 }
 
@@ -52,6 +55,8 @@ function mapSong(raw: {
   thumbnail_url: string | null; source_id: string | null; source_url: string | null
   video_file: string | null; lyrics: string | null; added_by_username: string | null
   queued_count_in_session?: number; was_queued_in_session?: boolean
+  quality_score?: number; quality_flags?: SongQualityFlag[]
+  validated_by_admin?: boolean
 }): SongbookSong {
   return {
     id: raw.id,
@@ -69,6 +74,9 @@ function mapSong(raw: {
     addedByUsername: raw.added_by_username,
     queuedCountInSession: typeof raw.queued_count_in_session === 'number' ? raw.queued_count_in_session : 0,
     wasQueuedInSession: raw.was_queued_in_session === true,
+    qualityScore: typeof raw.quality_score === 'number' ? raw.quality_score : 0,
+    qualityFlags: Array.isArray(raw.quality_flags) ? raw.quality_flags : [],
+    validatedByAdmin: raw.validated_by_admin === true,
   }
 }
 
@@ -92,6 +100,7 @@ export async function fetchSongbook(
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
       queued_count_in_session?: number; was_queued_in_session?: boolean
+      quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
     }>
     total: number; page: number; pages: number
   }>(`/songs?${params.toString()}`)
@@ -123,6 +132,7 @@ export async function searchSongbook(
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
       queued_count_in_session?: number; was_queued_in_session?: boolean
+      quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
     }>
     total: number; page: number; pages: number
   }>(`/songs/search?${params.toString()}`)
@@ -148,6 +158,7 @@ export async function fetchSongDetail(id: string, sessionCode?: string, sessionI
     thumbnail_url: string | null; source_id: string | null; source_url: string | null
     video_file: string | null; lyrics: string | null; added_by_username: string | null
     queued_count_in_session?: number; was_queued_in_session?: boolean
+    quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
   }>(`/songs/${id}${suffix ? `?${suffix}` : ''}`)
   return mapSong(raw)
 }
@@ -232,6 +243,7 @@ export async function updateSongAdminDetails(
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
       queued_count_in_session?: number; was_queued_in_session?: boolean
+      quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
     }
     message: string
   }>(
@@ -239,6 +251,37 @@ export async function updateSongAdminDetails(
     {
       method: 'PATCH',
       body: JSON.stringify(payload),
+    },
+    token,
+  )
+
+  return mapSong(raw.item)
+}
+
+export async function archiveSong(songId: string, token: string): Promise<{ message: string }> {
+  return apiJson<{ message: string }>(`/songs/${songId}/archive`, { method: 'PATCH' }, token)
+}
+
+export async function setSongValidation(
+  songId: string,
+  token: string,
+  validated: boolean,
+): Promise<SongbookSong> {
+  const raw = await apiJson<{
+    item: {
+      id: string; title: string; artist: string; duration: string
+      language: string | null; genre: string | null; tags: string[]
+      thumbnail_url: string | null; source_id: string | null; source_url: string | null
+      video_file: string | null; lyrics: string | null; added_by_username: string | null
+      queued_count_in_session?: number; was_queued_in_session?: boolean
+      quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
+    }
+    message: string
+  }>(
+    `/songs/${songId}/validation`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ validated }),
     },
     token,
   )
@@ -314,5 +357,7 @@ export const adminService: AdminService = {
   fetchCurrentUser,
   createSession,
   archiveSession,
+  archiveSong,
+  setSongValidation,
   fetchActiveSession,
 }
