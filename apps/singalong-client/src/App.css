@@ -2885,6 +2885,9 @@ button.small {
   padding: 16px;
   background: var(--surface-secondary, rgba(0, 0, 0, 0.02));
   border-radius: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .trim-history h3 {
@@ -3242,17 +3245,27 @@ button.small {
   color: var(--text-primary);
 }
 
+.trim-close-button .material-symbols-outlined {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
 .song-trim-content {
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-height: 0;
   overflow-y: auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .trim-video-container {
   display: flex;
   justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .trim-video-player {
@@ -3266,6 +3279,9 @@ button.small {
 /* Timeline with markers */
 .trim-timeline-section {
   padding: 8px 0;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .trim-timeline {
@@ -3278,6 +3294,9 @@ button.small {
   cursor: pointer;
   user-select: none;
   border: 1px solid var(--border-primary);
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .trim-range {
@@ -3316,6 +3335,9 @@ button.small {
   padding: 12px;
   background: var(--surface-secondary, rgba(0, 0, 0, 0.02));
   border-radius: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .time-input-group {
@@ -3372,6 +3394,9 @@ button.small {
   justify-content: flex-end;
   padding: 12px 0;
   border-top: 1px solid var(--border-primary);
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .trim-load-history-container {
@@ -3542,6 +3567,7 @@ button.small {
   justify-content: center;
   border-radius: 6px;
   transition: background 0.2s;
+  flex-shrink: 0;
 }
 
 .trim-history-button:hover:not(:disabled) {
@@ -3551,6 +3577,11 @@ button.small {
 .trim-history-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.trim-history-button .material-symbols-outlined {
+  font-size: 1.2rem;
+  line-height: 1;
 }
 
 /* Time inputs with action buttons */
@@ -3585,6 +3616,7 @@ button.small {
   cursor: pointer;
   font-size: 0.85rem;
   min-width: 32px;
+  width: 32px;
   height: 32px;
   display: flex;
   align-items: center;
@@ -3592,6 +3624,12 @@ button.small {
   transition: all 0.2s;
   color: var(--text-secondary);
   background: var(--surface-secondary, rgba(0, 0, 0, 0.02));
+  flex-shrink: 0;
+}
+
+.time-action-button .material-symbols-outlined {
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .time-action-button:hover:not(:disabled) {

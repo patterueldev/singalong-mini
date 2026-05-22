@@ -107,7 +107,8 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
 
     setIsTrimming(true)
     try {
-      await trimSong(song.id, auth.accessToken, startTimeMs, endTimeMs)
+      // Round to integers to avoid fractional milliseconds
+      await trimSong(song.id, auth.accessToken, Math.round(startTimeMs), Math.round(endTimeMs))
       const newDuration = formatTimeMs(endTimeMs - startTimeMs)
       setSuccessMessage(`Video trimmed successfully! New duration: ${newDuration}`)
       setTimeout(() => {
@@ -211,9 +212,11 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
               title="View trim history"
               aria-label="View trim history"
             >
-              📋
+              <span className="material-symbols-outlined">history</span>
             </button>
-            <button className="trim-close-button" onClick={onClose} aria-label="Close">✕</button>
+            <button className="trim-close-button" onClick={onClose} aria-label="Close">
+              <span className="material-symbols-outlined">close</span>
+            </button>
           </div>
         </div>
 
@@ -277,7 +280,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
                   title="Seek to start time and play"
                   disabled={isTrimming}
                 >
-                  ▶️
+                  <span className="material-symbols-outlined">play_arrow</span>
                 </button>
                 <button 
                   className="time-action-button"
@@ -285,7 +288,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
                   title="Mark current position as start"
                   disabled={isTrimming}
                 >
-                  ⚑
+                  <span className="material-symbols-outlined">edit_note</span>
                 </button>
               </div>
             </div>
@@ -307,7 +310,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
                   title="Mark current position as end"
                   disabled={isTrimming}
                 >
-                  ⚑
+                  <span className="material-symbols-outlined">edit_note</span>
                 </button>
               </div>
             </div>
