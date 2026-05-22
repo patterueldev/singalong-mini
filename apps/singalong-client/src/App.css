@@ -2784,43 +2784,6 @@ button.small {
 
 /* Trim Modal Styles */
 
-/* Modal Overlay - must be above all other content */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  animation: fadeIn 0.2s ease-in-out;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.song-trim-modal {
-  width: min(900px, 100%);
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  max-height: min(90vh, calc(100vh - 40px));
-  height: auto;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-  z-index: 10000;
-}
 
 .song-trim-content {
   min-height: 0;
@@ -3233,4 +3196,318 @@ button.small {
   margin: 4px 0 0 0;
   font-size: 0.8rem;
   color: var(--text-secondary, #666);
+}
+
+/* Song Trim Modal - uses modal-card as base */
+.song-trim-modal {
+  width: min(900px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.song-trim-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 0 16px 0;
+  border-bottom: 1px solid var(--border-primary);
+  margin-bottom: 16px;
+}
+
+.song-trim-header h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.trim-close-button {
+  background: none;
+  border: none;
+  font-size: 1.3rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 4px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
+  flex-shrink: 0;
+}
+
+.trim-close-button:hover {
+  color: var(--text-primary);
+}
+
+.song-trim-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.trim-video-container {
+  display: flex;
+  justify-content: center;
+}
+
+.trim-video-player {
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 8px;
+}
+
+/* Timeline with markers */
+.trim-timeline-section {
+  padding: 8px 0;
+}
+
+.trim-timeline {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 40px;
+  background: var(--surface-secondary, rgba(0, 0, 0, 0.05));
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid var(--border-primary);
+}
+
+.trim-range {
+  position: absolute;
+  height: 100%;
+  background: rgba(33, 150, 243, 0.3);
+  border-radius: 4px;
+}
+
+.trim-marker {
+  position: absolute;
+  width: 2px;
+  height: 100%;
+  background: #2196f3;
+  top: 0;
+  cursor: col-resize;
+  border-radius: 1px;
+  transition: background 0.2s;
+}
+
+.trim-marker:hover {
+  background: #1976d2;
+  width: 3px;
+}
+
+.trim-marker-start,
+.trim-marker-end {
+  transform: translateX(-50%);
+}
+
+/* Time inputs */
+.trim-time-inputs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 12px;
+  background: var(--surface-secondary, rgba(0, 0, 0, 0.02));
+  border-radius: 8px;
+}
+
+.time-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.time-input-group label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.time-input-group input {
+  padding: 8px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.time-input-group input:disabled {
+  background: var(--surface-secondary, rgba(0, 0, 0, 0.05));
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+/* Messages */
+.trim-error-message {
+  background: #ffebee;
+  color: #c62828;
+  padding: 12px;
+  border-radius: 6px;
+  border-left: 4px solid #c62828;
+  font-size: 0.95rem;
+}
+
+.trim-success-message {
+  background: #e8f5e9;
+  color: #2e7d32;
+  padding: 12px;
+  border-radius: 6px;
+  border-left: 4px solid #2e7d32;
+  font-size: 0.95rem;
+}
+
+/* Action buttons */
+.trim-modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-primary);
+}
+
+.trim-load-history-container {
+  text-align: center;
+}
+
+.btn-primary {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  background: #2196f3;
+  color: white;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #1976d2;
+}
+
+.btn-primary:disabled {
+  background: #90caf9;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn-secondary {
+  padding: 10px 20px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-secondary, rgba(0, 0, 0, 0.05));
+}
+
+.btn-secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #2196f3;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 6px 0;
+  text-decoration: underline;
+  transition: color 0.2s;
+}
+
+.btn-link:hover:not(:disabled) {
+  color: #1976d2;
+}
+
+.btn-link:disabled {
+  color: #90caf9;
+  cursor: not-allowed;
+}
+
+.btn-restore {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  background: #4caf50;
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.btn-restore:hover:not(:disabled) {
+  background: #388e3c;
+}
+
+.btn-restore:disabled {
+  background: #a5d6a7;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Trim history */
+.trim-history {
+  border-top: 1px solid var(--border-primary);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.trim-history h3 {
+  margin: 0 0 12px 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.trim-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.trim-history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: var(--surface-secondary, rgba(0, 0, 0, 0.02));
+  border-radius: 6px;
+  border: 1px solid var(--border-primary);
+  gap: 12px;
+}
+
+.trim-history-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.trim-history-range {
+  margin: 0 0 4px 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.trim-history-meta,
+.trim-history-expires {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }

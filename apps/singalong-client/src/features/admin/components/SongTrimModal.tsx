@@ -139,16 +139,16 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
   const endPercentage = videoDurationMs > 0 ? (endTimeMs / videoDurationMs) * 100 : 0
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="song-trim-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
+    <div className="modal-backdrop song-detail-backdrop" role="presentation" onClick={onClose}>
+      <div className="modal-card song-trim-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="song-trim-header">
           <h2>Trim Video: {song.title}</h2>
-          <button className="close-button" onClick={onClose}>✕</button>
+          <button className="trim-close-button" onClick={onClose} aria-label="Close">✕</button>
         </div>
 
-        <div className="modal-body">
+        <div className="song-trim-content">
           {/* Video Player */}
-          <div className="trim-video-container top-gap">
+          <div className="trim-video-container">
             <video
               ref={videoRef}
               src={`/media/songs/${song.videoFile}`}
@@ -159,7 +159,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
           </div>
 
           {/* Timeline */}
-          <div className="trim-timeline-section top-gap">
+          <div className="trim-timeline-section">
             <div className="trim-timeline" onClick={handleTimelineClick}>
               <div
                 className="trim-range"
@@ -174,7 +174,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
           </div>
 
           {/* Time Inputs */}
-          <div className="trim-time-inputs top-gap">
+          <div className="trim-time-inputs">
             <div className="time-input-group">
               <label>Start Time</label>
               <input
@@ -210,11 +210,11 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
           </div>
 
           {/* Messages */}
-          {errorMessage && <div className="error-message top-gap">{errorMessage}</div>}
-          {successMessage && <div className="success-message top-gap">{successMessage}</div>}
+          {errorMessage && <div className="trim-error-message">{errorMessage}</div>}
+          {successMessage && <div className="trim-success-message">{successMessage}</div>}
 
           {/* Trim Button */}
-          <div className="modal-actions top-gap">
+          <div className="trim-modal-actions">
             <button
               className="btn-primary"
               onClick={handleTrimVideo}
@@ -228,7 +228,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
           </div>
 
           {/* Load History Button */}
-          <div className="top-gap">
+          <div className="trim-load-history-container">
             <button
               className="btn-link"
               onClick={loadTrimHistory}
@@ -240,7 +240,7 @@ export function SongTrimModal({ song, isOpen, auth, onClose, onTrimComplete }: S
 
           {/* Trim History */}
           {trimHistory.length > 0 && (
-            <div className="trim-history top-gap">
+            <div className="trim-history">
               <h3>Trim History</h3>
               <div className="trim-history-list">
                 {trimHistory.map((item) => (
