@@ -181,11 +181,32 @@ def post_session_queue(
     current_user: User = Depends(require_admin_or_guest_user),
 ):
     try:
+        reserved_by = current_user.id
+        requested_nickname = (payload.reserved_for_nickname or "").strip()
+        if requested_nickname != "":
+            if current_user.role != "admin":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only admin can reserve on behalf of another nickname",
+                )
+            target_user = db.query(User).filter(User.username == requested_nickname).first()
+            if target_user is None:
+                target_user = User(username=requested_nickname, role="guest", password_hash=None)
+                db.add(target_user)
+                db.commit()
+                db.refresh(target_user)
+            elif target_user.role != "guest":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Nickname is already in use by non-guest account",
+                )
+            reserved_by = target_user.id
+
         item = reserve_song_in_session(
             db=db,
             session_code=session_code,
             song_id=payload.song_id,
-            reserved_by=current_user.id,
+            reserved_by=reserved_by,
         )
         items = list_session_queue_items(db, session_code)
         anyio.from_thread.run(ws_hub.broadcast_queue_updated, session_code, items)

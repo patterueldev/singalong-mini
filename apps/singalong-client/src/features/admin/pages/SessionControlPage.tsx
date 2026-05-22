@@ -254,6 +254,101 @@ type SessionControlPageProps = {
   onArchiveSession: (sessionId: string) => void
 }
 
+type ReserveSongModalProps = {
+  isOpen: boolean
+  song: SongbookSong | null
+  existingNicknames: string[]
+  isSubmitting: boolean
+  onClose: () => void
+  onSubmit: (nickname: string) => void
+}
+
+function ReserveSongModal({
+  isOpen,
+  song,
+  existingNicknames,
+  isSubmitting,
+  onClose,
+  onSubmit,
+}: ReserveSongModalProps) {
+  const [selectedOption, setSelectedOption] = useState('')
+  const [newNickname, setNewNickname] = useState('')
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedOption('')
+      setNewNickname('')
+    }
+  }, [isOpen])
+
+  if (!isOpen || song === null) {
+    return null
+  }
+
+  const isCreateNew = selectedOption === '__create_new__'
+  const selectedNickname = isCreateNew ? newNickname.trim() : selectedOption.trim()
+  const canSubmit = selectedNickname !== '' && !isSubmitting
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} role="presentation">
+      <section
+        className="modal-card"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Reserve song for user"
+      >
+        <div className="modal-header">
+          <div>
+            <h2>Reserve Song</h2>
+            <p className="subtitle">{song.title}</p>
+          </div>
+          <button type="button" className="secondary" onClick={onClose} disabled={isSubmitting}>
+            Close
+          </button>
+        </div>
+
+        <div className="form top-gap">
+          <label>
+            Select nickname
+            <select
+              value={selectedOption}
+              onChange={(event) => setSelectedOption(event.target.value)}
+              disabled={isSubmitting}
+            >
+              <option value="">Select existing nickname...</option>
+              {existingNicknames.map((nickname) => (
+                <option key={nickname} value={nickname}>
+                  {nickname}
+                </option>
+              ))}
+              <option value="__create_new__">Create New</option>
+            </select>
+          </label>
+          {isCreateNew ? (
+            <label>
+              New nickname
+              <input
+                value={newNickname}
+                onChange={(event) => setNewNickname(event.target.value)}
+                placeholder="Enter nickname"
+                maxLength={50}
+                autoFocus
+              />
+            </label>
+          ) : null}
+        </div>
+
+        <div className="row-actions top-gap">
+          <button type="button" disabled={!canSubmit} onClick={() => onSubmit(selectedNickname)}>
+            {isSubmitting ? 'Reserving…' : 'Reserve'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 export function SessionControlPage({
   auth,
   sessions,
@@ -307,6 +402,9 @@ export function SessionControlPage({
   const [guestJoinQrDataUrl, setGuestJoinQrDataUrl] = useState<string | null>(null)
   const [isGeneratingGuestQr, setIsGeneratingGuestQr] = useState(false)
   const [guestJoinBaseUrl, setGuestJoinBaseUrl] = useState(() => window.location.origin)
+  const [isReserveModalOpen, setIsReserveModalOpen] = useState(false)
+  const [reserveSongTarget, setReserveSongTarget] = useState<SongbookSong | null>(null)
+  const [isSubmittingReserve, setIsSubmittingReserve] = useState(false)
   const [editingSong, setEditingSong] = useState<SongbookSong | null>(null)
   const [editingSongThumbnailDataUrl, setEditingSongThumbnailDataUrl] = useState<string | null>(null)
   const [, setWsMessage] = useState('')
@@ -438,22 +536,48 @@ export function SessionControlPage({
     void refreshParticipants()
   }, [activeSessionCode, refreshQueue, loadSongbook, refreshWorkspace, refreshParticipants])
 
-  const handleReserveSong = useCallback(async (songId: string) => {
+  const handleReserveSong = useCallback(async (songId: string, reservedForNickname: string) => {
     if (activeSessionCode === null || songId === '') {
       return
     }
+    const normalizedNickname = reservedForNickname.trim()
+    if (normalizedNickname === '') {
+      return
+    }
     setWsMessage('')
+    setIsSubmittingReserve(true)
     try {
-      await reserveSessionQueueSong(activeSessionCode, songId, auth.accessToken)
+      await reserveSessionQueueSong(activeSessionCode, songId, auth.accessToken, normalizedNickname)
       await refreshQueue()
       await loadSongbook()
       await refreshParticipants()
       setWsMessage('Song reserved.')
+      setIsReserveModalOpen(false)
+      setReserveSongTarget(null)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to reserve song'
       setWsMessage(message)
+    } finally {
+      setIsSubmittingReserve(false)
     }
   }, [activeSessionCode, auth.accessToken, loadSongbook, refreshParticipants, refreshQueue])
+
+  const reserveNicknameOptions = useMemo(() => {
+    const usernames = new Set<string>()
+    participants.forEach((participant) => {
+      const normalized = participant.username.trim()
+      if (normalized !== '') {
+        usernames.add(normalized)
+      }
+    })
+    queueItems.forEach((item) => {
+      const normalized = (item.reservedByUsername ?? '').trim()
+      if (normalized !== '') {
+        usernames.add(normalized)
+      }
+    })
+    return Array.from(usernames).sort((a, b) => a.localeCompare(b))
+  }, [participants, queueItems])
 
   const handleSaveSessionVibes = useCallback(async () => {
     if (session === null) {
@@ -1148,7 +1272,8 @@ export function SessionControlPage({
                       }}
                       onReserve={() => {
                         setActiveSongMenuId(null)
-                        void handleReserveSong(song.id)
+                        setReserveSongTarget(song)
+                        setIsReserveModalOpen(true)
                       }}
                       onEditDetails={() => void handleOpenSongEditor(song.id)}
                       badge={
@@ -1256,6 +1381,25 @@ export function SessionControlPage({
           retryingSongIds={retryingDownloadSongIds}
           onClose={() => setIsDownloadsModalOpen(false)}
           onRetryDownload={handleRetryDownload}
+        />
+        <ReserveSongModal
+          isOpen={isReserveModalOpen}
+          song={reserveSongTarget}
+          existingNicknames={reserveNicknameOptions}
+          isSubmitting={isSubmittingReserve}
+          onClose={() => {
+            if (isSubmittingReserve) {
+              return
+            }
+            setIsReserveModalOpen(false)
+            setReserveSongTarget(null)
+          }}
+          onSubmit={(nickname) => {
+            if (reserveSongTarget === null) {
+              return
+            }
+            void handleReserveSong(reserveSongTarget.id, nickname)
+          }}
         />
       </section>
 
