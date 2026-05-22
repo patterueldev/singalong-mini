@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from ..agents.orchestrator import OrchestratorAgent
 from ..config import settings
 from ..db import get_db
-from ..models import Session as KaraokeSession, Song, SongDownload, SongQueue, User
+from ..models import Session as KaraokeSession, Song, SongDownload, SongQueue, SongTrimHistory, User
 from ..schemas import (
     SongDownloadListResponse,
     SongbookItem,
@@ -39,6 +39,12 @@ from ..schemas import (
     SongSuggestSuggestionsResponse,
     SongSuggestUpdateRequest,
     SongSuggestUpdateResponse,
+    TrimHistoryItem,
+    TrimHistoryListResponse,
+    TrimRestoreRequest,
+    TrimRestoreResponse,
+    TrimSongRequest,
+    TrimSongResponse,
 )
 from ..services.auth import get_current_user, require_admin_or_guest_user, require_admin_user
 from ..services.download_queue import list_active_download_items
@@ -47,6 +53,7 @@ from ..services.song_quality import assess_song_quality
 from ..services.ytdlp.naming import normalize_song_title
 from ..services.songs_download import extract_youtube_video_id, run_song_download
 from ..services.sessions import get_active_session_by_code
+from ..services.songs import cleanup_expired_archives, restore_backup, trim_video
 
 router = APIRouter(prefix="/api/songs", tags=["songs"])
 logger = logging.getLogger(__name__)
@@ -1073,3 +1080,123 @@ def archive_song(
     song.last_modified_by = current_user.id
     db.commit()
     return SongArchiveResponse(message="Song archived")
+
+
+@router.post("/{song_id}/trim", response_model=TrimSongResponse, status_code=status.HTTP_200_OK)
+def trim_song(
+    song_id: uuid.UUID,
+    request: TrimSongRequest,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Trim a song video.
+    
+    Requires admin role.
+    """
+    result = trim_video(
+        db=db,
+        song_id=song_id,
+        trim_start_ms=request.trim_start_ms,
+        trim_end_ms=request.trim_end_ms,
+        admin_id=current_user.id,
+        backup_expiry_days=30,
+    )
+
+    if result.get("status") == "failed":
+        error_msg = result.get("error", "Unknown error")
+        if "trim_start_ms" in error_msg or "trim_end_ms" in error_msg or "Trimmed duration" in error_msg:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg)
+        elif "not found" in error_msg.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=error_msg)
+        else:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_msg)
+
+    return TrimSongResponse(
+        song_id=result["song_id"],
+        trim_start_ms=result["trim_start_ms"],
+        trim_end_ms=result["trim_end_ms"],
+        old_duration_ms=result.get("old_duration_ms"),
+        new_duration_ms=result["new_duration_ms"],
+        backup_file=result["backup_file"],
+        backup_expires_at=result["backup_expires_at"],
+        status=result["status"],
+    )
+
+
+@router.post(
+    "/{song_id}/trim/restore",
+    response_model=TrimRestoreResponse,
+    status_code=status.HTTP_200_OK,
+)
+def restore_trim(
+    song_id: uuid.UUID,
+    request: TrimRestoreRequest,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Restore a trimmed song from backup.
+    
+    Requires admin role.
+    """
+    result = restore_backup(
+        db=db,
+        trim_history_id=request.trim_history_id,
+        admin_id=current_user.id,
+    )
+
+    if result.get("status") == "failed":
+        message = result.get("message", "Unknown error")
+        if "not found" in message.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
+        else:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=message)
+
+    return TrimRestoreResponse(
+        status=result["status"],
+        message=result["message"],
+    )
+
+
+@router.get("/{song_id}/trim-history", response_model=TrimHistoryListResponse)
+def get_trim_history(
+    song_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get trim history for a song.
+    
+    Requires authentication.
+    """
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    histories = (
+        db.query(SongTrimHistory)
+        .filter(SongTrimHistory.song_id == song_id)
+        .order_by(SongTrimHistory.created_at.desc())
+        .all()
+    )
+
+    items = []
+    for history in histories:
+        # can_restore: true if status is completed or restored, and not already restored
+        can_restore = history.status == "completed"
+        items.append(
+            TrimHistoryItem(
+                id=history.id,
+                trim_start_ms=history.trim_start_ms,
+                trim_end_ms=history.trim_end_ms,
+                old_duration_ms=history.old_duration_ms,
+                new_duration_ms=history.new_duration_ms,
+                status=history.status,
+                backup_expires_at=history.backup_expires_at,
+                created_at=history.created_at,
+                can_restore=can_restore,
+            )
+        )
+
+    return TrimHistoryListResponse(items=items)

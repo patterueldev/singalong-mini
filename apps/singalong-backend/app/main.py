@@ -202,6 +202,17 @@ async def on_startup():
                 conn.execute(text("ALTER TABLE song_queue ADD COLUMN playback_volume_pct INTEGER"))
             if "playback_is_playing" not in queue_columns:
                 conn.execute(text("ALTER TABLE song_queue ADD COLUMN playback_is_playing BOOLEAN"))
+    if inspector.has_table("songs"):
+        songs_columns = {column["name"] for column in inspector.get_columns("songs")}
+        with engine.begin() as conn:
+            if "trim_start_ms" not in songs_columns:
+                conn.execute(text("ALTER TABLE songs ADD COLUMN trim_start_ms INTEGER"))
+            if "trim_end_ms" not in songs_columns:
+                conn.execute(text("ALTER TABLE songs ADD COLUMN trim_end_ms INTEGER"))
+            if "was_trimmed" not in songs_columns:
+                conn.execute(text("ALTER TABLE songs ADD COLUMN was_trimmed BOOLEAN DEFAULT FALSE"))
+            if "trimmed_at" not in songs_columns:
+                conn.execute(text("ALTER TABLE songs ADD COLUMN trimmed_at TIMESTAMP WITH TIME ZONE"))
     seed_admin_user()
     ws_hub.bind_event_loop(asyncio.get_running_loop())
 
@@ -211,7 +222,19 @@ async def on_startup():
     from .config import settings
     from .db import SessionLocal
     from .services.song_downloader_service import get_downloader, initialize_downloader
+    from .tasks.trim_cleanup_task import start_cleanup_scheduler
 
     media_dir = Path(settings.media_root_dir)
     initialize_downloader(media_dir, SessionLocal, settings.ytdlp_cookies_file)
     get_downloader().recover_pending_downloads()
+
+    # Start trim archive cleanup scheduler
+    start_cleanup_scheduler()
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """Shutdown event handler."""
+    from .tasks.trim_cleanup_task import stop_cleanup_scheduler
+
+    stop_cleanup_scheduler()

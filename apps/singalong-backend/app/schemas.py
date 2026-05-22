@@ -364,3 +364,48 @@ class SongDownloadItem(BaseModel):
 
 class SongDownloadListResponse(BaseModel):
     items: list[SongDownloadItem]
+
+
+class TrimSongRequest(BaseModel):
+    trim_start_ms: int
+    trim_end_ms: int
+
+
+class TrimSongResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    song_id: UUID
+    trim_start_ms: int
+    trim_end_ms: int
+    old_duration_ms: int | None
+    new_duration_ms: int
+    backup_file: str
+    backup_expires_at: datetime
+    status: str
+
+
+class TrimHistoryItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    trim_start_ms: int
+    trim_end_ms: int
+    old_duration_ms: int | None
+    new_duration_ms: int | None
+    status: str
+    backup_expires_at: datetime | None
+    created_at: datetime
+    can_restore: bool
+
+
+class TrimHistoryListResponse(BaseModel):
+    items: list[TrimHistoryItem]
+
+
+class TrimRestoreRequest(BaseModel):
+    trim_history_id: UUID
+
+
+class TrimRestoreResponse(BaseModel):
+    status: str
+    message: str
