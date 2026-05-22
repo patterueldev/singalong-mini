@@ -15,6 +15,7 @@ from ...config import settings
 logger = logging.getLogger(__name__)
 
 MEDIA_ROOT = Path(settings.media_root_dir)
+SONGS_DIR = MEDIA_ROOT / "songs"
 ARCHIVE_ROOT = MEDIA_ROOT / "archive"
 
 
@@ -95,7 +96,7 @@ def trim_video(
             "song_id": song_id,
         }
 
-    video_path = MEDIA_ROOT / song.video_file
+    video_path = SONGS_DIR / song.video_file
     if not video_path.exists():
         return {
             "status": "failed",
@@ -104,7 +105,8 @@ def trim_video(
         }
 
     # Validate trim points
-    current_duration_ms = song.duration or 0
+    # Note: song.duration is in seconds, but trim parameters are in milliseconds
+    current_duration_ms = (song.duration or 0) * 1000
     if trim_start_ms < 0:
         return {
             "status": "failed",
@@ -180,9 +182,11 @@ def trim_video(
         # Run FFmpeg to trim
         start_sec = trim_start_ms / 1000.0
         end_sec = trim_end_ms / 1000.0
-        output_path = str(video_path)
+        
+        # Create temporary output file (FFmpeg can't overwrite input in-place)
+        temp_output_path = video_path.parent / f"{video_path.stem}_temp.mp4"
 
-        logger.info(f"Trimming video: {output_path} from {start_sec}s to {end_sec}s")
+        logger.info(f"Trimming video: {video_path} from {start_sec}s to {end_sec}s")
         result = subprocess.run(
             [
                 "ffmpeg",
@@ -197,7 +201,7 @@ def trim_video(
                 "-c:a",
                 "copy",
                 "-y",
-                output_path,
+                str(temp_output_path),
             ],
             capture_output=True,
             text=True,
@@ -206,8 +210,9 @@ def trim_video(
 
         if result.returncode != 0:
             logger.error(f"FFmpeg failed: {result.stderr}")
-            # Delete backup on failure
+            # Delete temporary file if it was created
             try:
+                temp_output_path.unlink()
                 backup_path.unlink()
                 db.delete(archive_record)
             except Exception as e:
@@ -223,18 +228,38 @@ def trim_video(
                 "song_id": song_id,
             }
 
+        # Move temporary file to original location
+        try:
+            shutil.move(str(temp_output_path), str(video_path))
+        except Exception as e:
+            logger.error(f"Failed to move trimmed file: {e}")
+            try:
+                temp_output_path.unlink()
+                backup_path.unlink()
+                db.delete(archive_record)
+            except:
+                pass
+            history_record.status = "failed"
+            history_record.error_message = f"Failed to save trimmed file: {str(e)[:500]}"
+            db.commit()
+            return {
+                "status": "failed",
+                "error": "Failed to save trimmed file",
+                "song_id": song_id,
+            }
+
         # Get new duration
-        new_duration_ms = _get_video_duration_ms(output_path)
+        new_duration_ms = _get_video_duration_ms(str(video_path))
         if new_duration_ms is None:
             logger.warning("Could not determine new duration, using calculated value")
             new_duration_ms = trim_end_ms - trim_start_ms
 
-        # Update song
+        # Update song (duration should be stored in seconds)
         song.trim_start_ms = trim_start_ms
         song.trim_end_ms = trim_end_ms
         song.was_trimmed = True
         song.trimmed_at = datetime.now(timezone.utc)
-        song.duration = new_duration_ms
+        song.duration = new_duration_ms // 1000  # Convert ms to seconds
         song.updated_at = datetime.now(timezone.utc)
 
         # Update history record
@@ -315,7 +340,7 @@ def restore_backup(
         if not backup_file_path.exists():
             return {"status": "failed", "message": "Backup file not found"}
 
-        original_video_path = MEDIA_ROOT / song.video_file
+        original_video_path = SONGS_DIR / song.video_file
         if not original_video_path:
             return {"status": "failed", "message": "Original video path not set"}
 
@@ -332,12 +357,12 @@ def restore_backup(
             )
             restored_duration_ms = history.old_duration_ms or 0
 
-        # Reset song trim fields
+        # Reset song trim fields (duration should be stored in seconds)
         song.trim_start_ms = None
         song.trim_end_ms = None
         song.was_trimmed = False
         song.trimmed_at = None
-        song.duration = restored_duration_ms
+        song.duration = restored_duration_ms // 1000  # Convert ms to seconds
         song.updated_at = datetime.now(timezone.utc)
 
         # Update history record
