@@ -14,13 +14,18 @@ type SuggestSearchPageProps = {
   onChangeNickname: () => void
   onIdentify: (sourceUrl: string) => void
   searchPath?: string
-  identifyPath?: string
   backToSongbookPath?: string
   backToSongbookLabel?: string
   showChangeNicknameAction?: boolean
   singlePageUrlIdentify?: boolean
   onIdentifyDraft?: (draft: SuggestDraft) => void
   updatePath?: string
+  title?: string
+  hideSearchLabel?: boolean
+  searchInputPlaceholder?: string
+  showCloseAction?: boolean
+  closeActionLabel?: string
+  showSignedIn?: boolean
 }
 
 function SkeletonSongItem() {
@@ -52,13 +57,18 @@ export function SuggestSearchPage({
   onChangeNickname,
   onIdentify,
   searchPath = '/songbook/suggest/search',
-  identifyPath = '/songbook/suggest/identify',
   updatePath = '/songbook/suggest/update',
   backToSongbookPath = '/songbook',
   backToSongbookLabel = 'Back to Songbook',
   showChangeNicknameAction = true,
   singlePageUrlIdentify = false,
   onIdentifyDraft,
+  title = 'Suggest · Search YouTube',
+  hideSearchLabel = false,
+  searchInputPlaceholder,
+  showCloseAction = false,
+  closeActionLabel = 'Close',
+  showSignedIn = true,
 }: SuggestSearchPageProps) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -274,33 +284,61 @@ export function SuggestSearchPage({
   return (
     <main className="app-shell">
       <section className="card">
-        <h1>Suggest · Search YouTube</h1>
-        <p className="subtitle">Signed in as <strong>{nickname}</strong></p>
-        <div className="row-actions top-gap">
-          {showChangeNicknameAction ? (
-            <button type="button" className="secondary" onClick={onChangeNickname}>
-              Change Nickname
+        <div className="suggest-search-header">
+          <h1>{title}</h1>
+          {showCloseAction ? (
+            <button
+              type="button"
+              className="icon-control-button"
+              title={closeActionLabel}
+              aria-label={closeActionLabel}
+              onClick={() => {
+                if (query.trim() !== '' || results.length > 0) {
+                  const shouldLeave = window.confirm(
+                    'Cancel this suggestion and go back to songbook?',
+                  )
+                  if (!shouldLeave) {
+                    return
+                  }
+                }
+                onCancel()
+                navigate(backToSongbookPath)
+              }}
+            >
+              <span className="material-symbols-outlined" aria-hidden="true">close</span>
             </button>
           ) : null}
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => {
-              if (query.trim() !== '' || results.length > 0) {
-                const shouldLeave = window.confirm(
-                  'Cancel this suggestion and go back to songbook?',
-                )
-                if (!shouldLeave) {
-                  return
-                }
-              }
-              onCancel()
-              navigate(backToSongbookPath)
-            }}
-          >
-            {backToSongbookLabel}
-          </button>
         </div>
+        {showSignedIn ? <p className="subtitle">Signed in as <strong>{nickname}</strong></p> : null}
+        {showChangeNicknameAction || !showCloseAction ? (
+          <div className="row-actions top-gap">
+            {showChangeNicknameAction ? (
+              <button type="button" className="secondary" onClick={onChangeNickname}>
+                Change Nickname
+              </button>
+            ) : null}
+            {!showCloseAction ? (
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  if (query.trim() !== '' || results.length > 0) {
+                    const shouldLeave = window.confirm(
+                      'Cancel this suggestion and go back to songbook?',
+                    )
+                    if (!shouldLeave) {
+                      return
+                    }
+                  }
+                  onCancel()
+                  navigate(backToSongbookPath)
+                }}
+              >
+                {backToSongbookLabel}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <form
           className="form top-gap"
           onSubmit={(event) => {
@@ -315,26 +353,20 @@ export function SuggestSearchPage({
               }
               return
             }
-            const normalized = normalizeSuggestQuery(query)
-            if (normalized.effectiveQuery === '') {
-              setQueryInfo('Please enter a search query.')
-              setResults([])
-              setEffectiveQuery('')
-              return
-            }
-            navigate({
-              pathname: searchPath,
-              search: `?keyword=${encodeURIComponent(query.trim())}`,
-            })
             executeSearch(query)
           }}
         >
           <label>
-            {singlePageUrlIdentify ? 'Search query or YouTube URL' : 'Search query'}
+            {hideSearchLabel ? (
+              <span className="sr-only">Search query or YouTube URL</span>
+            ) : (
+              singlePageUrlIdentify ? 'Search query or YouTube URL' : 'Search query'
+            )}
             <input
+              className={hideSearchLabel ? 'suggest-search-input-flat' : undefined}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={singlePageUrlIdentify ? 'Enter song keyword or URL' : 'song title'}
+              placeholder={searchInputPlaceholder ?? (singlePageUrlIdentify ? 'Enter song keyword or URL' : 'song title')}
               required={!singlePageUrlIdentify}
             />
           </label>
@@ -342,13 +374,6 @@ export function SuggestSearchPage({
             <div className="row-actions">
               <button type="submit" disabled={isSearching}>
                 {isSearching ? 'Searching…' : 'Search'}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => navigate(identifyPath)}
-              >
-                Paste URL Instead
               </button>
             </div>
           ) : null}

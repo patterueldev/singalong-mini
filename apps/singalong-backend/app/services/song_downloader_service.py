@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DBSession
 
-from ..models import Song, SongDownload
+from ..models import Song, SongDownload, User
 from ..services.session_queue import (
     SessionQueueNotFoundError,
     SessionQueueValidationError,
@@ -547,15 +547,32 @@ class SongDownloaderService:
 
         session_code = reserve_intent.get("session_code")
         reserved_by = reserve_intent.get("reserved_by")
-        if not isinstance(session_code, str) or not isinstance(reserved_by, str):
+        reserved_for_nickname = reserve_intent.get("reserved_for_nickname")
+        if not isinstance(session_code, str):
             return
 
         try:
+            reserved_by_uuid = None
+            if isinstance(reserved_for_nickname, str) and reserved_for_nickname.strip() != "":
+                nickname = reserved_for_nickname.strip()
+                target_user = db.scalar(select(User).where(User.username == nickname))
+                if target_user is None:
+                    target_user = User(username=nickname, role="guest", password_hash=None)
+                    db.add(target_user)
+                    db.commit()
+                    db.refresh(target_user)
+                elif target_user.role != "guest":
+                    raise ValueError("Nickname is already in use by non-guest account")
+                reserved_by_uuid = target_user.id
+            elif isinstance(reserved_by, str):
+                reserved_by_uuid = UUID(reserved_by)
+            if reserved_by_uuid is None:
+                return
             reserve_song_in_session(
                 db=db,
                 session_code=session_code,
                 song_id=song_id,
-                reserved_by=UUID(reserved_by),
+                reserved_by=reserved_by_uuid,
             )
             queue_items = list_session_queue_items(db, session_code)
             ws_hub.broadcast_queue_updated_threadsafe(session_code, queue_items)

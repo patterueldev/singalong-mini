@@ -178,6 +178,7 @@ class SongSuggestDownloadRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     lyrics: str = Field(default="", max_length=20000)
     reserve_session_code: str | None = Field(default=None, min_length=6, max_length=6)
+    reserved_for_nickname: str | None = Field(default=None, min_length=1, max_length=50)
 
 
 class SongSuggestDownloadResponse(BaseModel):
@@ -291,6 +292,7 @@ class SongbookItem(BaseModel):
     title: str
     artist: str
     status: str
+    created_at: datetime
     duration: str
     language: str | None
     genre: str | None
@@ -300,6 +302,8 @@ class SongbookItem(BaseModel):
     source_url: str | None
     video_file: str | None = None
     lyrics: str | None = None
+    is_off_vocal: bool = False
+    video_has_lyrics: bool = False
     added_by_username: str | None = None
     queued_count_in_session: int = 0
     was_queued_in_session: bool = False
@@ -315,6 +319,8 @@ class SongAdminUpdateRequest(BaseModel):
     genre: str | None = Field(default=None, max_length=100)
     tags: list[str] = Field(default_factory=list)
     lyrics: str | None = Field(default=None, max_length=20000)
+    is_off_vocal: bool = False
+    video_has_lyrics: bool = False
     source_thumbnail_data_url: str | None = Field(default=None, max_length=1000000)
 
 

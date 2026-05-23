@@ -33,6 +33,8 @@ export interface AdminService {
       genre: string | null
       tags: string[]
       lyrics: string | null
+      is_off_vocal: boolean
+      video_has_lyrics: boolean
       source_thumbnail_data_url?: string | null
     },
   ) => Promise<SongbookSong>
@@ -58,10 +60,11 @@ export interface AdminService {
 }
 
 function mapSong(raw: {
-  id: string; title: string; artist: string; status: string; duration: string
+  id: string; title: string; artist: string; status: string; created_at: string; duration: string
   language: string | null; genre: string | null; tags: string[]
   thumbnail_url: string | null; source_id: string | null; source_url: string | null
   video_file: string | null; lyrics: string | null; added_by_username: string | null
+  is_off_vocal?: boolean; video_has_lyrics?: boolean
   queued_count_in_session?: number; was_queued_in_session?: boolean
   quality_score?: number; quality_flags?: SongQualityFlag[]
   validated_by_admin?: boolean
@@ -71,6 +74,7 @@ function mapSong(raw: {
     title: raw.title,
     artist: raw.artist,
     status: raw.status,
+    addedAt: raw.created_at,
     duration: raw.duration,
     language: raw.language,
     genre: raw.genre,
@@ -80,6 +84,8 @@ function mapSong(raw: {
     sourceUrl: raw.source_url,
     videoFile: raw.video_file,
     lyrics: raw.lyrics,
+    isOffVocal: raw.is_off_vocal === true,
+    videoHasLyrics: raw.video_has_lyrics === true,
     addedByUsername: raw.added_by_username,
     queuedCountInSession: typeof raw.queued_count_in_session === 'number' ? raw.queued_count_in_session : 0,
     wasQueuedInSession: raw.was_queued_in_session === true,
@@ -105,10 +111,11 @@ export async function fetchSongbook(
   }
   const raw = await apiJson<{
     items: Array<{
-      id: string; title: string; artist: string; status: string; duration: string
+      id: string; title: string; artist: string; status: string; created_at: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
+      is_off_vocal?: boolean; video_has_lyrics?: boolean
       queued_count_in_session?: number; was_queued_in_session?: boolean
       quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
     }>
@@ -138,10 +145,11 @@ export async function searchSongbook(
   }
   const raw = await apiJson<{
     items: Array<{
-      id: string; title: string; artist: string; status: string; duration: string
+      id: string; title: string; artist: string; status: string; created_at: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
+      is_off_vocal?: boolean; video_has_lyrics?: boolean
       queued_count_in_session?: number; was_queued_in_session?: boolean
       quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
     }>
@@ -164,10 +172,11 @@ export async function fetchSongDetail(id: string, sessionCode?: string, sessionI
   }
   const suffix = params.toString()
   const raw = await apiJson<{
-    id: string; title: string; artist: string; status: string; duration: string
+    id: string; title: string; artist: string; status: string; created_at: string; duration: string
     language: string | null; genre: string | null; tags: string[]
     thumbnail_url: string | null; source_id: string | null; source_url: string | null
     video_file: string | null; lyrics: string | null; added_by_username: string | null
+    is_off_vocal?: boolean; video_has_lyrics?: boolean
     queued_count_in_session?: number; was_queued_in_session?: boolean
     quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
   }>(`/songs/${id}${suffix ? `?${suffix}` : ''}`)
@@ -249,10 +258,11 @@ export async function updateSongAdminDetails(
 ): Promise<SongbookSong> {
   const raw = await apiJson<{
     item: {
-      id: string; title: string; artist: string; status: string; duration: string
+      id: string; title: string; artist: string; status: string; created_at: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
+      is_off_vocal?: boolean; video_has_lyrics?: boolean
       queued_count_in_session?: number; was_queued_in_session?: boolean
       quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
     }
@@ -280,10 +290,11 @@ export async function setSongValidation(
 ): Promise<SongbookSong> {
   const raw = await apiJson<{
     item: {
-      id: string; title: string; artist: string; status: string; duration: string
+      id: string; title: string; artist: string; status: string; created_at: string; duration: string
       language: string | null; genre: string | null; tags: string[]
       thumbnail_url: string | null; source_id: string | null; source_url: string | null
       video_file: string | null; lyrics: string | null; added_by_username: string | null
+      is_off_vocal?: boolean; video_has_lyrics?: boolean
       queued_count_in_session?: number; was_queued_in_session?: boolean
       quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
     }

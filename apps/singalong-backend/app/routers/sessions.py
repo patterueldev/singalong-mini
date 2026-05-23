@@ -195,10 +195,10 @@ def post_session_queue(
                 db.add(target_user)
                 db.commit()
                 db.refresh(target_user)
-            elif target_user.role != "guest":
+            elif target_user.role != "guest" and target_user.id != current_user.id:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="Nickname is already in use by non-guest account",
+                    detail="Nickname is already in use by another non-guest account",
                 )
             reserved_by = target_user.id
 

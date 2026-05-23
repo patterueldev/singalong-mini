@@ -197,11 +197,17 @@ def suggest_song_download(
 
     try:
         reserve_session_code = (payload.reserve_session_code or "").strip()
+        requested_nickname = (payload.reserved_for_nickname or "").strip()
         reserve_session = None
         if reserve_session_code != "":
             reserve_session = get_active_session_by_code(db, reserve_session_code)
             if reserve_session is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        if requested_nickname != "" and user.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admin can reserve on behalf of another nickname",
+            )
 
         # Upsert: reuse existing record if same source_id exists
         existing = (
@@ -232,10 +238,12 @@ def suggest_song_download(
             existing.published_at = None
             metadata = _parse_song_extra_metadata(existing.extra_metadata)
             if reserve_session is not None:
-                metadata["reserve_intent"] = {
-                    "session_code": reserve_session.session_code,
-                    "reserved_by": str(user.id),
-                }
+                reserve_intent = {"session_code": reserve_session.session_code}
+                if requested_nickname != "":
+                    reserve_intent["reserved_for_nickname"] = requested_nickname
+                else:
+                    reserve_intent["reserved_by"] = str(user.id)
+                metadata["reserve_intent"] = reserve_intent
             else:
                 metadata.pop("reserve_intent", None)
             existing.extra_metadata = json.dumps(metadata) if metadata else None
@@ -261,12 +269,14 @@ def suggest_song_download(
                 status="downloading",
             )
             if reserve_session is not None:
+                reserve_intent = {"session_code": reserve_session.session_code}
+                if requested_nickname != "":
+                    reserve_intent["reserved_for_nickname"] = requested_nickname
+                else:
+                    reserve_intent["reserved_by"] = str(user.id)
                 song.extra_metadata = json.dumps(
                     {
-                        "reserve_intent": {
-                            "session_code": reserve_session.session_code,
-                            "reserved_by": str(user.id),
-                        }
+                        "reserve_intent": reserve_intent
                     }
                 )
             db.add(song)
@@ -292,6 +302,8 @@ def suggest_song_download(
             message="Song download queued",
             song_id=str(song.id),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[ENDPOINT] Error: {e}", flush=True)
         raise HTTPException(
@@ -779,6 +791,7 @@ def _song_to_item(
         title=song.title,
         artist=song.artist,
         status=song.status,
+        created_at=song.created_at,
         duration=_format_duration(song.duration),
         language=song.language,
         genre=song.genre,
@@ -788,6 +801,8 @@ def _song_to_item(
         source_url=song.source_url,
         video_file=song.video_file,
         lyrics=song.lyrics,
+        is_off_vocal=song.is_off_vocal,
+        video_has_lyrics=song.has_lyrics,
         added_by_username=added_by_username,
         queued_count_in_session=queued_count_in_session,
         was_queued_in_session=queued_count_in_session > 0,
@@ -973,6 +988,8 @@ def patch_song(
     song.genre = payload.genre.strip() if isinstance(payload.genre, str) and payload.genre.strip() != "" else None
     song.tags = ",".join([entry.strip() for entry in payload.tags if entry.strip() != ""]) or None
     song.lyrics = payload.lyrics.strip() if isinstance(payload.lyrics, str) and payload.lyrics.strip() != "" else None
+    song.is_off_vocal = payload.is_off_vocal
+    song.has_lyrics = payload.video_has_lyrics
     song.last_modified_by = current_user.id
     metadata = _parse_song_extra_metadata(song.extra_metadata)
     metadata.pop("validated_by_admin", None)

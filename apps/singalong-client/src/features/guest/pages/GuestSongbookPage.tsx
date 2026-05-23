@@ -4,8 +4,14 @@ import { adminService } from '../../admin/services/adminService'
 import { useGuestSession } from '../hooks/useGuestSession'
 import { guestReserveSong } from '../services/guestService'
 import { isValidSessionCode } from '../../../shared/lib/validation'
-import { formatLanguageLabel } from '../../../shared/lib/format'
-import type { SongbookSong } from '../../../shared/types/client'
+import type { SongbookSong, SuggestDraft } from '../../../shared/types/client'
+import { SongDetailsModal } from '../../songbook/components/SongDetailsModal'
+import { GuestSuggestSearchRoute, GuestSuggestUpdateRoute } from './GuestSuggestPages'
+import {
+  clearSuggestDraft,
+  readSuggestDraft,
+  saveSuggestDraft,
+} from '../../../shared/storage/suggestStorage'
 
 type GuestSongDetailModalProps = {
   songId: string
@@ -69,89 +75,16 @@ function GuestSongDetailModal({
   }
 
   return (
-    <div className="modal-backdrop song-detail-backdrop" role="presentation" onClick={onClose}>
-      <section
-        className="modal-card song-detail-modal guest-song-detail-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={song?.title ?? 'Song details'}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="row-actions guest-song-detail-top-actions">
-          <button type="button" disabled={isReserving || isLoading || song === null} onClick={() => void handleReserve()}>
-            {isReserving ? 'Reserving…' : 'Reserve'}
-          </button>
-          <button type="button" className="icon-control-button" aria-label="Close song details" onClick={onClose}>
-            <span className="material-symbols-outlined" aria-hidden="true">close</span>
-          </button>
-        </div>
-
-        <div className="guest-song-detail-scroll">
-          {isLoading ? (
-            <p className="empty-state top-gap">Loading song details…</p>
-          ) : errorMessage !== '' ? (
-            <p className="error-message top-gap">{errorMessage}</p>
-          ) : song !== null ? (
-            <div className="song-detail-layout">
-              <div className="song-detail-video-panel">
-                {song.videoFile ? (
-                  <video controls className="song-detail-video" src={`/media/songs/${song.videoFile}`} />
-                ) : (
-                  <p className="empty-state">Video not available.</p>
-                )}
-              </div>
-
-              <div className="song-detail-summary-panel">
-                <div className="song-detail-header-row">
-                  {song.thumbnailUrl ? (
-                    <img className="song-detail-thumbnail song-detail-thumbnail--small" src={song.thumbnailUrl} alt={song.title} />
-                  ) : (
-                    <div className="song-detail-thumbnail song-detail-thumbnail--small song-detail-thumbnail--placeholder" />
-                  )}
-                  <div className="song-detail-meta">
-                    <h2 className="song-detail-title">{song.title}</h2>
-                    <p className="subtitle">{song.artist}</p>
-                  </div>
-                </div>
-
-                <dl className="song-detail-grid top-gap">
-                  <div>
-                    <dt>Language</dt>
-                    <dd>{formatLanguageLabel(song.language)}</dd>
-                  </div>
-                  <div>
-                    <dt>Genre</dt>
-                    <dd>{song.genre ?? '—'}</dd>
-                  </div>
-                  <div className="song-detail-grid-wide">
-                    <dt>Duration</dt>
-                    <dd>{song.duration}</dd>
-                  </div>
-                </dl>
-
-                <div className="song-detail-chips top-gap">
-                  {song.language ? <span className="chip-badge">{formatLanguageLabel(song.language)}</span> : null}
-                  {song.genre ? <span className="chip-badge">{song.genre}</span> : null}
-                  {song.duration ? <span className="chip-badge">{song.duration}</span> : null}
-                  {song.tags.map((tag) => (
-                    <span key={tag} className="chip-badge chip-badge--tag">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="song-detail-lyrics-panel">
-                <h3>Lyrics</h3>
-                <p className="song-detail-lyrics">
-                  {song.lyrics !== null && song.lyrics.trim() !== '' ? song.lyrics : 'No lyrics available.'}
-                </p>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </section>
-    </div>
+    <SongDetailsModal
+      isOpen
+      song={song}
+      isLoading={isLoading}
+      errorMessage={errorMessage}
+      onClose={onClose}
+      onReserve={() => void handleReserve()}
+      isReserving={isReserving}
+      reserveDisabled={song === null}
+    />
   )
 }
 
@@ -167,11 +100,21 @@ export function GuestSongbookPage() {
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [activeSongId, setActiveSongId] = useState<string | null>(null)
+  const [isSuggestModalOpen, setIsSuggestModalOpen] = useState(false)
+  const [suggestDraft, setSuggestDraft] = useState<SuggestDraft | null>(() => readSuggestDraft())
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300)
     return () => window.clearTimeout(timer)
   }, [query])
+
+  useEffect(() => {
+    if (suggestDraft === null) {
+      clearSuggestDraft()
+      return
+    }
+    saveSuggestDraft(suggestDraft)
+  }, [suggestDraft])
 
   useEffect(() => {
     setPage(1)
@@ -241,7 +184,7 @@ export function GuestSongbookPage() {
                 className="icon-control-button"
                 aria-label="Suggest a song"
                 title="Suggest a song"
-                onClick={() => navigate('/guest/songbook/suggest/search')}
+                onClick={() => setIsSuggestModalOpen(true)}
               >
                 <span className="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
               </button>
@@ -271,7 +214,7 @@ export function GuestSongbookPage() {
                   <button
                     type="button"
                     className="secondary"
-                    onClick={() => navigate(`/guest/songbook/suggest/search?keyword=${encodeURIComponent(trimmedQuery)}`)}
+                    onClick={() => setIsSuggestModalOpen(true)}
                   >
                     Suggest
                   </button>
@@ -356,6 +299,37 @@ export function GuestSongbookPage() {
             navigate('/guest/home', { replace: true })
           }}
         />
+      ) : null}
+
+      {isSuggestModalOpen && suggestDraft === null ? (
+        <div className="modal-backdrop guest-songbook-suggest-backdrop" role="presentation" onClick={() => setIsSuggestModalOpen(false)}>
+          <div role="presentation" onClick={(event) => event.stopPropagation()}>
+            <GuestSuggestSearchRoute
+              onIdentifyDraft={setSuggestDraft}
+              onCancel={() => setIsSuggestModalOpen(false)}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {isSuggestModalOpen && suggestDraft !== null ? (
+        <div className="modal-backdrop guest-songbook-suggest-backdrop" role="presentation" onClick={() => setIsSuggestModalOpen(false)}>
+          <div role="presentation" onClick={(event) => event.stopPropagation()}>
+            <GuestSuggestUpdateRoute
+              draft={suggestDraft}
+              onDraftChange={(draft) => {
+                setSuggestDraft(draft)
+                if (draft === null) {
+                  setIsSuggestModalOpen(false)
+                }
+              }}
+              onCancel={() => {
+                setIsSuggestModalOpen(false)
+                setSuggestDraft(null)
+              }}
+            />
+          </div>
+        </div>
       ) : null}
     </main>
   )

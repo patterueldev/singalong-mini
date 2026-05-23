@@ -22,6 +22,7 @@ export interface SuggestService {
 
 export type SuggestDownloadOptions = {
   reserveSessionCode?: string
+  reservedForNickname?: string
 }
 
 export function search(query: string, token: string): Promise<SuggestSearchResponse> {
@@ -79,6 +80,7 @@ export function download(
         tags: normalizeTagList(draft.tags),
         lyrics: draft.lyrics,
         reserve_session_code: options?.reserveSessionCode ?? null,
+        reserved_for_nickname: options?.reservedForNickname?.trim() || null,
       }),
     },
     token,

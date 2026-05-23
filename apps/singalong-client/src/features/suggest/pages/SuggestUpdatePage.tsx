@@ -29,8 +29,14 @@ type SuggestUpdatePageProps = {
   downloadPath?: string
   downloadAndReservePath?: string
   backButtonLabel?: string
+  downloadButtonLabel?: string
+  downloadAndReserveButtonLabel?: string
   showDownloadAndReserve?: boolean
   reserveSessionCode?: string
+  reserveTargetOptions?: string[]
+  reserveTargetLabel?: string
+  defaultReserveTarget?: string
+  allowCustomReserveTarget?: boolean
   onDownloadAndReserve?: (title: string) => void
 }
 
@@ -46,8 +52,14 @@ export function SuggestUpdatePage({
   downloadPath = '/songbook',
   downloadAndReservePath = '/songbook',
   backButtonLabel = 'Back',
+  downloadButtonLabel = 'Download',
+  downloadAndReserveButtonLabel = 'Download & Reserve',
   showDownloadAndReserve = false,
   reserveSessionCode,
+  reserveTargetOptions = [],
+  reserveTargetLabel = 'Reserve as',
+  defaultReserveTarget = '',
+  allowCustomReserveTarget = false,
   onDownloadAndReserve,
 }: SuggestUpdatePageProps) {
   const navigate = useNavigate()
@@ -68,6 +80,22 @@ export function SuggestUpdatePage({
     tags: [],
   })
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const normalizedReserveTargetOptions = Array.from(
+    new Set(
+      reserveTargetOptions
+        .map((item) => item.trim())
+        .filter((item) => item !== ''),
+    ),
+  )
+  const initialReserveTarget = defaultReserveTarget.trim()
+  const initialReserveSelection =
+    initialReserveTarget !== '' && !normalizedReserveTargetOptions.includes(initialReserveTarget)
+      ? '__custom__'
+      : initialReserveTarget
+  const [reserveTargetChoice, setReserveTargetChoice] = useState(initialReserveSelection)
+  const [customReserveTarget, setCustomReserveTarget] = useState(
+    initialReserveSelection === '__custom__' ? initialReserveTarget : '',
+  )
   const thumbnailFileInputRef = useRef<HTMLInputElement>(null)
   const previewUrl =
     draft.source_thumbnail_data_url !== '' ? draft.source_thumbnail_data_url : draft.source_thumbnail
@@ -315,11 +343,23 @@ export function SuggestUpdatePage({
             setErrorMessage('')
             setIsSubmitting(true)
             const shouldReserve = action === 'download-reserve'
+            const reservedForNickname =
+              shouldReserve && allowCustomReserveTarget
+                ? reserveTargetChoice === '__custom__'
+                  ? customReserveTarget.trim()
+                  : reserveTargetChoice.trim()
+                : undefined
             void suggestDownload(
               draft,
               authToken,
               shouldReserve && reserveSessionCode !== undefined
-                ? { reserveSessionCode }
+                ? {
+                    reserveSessionCode,
+                    reservedForNickname:
+                      reservedForNickname !== undefined && reservedForNickname !== ''
+                        ? reservedForNickname
+                        : undefined,
+                  }
                 : undefined,
             )
               .then(() => {
@@ -619,21 +659,58 @@ export function SuggestUpdatePage({
             </label>
           </section>
         </div>
+        {showDownloadAndReserve && (normalizedReserveTargetOptions.length > 0 || allowCustomReserveTarget) ? (
+          <div className="form top-gap">
+            <label>
+              {reserveTargetLabel}
+              <select
+                value={reserveTargetChoice}
+                onChange={(event) => setReserveTargetChoice(event.target.value)}
+                disabled={isEnhancing || isSubmitting}
+              >
+                {normalizedReserveTargetOptions.map((nicknameOption) => (
+                  <option key={nicknameOption} value={nicknameOption}>
+                    {nicknameOption}
+                  </option>
+                ))}
+                {allowCustomReserveTarget ? <option value="__custom__">Custom nickname…</option> : null}
+              </select>
+            </label>
+            {allowCustomReserveTarget && reserveTargetChoice === '__custom__' ? (
+              <label>
+                Custom nickname
+                <input
+                  value={customReserveTarget}
+                  onChange={(event) => setCustomReserveTarget(event.target.value)}
+                  placeholder="guest_nickname"
+                  disabled={isEnhancing || isSubmitting}
+                />
+              </label>
+            ) : null}
+          </div>
+        ) : null}
         <div className="row-actions top-gap">
           <button
             type="submit"
             data-action="download"
             disabled={isSubmitting || draft.genre.trim() === '' || isEnhancing}
           >
-            {isSubmitting ? 'Saving…' : 'Download'}
+            {isSubmitting ? 'Saving…' : downloadButtonLabel}
           </button>
           {showDownloadAndReserve ? (
             <button
               type="submit"
               data-action="download-reserve"
-              disabled={isSubmitting || draft.genre.trim() === '' || isEnhancing}
+              disabled={
+                isSubmitting ||
+                draft.genre.trim() === '' ||
+                isEnhancing ||
+                (allowCustomReserveTarget &&
+                  reserveTargetChoice === '__custom__' &&
+                  customReserveTarget.trim() === '')
+              }
             >
-              {isSubmitting ? 'Saving…' : 'Download & Reserve'}
+              {isSubmitting ? 'Saving…' : downloadAndReserveButtonLabel}
             </button>
           ) : null}
           <button

@@ -652,6 +652,7 @@ button:disabled {
 
 .admin-songbook-suggest-backdrop {
   overflow: auto;
+  background: rgba(0, 0, 0, 0.18);
 }
 
 .admin-songbook-suggest-backdrop .app-shell {
@@ -662,6 +663,71 @@ button:disabled {
 
 .admin-songbook-suggest-backdrop .card {
   width: min(1080px, calc(100vw - 48px));
+}
+
+.guest-songbook-suggest-backdrop {
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.guest-songbook-suggest-backdrop .app-shell {
+  min-height: auto;
+  display: block;
+  padding: 0;
+}
+
+.guest-songbook-suggest-backdrop .card {
+  width: min(1080px, calc(100vw - 48px));
+}
+
+.admin-session-suggest-backdrop {
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.admin-session-suggest-backdrop .app-shell {
+  min-height: auto;
+  display: block;
+  padding: 0;
+}
+
+.admin-session-suggest-backdrop .card {
+  width: min(1080px, calc(100vw - 48px));
+}
+
+.admin-songbook-suggest-underlay {
+  position: fixed;
+  inset: 0;
+  overflow: auto;
+}
+
+.admin-songbook-suggest-underlay .admin-songbook-shell {
+  min-height: 100vh;
+}
+
+.suggest-search-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.suggest-search-header h1 {
+  margin: 0;
+}
+
+.suggest-search-input-flat {
+  border: 0;
+  border-bottom: 1px solid var(--border-primary);
+  border-radius: 0;
+  background: transparent;
+  padding-inline: 0;
+}
+
+.suggest-search-input-flat:focus {
+  outline: none;
+  border-bottom-color: var(--accent-primary);
+  box-shadow: none;
 }
 
 .admin-songbook-card {
@@ -714,7 +780,7 @@ button:disabled {
 .admin-songbook-table-header,
 .admin-songbook-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1.15fr) minmax(120px, 0.55fr) minmax(120px, 0.55fr) minmax(260px, 0.9fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1.1fr) minmax(120px, 0.5fr) minmax(120px, 0.5fr) minmax(150px, 0.6fr) minmax(260px, 0.9fr);
   gap: 12px;
   align-items: center;
 }
@@ -783,6 +849,10 @@ button:disabled {
 .admin-songbook-status {
   display: flex;
   justify-content: flex-start;
+}
+
+.admin-songbook-added {
+  min-width: 0;
 }
 
 .badge.admin-songbook-status-badge.notice {
@@ -1106,6 +1176,18 @@ button:disabled {
   padding: 24px;
   background: rgba(0, 0, 0, 0.6);
   z-index: 50;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .modal-card {
@@ -2095,6 +2177,102 @@ button.small {
 
 .song-detail-actions {
   margin-top: 12px;
+}
+
+/* Unified Song Details Modal - Responsive Layout */
+.unified-song-details-modal {
+  width: min(1200px, 100%);
+}
+
+.unified-song-details-layout {
+  margin-top: 16px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+  align-items: start;
+}
+
+.unified-song-details-left,
+.unified-song-details-right {
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  background: var(--surface-panel);
+  padding: 14px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 14px;
+}
+
+.unified-song-details-thumbnail-panel {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+
+.song-detail-thumbnail--full {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.unified-song-details-video-panel {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+
+.song-detail-tags-section,
+.song-detail-lyrics-section {
+  width: 100%;
+}
+
+.song-detail-tags-section h3,
+.song-detail-lyrics-section h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.unified-song-details-spacer {
+  flex-grow: 1;
+  width: 100%;
+}
+
+/* Mobile: Stack layout vertically */
+@media (max-width: 768px) {
+  .unified-song-details-layout {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .unified-song-details-left,
+  .unified-song-details-right {
+    align-items: stretch;
+  }
+
+  .guest-songbook-suggest-backdrop {
+    display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+    place-items: initial;
+  }
+
+  .guest-songbook-suggest-backdrop .app-shell {
+    flex: 1;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .guest-songbook-suggest-backdrop .card {
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+  }
 }
 
 .song-editor-meta-grid {
