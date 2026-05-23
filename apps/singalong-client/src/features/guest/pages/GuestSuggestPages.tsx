@@ -57,6 +57,12 @@ export function GuestSuggestSearchRoute({
       onIdentify={handleIdentify}
       onCancel={onCancel || clearSuggestDraft}
       onChangeNickname={onCancel || clearSuggestDraft}
+      title="Suggest a Song"
+      hideSearchLabel
+      searchInputPlaceholder="Enter song keyword or URL"
+      showCloseAction={!!onIdentifyDraft}
+      closeActionLabel="Close"
+      showSignedIn={false}
     />
   )
 }

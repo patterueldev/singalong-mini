@@ -46,6 +46,12 @@ export function AdminSessionSuggestSearchRoute({
       showChangeNicknameAction={false}
       singlePageUrlIdentify
       onIdentifyDraft={onIdentifyDraft}
+      title="Suggest a Song"
+      hideSearchLabel
+      searchInputPlaceholder="Enter song keyword or URL"
+      showCloseAction={isModal}
+      closeActionLabel="Close"
+      showSignedIn={false}
     />
   )
 }
