@@ -4,8 +4,14 @@ import { adminService } from '../../admin/services/adminService'
 import { useGuestSession } from '../hooks/useGuestSession'
 import { guestReserveSong } from '../services/guestService'
 import { isValidSessionCode } from '../../../shared/lib/validation'
-import type { SongbookSong } from '../../../shared/types/client'
+import type { SongbookSong, SuggestDraft } from '../../../shared/types/client'
 import { SongDetailsModal } from '../../songbook/components/SongDetailsModal'
+import { GuestSuggestSearchRoute, GuestSuggestUpdateRoute } from './GuestSuggestPages'
+import {
+  clearSuggestDraft,
+  readSuggestDraft,
+  saveSuggestDraft,
+} from '../../../shared/storage/suggestStorage'
 
 type GuestSongDetailModalProps = {
   songId: string
@@ -94,11 +100,21 @@ export function GuestSongbookPage() {
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [activeSongId, setActiveSongId] = useState<string | null>(null)
+  const [isSuggestModalOpen, setIsSuggestModalOpen] = useState(false)
+  const [suggestDraft, setSuggestDraft] = useState<SuggestDraft | null>(() => readSuggestDraft())
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300)
     return () => window.clearTimeout(timer)
   }, [query])
+
+  useEffect(() => {
+    if (suggestDraft === null) {
+      clearSuggestDraft()
+      return
+    }
+    saveSuggestDraft(suggestDraft)
+  }, [suggestDraft])
 
   useEffect(() => {
     setPage(1)
@@ -168,7 +184,7 @@ export function GuestSongbookPage() {
                 className="icon-control-button"
                 aria-label="Suggest a song"
                 title="Suggest a song"
-                onClick={() => navigate('/guest/songbook/suggest/search')}
+                onClick={() => setIsSuggestModalOpen(true)}
               >
                 <span className="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
               </button>
@@ -198,7 +214,7 @@ export function GuestSongbookPage() {
                   <button
                     type="button"
                     className="secondary"
-                    onClick={() => navigate(`/guest/songbook/suggest/search?keyword=${encodeURIComponent(trimmedQuery)}`)}
+                    onClick={() => setIsSuggestModalOpen(true)}
                   >
                     Suggest
                   </button>
@@ -283,6 +299,37 @@ export function GuestSongbookPage() {
             navigate('/guest/home', { replace: true })
           }}
         />
+      ) : null}
+
+      {isSuggestModalOpen && suggestDraft === null ? (
+        <div className="modal-backdrop guest-songbook-suggest-backdrop" role="presentation" onClick={() => setIsSuggestModalOpen(false)}>
+          <div role="presentation" onClick={(event) => event.stopPropagation()}>
+            <GuestSuggestSearchRoute
+              onIdentifyDraft={setSuggestDraft}
+              onCancel={() => setIsSuggestModalOpen(false)}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {isSuggestModalOpen && suggestDraft !== null ? (
+        <div className="modal-backdrop guest-songbook-suggest-backdrop" role="presentation" onClick={() => setIsSuggestModalOpen(false)}>
+          <div role="presentation" onClick={(event) => event.stopPropagation()}>
+            <GuestSuggestUpdateRoute
+              draft={suggestDraft}
+              onDraftChange={(draft) => {
+                setSuggestDraft(draft)
+                if (draft === null) {
+                  setIsSuggestModalOpen(false)
+                }
+              }}
+              onCancel={() => {
+                setIsSuggestModalOpen(false)
+                setSuggestDraft(null)
+              }}
+            />
+          </div>
+        </div>
       ) : null}
     </main>
   )

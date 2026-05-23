@@ -665,6 +665,36 @@ button:disabled {
   width: min(1080px, calc(100vw - 48px));
 }
 
+.guest-songbook-suggest-backdrop {
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.guest-songbook-suggest-backdrop .app-shell {
+  min-height: auto;
+  display: block;
+  padding: 0;
+}
+
+.guest-songbook-suggest-backdrop .card {
+  width: min(1080px, calc(100vw - 48px));
+}
+
+.admin-session-suggest-backdrop {
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.admin-session-suggest-backdrop .app-shell {
+  min-height: auto;
+  display: block;
+  padding: 0;
+}
+
+.admin-session-suggest-backdrop .card {
+  width: min(1080px, calc(100vw - 48px));
+}
+
 .admin-songbook-suggest-underlay {
   position: fixed;
   inset: 0;
@@ -2220,6 +2250,28 @@ button.small {
   .unified-song-details-left,
   .unified-song-details-right {
     align-items: stretch;
+  }
+
+  .guest-songbook-suggest-backdrop {
+    display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+    place-items: initial;
+  }
+
+  .guest-songbook-suggest-backdrop .app-shell {
+    flex: 1;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .guest-songbook-suggest-backdrop .card {
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
   }
 }
 

@@ -19,11 +19,28 @@ function useGuestSuggestAccess() {
   return { guestAuth, sessionCode }
 }
 
-export function GuestSuggestSearchRoute() {
+type GuestSuggestSearchRouteProps = {
+  onIdentifyDraft?: (draft: SuggestDraft) => void
+  onCancel?: () => void
+}
+
+export function GuestSuggestSearchRoute({
+  onIdentifyDraft,
+  onCancel,
+}: GuestSuggestSearchRouteProps = {}) {
   const access = useGuestSuggestAccess()
   const navigate = useNavigate()
   if (access === null) {
     return <Navigate to="/guest/join" replace />
+  }
+
+  const handleIdentify = (sourceUrl: string) => {
+    // The SuggestSearchPage with singlePageUrlIdentify handles the identify internally
+    // and calls onIdentifyDraft when ready. No additional navigation needed in modal mode.
+    // In route mode, navigate to update the URL params for the page identify logic.
+    if (!onIdentifyDraft) {
+      navigate(`/guest/songbook/suggest/search?url=${encodeURIComponent(sourceUrl)}`)
+    }
   }
 
   return (
@@ -36,19 +53,27 @@ export function GuestSuggestSearchRoute() {
       backToSongbookPath="/guest/songbook"
       backToSongbookLabel="Back to Songbook"
       singlePageUrlIdentify
-      onIdentifyDraft={saveSuggestDraft}
-      onIdentify={(sourceUrl) => {
-        navigate(`/guest/songbook/suggest/search?url=${encodeURIComponent(sourceUrl)}`)
-      }}
-      onCancel={clearSuggestDraft}
-      onChangeNickname={clearSuggestDraft}
+      onIdentifyDraft={onIdentifyDraft || saveSuggestDraft}
+      onIdentify={handleIdentify}
+      onCancel={onCancel || clearSuggestDraft}
+      onChangeNickname={onCancel || clearSuggestDraft}
     />
   )
 }
 
-export function GuestSuggestUpdateRoute() {
+type GuestSuggestUpdateRouteProps = {
+  draft?: SuggestDraft | null
+  onDraftChange?: (draft: SuggestDraft | null) => void
+  onCancel?: () => void
+}
+
+export function GuestSuggestUpdateRoute({
+  draft: propDraft,
+  onDraftChange: propOnDraftChange,
+  onCancel: propOnCancel,
+}: GuestSuggestUpdateRouteProps = {}) {
   const access = useGuestSuggestAccess()
-  const [draft, setDraft] = useState<SuggestDraft | null>(() => readSuggestDraft())
+  const [draft, setDraft] = useState<SuggestDraft | null>(() => propDraft !== undefined ? propDraft : readSuggestDraft())
 
   useEffect(() => {
     if (draft === null) {
@@ -65,14 +90,31 @@ export function GuestSuggestUpdateRoute() {
     return <Navigate to="/guest/songbook/suggest/search" replace />
   }
 
+  const handleDraftChange = (newDraft: SuggestDraft | null) => {
+    if (propOnDraftChange) {
+      propOnDraftChange(newDraft)
+    } else {
+      setDraft(newDraft)
+    }
+  }
+
+  const handleCancel = () => {
+    if (propOnCancel) {
+      propOnCancel()
+    } else {
+      setDraft(null)
+    }
+  }
+
   return (
     <SuggestUpdatePage
       nickname={access.guestAuth.nickname}
       authToken={access.guestAuth.accessToken}
       draft={draft}
-      onDraftChange={setDraft}
+      onDraftChange={handleDraftChange}
       showDownloadAndReserve
       reserveSessionCode={access.sessionCode}
+      defaultReserveTarget={access.guestAuth.nickname}
       cancelPath="/guest/songbook"
       backPath="/guest/songbook/suggest/search"
       downloadPath="/guest/home"
@@ -81,14 +123,12 @@ export function GuestSuggestUpdateRoute() {
       downloadButtonLabel="Download & Back to Home"
       downloadAndReserveButtonLabel="Download & Reserve"
       onDownload={() => {
-        setDraft(null)
+        handleDraftChange(null)
       }}
       onDownloadAndReserve={() => {
-        setDraft(null)
+        handleDraftChange(null)
       }}
-      onCancel={() => {
-        setDraft(null)
-      }}
+      onCancel={handleCancel}
     />
   )
 }
