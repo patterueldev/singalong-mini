@@ -130,6 +130,7 @@ export type SongbookSong = {
   title: string
   artist: string
   status: string
+  addedAt: string
   language: string | null
   duration: string
   genre: string | null
@@ -139,6 +140,8 @@ export type SongbookSong = {
   sourceUrl: string | null
   videoFile: string | null
   lyrics: string | null
+  isOffVocal: boolean
+  videoHasLyrics: boolean
   addedByUsername: string | null
   queuedCountInSession: number
   wasQueuedInSession: boolean

@@ -14,11 +14,10 @@ import type { DownloadProgressItem, SongbookSong, WSIncoming } from '../../../sh
 
 export type SongbookPageProps = {
   notice: string
-  guestNickname: string | null
-  onChangeNickname: () => void
+  guestNickname: string
 }
 
-export function SongbookPage({ notice, guestNickname, onChangeNickname }: SongbookPageProps) {
+export function SongbookPage({ notice, guestNickname }: SongbookPageProps) {
   const navigate = useNavigate()
   const { fetchSongbook, searchSongbook } = useAdminService()
   const { retryDownload: retrySongDownload } = useGuestService()
@@ -187,11 +186,9 @@ export function SongbookPage({ notice, guestNickname, onChangeNickname }: Songbo
         <div className="card-header">
           <div>
             <h1>Songbook</h1>
-            {guestNickname !== null ? (
-              <p className="subtitle">
-                Signed in as <strong>{guestNickname}</strong>
-              </p>
-            ) : null}
+            <p className="subtitle">
+              Signed in as <strong>{guestNickname}</strong>
+            </p>
           </div>
           <div className="row-actions">
             <button
@@ -205,9 +202,7 @@ export function SongbookPage({ notice, guestNickname, onChangeNickname }: Songbo
               type="button"
               onClick={() =>
                 navigate(
-                  guestNickname !== null
-                    ? '/songbook/suggest/search'
-                    : '/songbook/suggest/login',
+                  '/songbook/suggest/search',
                 )
               }
             >
@@ -275,14 +270,6 @@ export function SongbookPage({ notice, guestNickname, onChangeNickname }: Songbo
           </div>
         ) : null}
       </section>
-
-      {guestNickname !== null ? (
-        <div className="change-nickname-outside">
-          <button type="button" className="secondary small" onClick={onChangeNickname}>
-            Change Nickname
-          </button>
-        </div>
-      ) : null}
 
       <DownloadProgressModal
         isOpen={isDownloadsModalOpen}

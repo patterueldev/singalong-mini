@@ -200,22 +200,13 @@ def assess_song_quality(song: Song) -> tuple[int, list[dict[str, Any]]]:
 
     lyrics = (song.lyrics or "").strip()
     if lyrics == "":
-        if song.has_lyrics:
-            add_flag(
-                "missing-lyrics",
-                "Missing lyrics",
-                "Song is marked as having lyrics, but none are stored.",
-                20,
-                "high",
-            )
-        else:
-            add_flag(
-                "empty-lyrics",
-                "Empty lyrics",
-                "No lyrics are stored for this song.",
-                10,
-                "medium",
-            )
+        add_flag(
+            "empty-lyrics",
+            "Empty lyrics",
+            "No lyrics are stored for this song.",
+            10,
+            "medium",
+        )
 
     if song.genre is None or song.genre.strip() == "":
         add_flag(

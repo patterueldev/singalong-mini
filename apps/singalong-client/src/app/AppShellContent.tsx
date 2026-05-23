@@ -14,18 +14,19 @@ import { GuestHomePage } from '../features/guest/pages/GuestHomePage'
 import { GuestDownloadsPage } from '../features/guest/pages/GuestDownloadsPage'
 import { GuestSongbookPage } from '../features/guest/pages/GuestSongbookPage'
 import {
-  GuestSuggestIdentifyRoute,
   GuestSuggestSearchRoute,
   GuestSuggestUpdateRoute,
 } from '../features/guest/pages/GuestSuggestPages'
 import { PlayerPage } from '../features/player/pages/PlayerPage'
-import { SuggestIdentifyPage } from '../features/suggest/pages/SuggestIdentifyPage'
 import { SuggestLoginPage } from '../features/suggest/pages/SuggestLoginPage'
-import { SuggestSearchPage } from '../features/suggest/pages/SuggestSearchPage'
 import { SuggestSearchRoute } from '../features/suggest/pages/SuggestSearchRoute'
 import { SuggestUpdatePage } from '../features/suggest/pages/SuggestUpdatePage'
 import { SongbookPage } from '../features/songbook/pages/SongbookPage'
 import { SongDetailPage } from '../features/songbook/pages/SongDetailPage'
+import {
+  AdminSessionSuggestSearchRoute,
+  AdminSessionSuggestUpdateRoute,
+} from '../features/admin/pages/AdminSessionSuggestPages'
 import { LoadingView } from '../features/shared/pages/LoadingView'
 import {
   archiveSession,
@@ -39,16 +40,14 @@ import { logoutUser } from '../features/shared/services/authService'
 import { apiJson, ApiError } from '../shared/api/httpClient'
 import { clearStoredAuth, readStoredAuth, saveStoredAuth } from '../shared/storage/authStorage'
 import {
-  clearSuggestAuth,
   clearSuggestDraft,
-  clearSuggestNickname,
-  readSuggestAuth,
   readSuggestDraft,
-  readSuggestNickname,
-  saveSuggestAuth,
   saveSuggestDraft,
-  saveSuggestNickname,
 } from '../shared/storage/suggestStorage'
+import {
+  readGuestAuth,
+  saveGuestAuth,
+} from '../shared/storage/guestStorage'
 import type {
   GuestAuth,
   LoginResponse,
@@ -73,8 +72,7 @@ function AppShellContent() {
   const [isSavingSession, setIsSavingSession] = useState(false)
   const [sessionMessage, setSessionMessage] = useState('')
   const [sessionErrorMessage, setSessionErrorMessage] = useState('')
-  const [suggestAuth, setSuggestAuth] = useState<GuestAuth | null>(null)
-  const [suggestNickname, setSuggestNickname] = useState('')
+  const [publicGuestAuth, setPublicGuestAuth] = useState<GuestAuth | null>(null)
   const [suggestDraft, setSuggestDraft] = useState<SuggestDraft | null>(() => readSuggestDraft())
   const [songbookNotice, setSongbookNotice] = useState('')
 
@@ -101,14 +99,7 @@ function AppShellContent() {
   }, [])
 
   useEffect(() => {
-    const storedSuggestAuth = readSuggestAuth()
-    if (storedSuggestAuth !== null) {
-      setSuggestAuth(storedSuggestAuth)
-      setSuggestNickname(storedSuggestAuth.nickname)
-      return
-    }
-
-    setSuggestNickname(readSuggestNickname())
+    setPublicGuestAuth(readGuestAuth())
   }, [])
 
   useEffect(() => {
@@ -303,19 +294,13 @@ function AppShellContent() {
     [auth, loadSessions, sessions],
   )
 
-  const hasSuggestAuth = suggestAuth !== null
+  const hasPublicGuestAuth = publicGuestAuth !== null
 
-  const handleSuggestLogin = useCallback(async (nickname: string) => {
+  const handlePublicGuestLogin = useCallback(async (nickname: string) => {
     const cleaned = nickname.trim()
-    const guestAuth = await guestLoginWithNickname(cleaned)
-    setSuggestAuth(guestAuth)
-    setSuggestNickname(guestAuth.nickname)
-    saveSuggestNickname(guestAuth.nickname)
-    saveSuggestAuth(guestAuth)
-  }, [])
-
-  const handleSelectSuggestDraft = useCallback((draft: SuggestDraft) => {
-    setSuggestDraft(draft)
+    const guestAuthPayload = await guestLoginWithNickname(cleaned)
+    setPublicGuestAuth(guestAuthPayload)
+    saveGuestAuth(guestAuthPayload)
   }, [])
 
   const handleDownloadSuggestion = useCallback((title: string) => {
@@ -325,15 +310,6 @@ function AppShellContent() {
 
   const handleCancelSuggestion = useCallback(() => {
     setSuggestDraft(null)
-  }, [])
-
-  const handleChangeSuggestNickname = useCallback(() => {
-    clearSuggestAuth()
-    clearSuggestNickname()
-    setSuggestAuth(null)
-    setSuggestNickname('')
-    setSuggestDraft(null)
-    setSongbookNotice('Nickname cleared. Sign in again to continue suggesting songs.')
   }, [])
 
   if (isHydratingAuth) {
@@ -361,132 +337,138 @@ function AppShellContent() {
   const guestDownloadsElement = <GuestDownloadsPage />
   const guestSongbookElement = <GuestSongbookPage />
   const guestSuggestSearchElement = <GuestSuggestSearchRoute />
-  const guestSuggestIdentifyElement = <GuestSuggestIdentifyRoute />
   const guestSuggestUpdateElement = <GuestSuggestUpdateRoute />
   const playerElement = <PlayerPage />
-  const songbookElement = <SongbookPage notice={songbookNotice} guestNickname={suggestAuth?.nickname ?? null} onChangeNickname={handleChangeSuggestNickname} />
+  const songbookLoginElement = hasPublicGuestAuth ? (
+    <Navigate to="/songbook" replace />
+  ) : (
+    <SuggestLoginPage
+      initialNickname=""
+      nextPath="/songbook"
+      onLogin={handlePublicGuestLogin}
+    />
+  )
+  const songbookElement =
+    publicGuestAuth === null ? (
+      <Navigate to="/songbook/login" replace />
+    ) : (
+      <SongbookPage notice={songbookNotice} guestNickname={publicGuestAuth.nickname} />
+    )
   const songDetailElement = <SongDetailPage />
-  const adminSongbookSuggestLoginElement =
-    suggestAuth !== null ? (
-      <Navigate to="/admin/songbook/suggest/search" replace />
-    ) : (
-      <div className="modal-backdrop admin-songbook-suggest-backdrop" role="presentation">
-        <SuggestLoginPage
-          initialNickname={suggestNickname}
-          nextPath="/admin/songbook/suggest/search"
-          onLogin={handleSuggestLogin}
-        />
-      </div>
-    )
   const adminSongbookSuggestSearchElement =
-    suggestAuth === null ? (
-      <Navigate to="/admin/songbook/suggest/login" replace />
+    auth === null ? (
+      <Navigate to="/admin/login" replace />
     ) : (
-      <div className="modal-backdrop admin-songbook-suggest-backdrop" role="presentation">
-        <SuggestSearchPage
-          nickname={suggestAuth.nickname}
-          authToken={suggestAuth.accessToken}
-          onCancel={handleCancelSuggestion}
-          onChangeNickname={handleChangeSuggestNickname}
-          onIdentify={() => {
-            navigate('/admin/songbook/suggest/identify')
+      <>
+        <div className="admin-songbook-suggest-underlay" aria-hidden="true">
+          <AdminSongbookPage auth={auth} />
+        </div>
+        <div
+          className="modal-backdrop admin-songbook-suggest-backdrop"
+          role="presentation"
+          onClick={() => {
+            handleCancelSuggestion()
+            navigate('/admin/songbook')
           }}
-          searchPath="/admin/songbook/suggest/search"
-          identifyPath="/admin/songbook/suggest/identify"
-          updatePath="/admin/songbook/suggest/update"
-          backToSongbookPath="/admin/songbook"
-          backToSongbookLabel="Back to Songbook Management"
-          showChangeNicknameAction
-          singlePageUrlIdentify
-          onIdentifyDraft={setSuggestDraft}
-        />
-      </div>
-    )
-  const adminSongbookSuggestIdentifyElement =
-    suggestAuth === null ? (
-      <Navigate to="/admin/songbook/suggest/login" replace />
-    ) : (
-      <div className="modal-backdrop admin-songbook-suggest-backdrop" role="presentation">
-        <SuggestIdentifyPage
-          nickname={suggestAuth.nickname}
-          authToken={suggestAuth.accessToken}
-          onIdentify={setSuggestDraft}
-          onCancel={handleCancelSuggestion}
-          onChangeNickname={handleChangeSuggestNickname}
-          updatePath="/admin/songbook/suggest/update"
-          searchPath="/admin/songbook/suggest/search"
-          backToSongbookPath="/admin/songbook"
-          backToSongbookLabel="Back to Songbook Management"
-          showChangeNicknameAction
-        />
-      </div>
+        >
+          <div role="presentation" onClick={(event) => event.stopPropagation()}>
+            <SuggestSearchRoute
+              nickname={auth.user.username}
+              authToken={auth.accessToken}
+              onCancel={handleCancelSuggestion}
+              onIdentifyDraft={setSuggestDraft}
+              searchPath="/admin/songbook/suggest/search"
+              updatePath="/admin/songbook/suggest/update"
+              backToSongbookPath="/admin/songbook"
+              showChangeNicknameAction={false}
+              showCloseAction
+              closeActionLabel="Close"
+              title="Suggest a Song"
+              hideSearchLabel
+              searchInputPlaceholder="Enter song keyword or URL"
+              showSignedIn={false}
+            />
+          </div>
+        </div>
+      </>
     )
   const adminSongbookSuggestUpdateElement =
-    suggestAuth === null ? (
-      <Navigate to="/admin/songbook/suggest/login" replace />
+    auth === null ? (
+      <Navigate to="/admin/login" replace />
     ) : suggestDraft === null ? (
       <Navigate to="/admin/songbook/suggest/search" replace />
     ) : (
-      <div className="modal-backdrop admin-songbook-suggest-backdrop" role="presentation">
-        <SuggestUpdatePage
-          nickname={suggestAuth.nickname}
-          authToken={suggestAuth.accessToken}
-          draft={suggestDraft}
-          onDraftChange={setSuggestDraft}
-          onDownload={(title) => {
-            setSongbookNotice(`${title} is now downloading!`)
-            setSuggestDraft(null)
+      <>
+        <div className="admin-songbook-suggest-underlay" aria-hidden="true">
+          <AdminSongbookPage auth={auth} />
+        </div>
+        <div
+          className="modal-backdrop admin-songbook-suggest-backdrop"
+          role="presentation"
+          onClick={() => {
+            handleCancelSuggestion()
+            navigate('/admin/songbook')
           }}
-          onCancel={handleCancelSuggestion}
-          cancelPath="/admin/songbook"
-          backPath="/admin/songbook/suggest/search"
-          downloadPath="/admin/songbook"
-          downloadAndReservePath="/admin/songbook"
-          backButtonLabel="Back to Search"
-        />
-      </div>
+        >
+          <div role="presentation" onClick={(event) => event.stopPropagation()}>
+            <SuggestUpdatePage
+              nickname={auth.user.username}
+              authToken={auth.accessToken}
+              draft={suggestDraft}
+              onDraftChange={setSuggestDraft}
+              onDownload={(title) => {
+                setSongbookNotice(`${title} is now downloading!`)
+                setSuggestDraft(null)
+              }}
+              onCancel={handleCancelSuggestion}
+              cancelPath="/admin/songbook"
+              backPath="/admin/songbook/suggest/search"
+              downloadPath="/admin/songbook/suggest/search"
+              downloadAndReservePath="/admin/songbook"
+              backButtonLabel="Back to Search"
+              showDownloadAndReserve
+              downloadButtonLabel="Download & Add Another"
+              downloadAndReserveButtonLabel="Download & Back to Songbook"
+              onDownloadAndReserve={() => {
+                setSuggestDraft(null)
+              }}
+            />
+          </div>
+        </div>
+      </>
     )
-  const suggestLoginElement = hasSuggestAuth ? (
-    <Navigate to="/songbook/suggest/search" replace />
-  ) : (
-    <SuggestLoginPage
-      initialNickname={suggestNickname}
-      onLogin={handleSuggestLogin}
-    />
-  )
-  const suggestSearchElement = !hasSuggestAuth ? (
-    <Navigate to="/songbook/suggest/login" replace />
+  const suggestSearchElement = !hasPublicGuestAuth ? (
+    <Navigate to="/songbook/login" replace />
   ) : (
     <SuggestSearchRoute
-      nickname={suggestAuth.nickname}
-      authToken={suggestAuth.accessToken}
+      nickname={publicGuestAuth.nickname}
+      authToken={publicGuestAuth.accessToken}
       onCancel={handleCancelSuggestion}
-      onChangeNickname={handleChangeSuggestNickname}
+      onIdentifyDraft={setSuggestDraft}
     />
   )
-  const suggestIdentifyElement = !hasSuggestAuth ? (
-    <Navigate to="/songbook/suggest/login" replace />
-  ) : (
-    <SuggestIdentifyPage
-      nickname={suggestAuth.nickname}
-      authToken={suggestAuth.accessToken}
-      onIdentify={handleSelectSuggestDraft}
-      onCancel={handleCancelSuggestion}
-      onChangeNickname={handleChangeSuggestNickname}
-    />
-  )
-  const suggestUpdateElement = !hasSuggestAuth ? (
-    <Navigate to="/songbook/suggest/login" replace />
+  const suggestUpdateElement = !hasPublicGuestAuth ? (
+    <Navigate to="/songbook/login" replace />
   ) : suggestDraft === null ? (
     <Navigate to="/songbook/suggest/search" replace />
   ) : (
     <SuggestUpdatePage
-      nickname={suggestAuth.nickname}
-      authToken={suggestAuth.accessToken}
+      nickname={publicGuestAuth.nickname}
+      authToken={publicGuestAuth.accessToken}
       draft={suggestDraft}
       onDraftChange={setSuggestDraft}
       onDownload={handleDownloadSuggestion}
       onCancel={handleCancelSuggestion}
+      backButtonLabel="Back to Search"
+      showDownloadAndReserve
+      downloadButtonLabel="Download & Add Another"
+      downloadPath="/songbook/suggest/search"
+      downloadAndReservePath="/songbook"
+      downloadAndReserveButtonLabel="Download & Back to Songbook"
+      onDownloadAndReserve={() => {
+        setSongbookNotice(`${suggestDraft.title} is now downloading!`)
+        setSuggestDraft(null)
+      }}
     />
   )
   const adminSessionsElement =
@@ -533,6 +515,31 @@ function AppShellContent() {
         }}
       />
     )
+  const adminSessionSuggestSearchElement =
+    auth === null ? (
+      <Navigate to="/admin/login" replace />
+    ) : (
+      <div className="modal-backdrop admin-songbook-suggest-backdrop" role="presentation">
+        <AdminSessionSuggestSearchRoute
+          auth={auth}
+          onIdentifyDraft={setSuggestDraft}
+          onCancel={handleCancelSuggestion}
+        />
+      </div>
+    )
+  const adminSessionSuggestUpdateElement =
+    auth === null ? (
+      <Navigate to="/admin/login" replace />
+    ) : (
+      <div className="modal-backdrop admin-songbook-suggest-backdrop" role="presentation">
+        <AdminSessionSuggestUpdateRoute
+          auth={auth}
+          draft={suggestDraft}
+          onDraftChange={setSuggestDraft}
+          onCancel={handleCancelSuggestion}
+        />
+      </div>
+    )
 
   return (
     <AppRoutes
@@ -544,22 +551,20 @@ function AppShellContent() {
       guestDownloadsElement={guestDownloadsElement}
       guestSongbookElement={guestSongbookElement}
       guestSuggestSearchElement={guestSuggestSearchElement}
-      guestSuggestIdentifyElement={guestSuggestIdentifyElement}
       guestSuggestUpdateElement={guestSuggestUpdateElement}
       playerElement={playerElement}
+      songbookLoginElement={songbookLoginElement}
       songbookElement={songbookElement}
       songDetailElement={songDetailElement}
-      suggestLoginElement={suggestLoginElement}
       suggestSearchElement={suggestSearchElement}
-      suggestIdentifyElement={suggestIdentifyElement}
       suggestUpdateElement={suggestUpdateElement}
       adminSessionsElement={adminSessionsElement}
       adminSongbookElement={adminSongbookElement}
-      adminSongbookSuggestLoginElement={adminSongbookSuggestLoginElement}
       adminSongbookSuggestSearchElement={adminSongbookSuggestSearchElement}
-      adminSongbookSuggestIdentifyElement={adminSongbookSuggestIdentifyElement}
       adminSongbookSuggestUpdateElement={adminSongbookSuggestUpdateElement}
       adminSessionControlElement={adminSessionControlElement}
+      adminSessionSuggestSearchElement={adminSessionSuggestSearchElement}
+      adminSessionSuggestUpdateElement={adminSessionSuggestUpdateElement}
     />
   )
 }

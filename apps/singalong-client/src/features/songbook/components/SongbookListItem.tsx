@@ -10,6 +10,7 @@ type SongbookListItemProps = {
   isMenuOpen?: boolean
   onMenuOpenChange?: (open: boolean) => void
   onReserve?: () => void
+  onViewDetails?: () => void
   onEditDetails?: () => void
   detailsLabel?: string
 }
@@ -21,6 +22,7 @@ export function SongbookListItem({
   isMenuOpen = false,
   onMenuOpenChange,
   onReserve,
+  onViewDetails,
   onEditDetails,
   detailsLabel = 'Edit Details',
 }: SongbookListItemProps) {
@@ -83,6 +85,13 @@ export function SongbookListItem({
             disabled={onReserve === undefined}
           >
             Reserve
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className="context-menu-item"
+            onSelect={onViewDetails}
+            disabled={onViewDetails === undefined}
+          >
+            View Details
           </DropdownMenu.Item>
           <DropdownMenu.Item
             className="context-menu-item"

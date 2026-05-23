@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useAdminService } from '../hooks/useAdminService'
 import { useGuestService } from '../../guest/hooks/useGuestService'
 import { fetchSongDetail } from '../services/adminService'
+import { SongEditModal } from './AdminSongbookPage'
 import { buildGuestJoinUrl } from '../../guest/services/guestService'
 import {
   mergeDownloadProgressItems,
@@ -15,9 +16,8 @@ import { apiJson } from '../../../shared/api/httpClient'
 import { buildWSUrl } from '../../../shared/api/ws'
 import { fetchGuestBaseUrl } from '../../../shared/api/publicConfig'
 import { formatDownloadStatus, formatDurationClock } from '../../../shared/lib/format'
-import { readFileAsDataUrl } from '../../../shared/lib/files'
-import { splitChipInput } from '../../../shared/lib/suggest'
 import { SongbookListItem } from '../../songbook/components/SongbookListItem'
+import { SongDetailsModal } from '../../songbook/components/SongDetailsModal'
 import type {
   DownloadProgressItem,
   PlaybackState,
@@ -425,6 +425,7 @@ export function SessionControlPage({
   const [isReserveModalOpen, setIsReserveModalOpen] = useState(false)
   const [reserveSongTarget, setReserveSongTarget] = useState<SongbookSong | null>(null)
   const [isSubmittingReserve, setIsSubmittingReserve] = useState(false)
+  const [previewSong, setPreviewSong] = useState<SongbookSong | null>(null)
   const [editingSong, setEditingSong] = useState<SongbookSong | null>(null)
   const [editingSongThumbnailDataUrl, setEditingSongThumbnailDataUrl] = useState<string | null>(null)
   const [, setWsMessage] = useState('')
@@ -638,6 +639,20 @@ export function SessionControlPage({
     }
   }, [activeSessionCode, activeSessionId])
 
+  const handleOpenSongDetails = useCallback(async (songId: string) => {
+    if (activeSessionCode === null || activeSessionId === null) {
+      return
+    }
+    setActiveSongMenuId(null)
+    try {
+      const detail = await fetchSongDetail(songId, undefined, activeSessionId)
+      setPreviewSong(detail)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load song details'
+      setWsMessage(message)
+    }
+  }, [activeSessionCode, activeSessionId])
+
   const handleSaveSongEditor = useCallback(async () => {
     if (editingSong === null) {
       return
@@ -651,6 +666,8 @@ export function SessionControlPage({
         genre: editingSong.genre,
         tags: editingSong.tags,
         lyrics: editingSong.lyrics,
+        is_off_vocal: editingSong.isOffVocal,
+        video_has_lyrics: editingSong.videoHasLyrics,
         source_thumbnail_data_url: editingSongThumbnailDataUrl,
       })
       setEditingSong(updated)
@@ -746,6 +763,10 @@ export function SessionControlPage({
     () => songbookItems.find((song) => song.id === activeSongMenuId) ?? null,
     [activeSongMenuId, songbookItems],
   )
+  const knownTagSuggestions = useMemo(() => {
+    const entries = songbookItems.flatMap((song) => song.tags.map((tag) => tag.trim().toLowerCase()))
+    return Array.from(new Set(entries.filter((entry) => entry !== '')))
+  }, [songbookItems])
 
   useEffect(() => {
     if (activeSongMenuId !== null && activeSongMenu === null) {
@@ -1265,7 +1286,7 @@ export function SessionControlPage({
                 <button
                   type="button"
                   className="icon-control-button"
-                  onClick={() => navigate('/songbook/suggest/search')}
+                  onClick={() => navigate(`/admin/sessions/${sessionCode}/songbook/suggest/search`)}
                   title="Suggest a song"
                   aria-label="Suggest a song"
                 >
@@ -1290,7 +1311,6 @@ export function SessionControlPage({
                           <span className="material-symbols-outlined" aria-hidden="true">
                             priority_high
                           </span>
-                          {song.qualityScore}
                         </span>
                       ) : null
                     const playedBadge =
@@ -1324,7 +1344,9 @@ export function SessionControlPage({
                           setReserveSongTarget(song)
                           setIsReserveModalOpen(true)
                         }}
+                        onViewDetails={() => void handleOpenSongDetails(song.id)}
                         onEditDetails={() => void handleOpenSongEditor(song.id)}
+                        detailsLabel="Edit Details"
                         badge={
                           qualityBadge !== null || playedBadge !== null ? (
                             <span className="songbook-item-badges">
@@ -1630,133 +1652,28 @@ export function SessionControlPage({
         </div>
       ) : null}
 
+      {previewSong !== null ? (
+        <SongDetailsModal
+          isOpen
+          song={previewSong}
+          onClose={() => setPreviewSong(null)}
+        />
+      ) : null}
+
       {editingSong !== null ? (
-        <div className="modal-backdrop song-detail-backdrop" role="presentation" onClick={closeSongEditor}>
-          <section
-            className="modal-card song-detail-modal song-editor-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={editingSong.title}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="modal-header">
-              <div>
-                <h2>Edit Song Details</h2>
-                <p className="subtitle">{editingSong.artist}</p>
-              </div>
-              <button type="button" className="secondary" onClick={closeSongEditor} disabled={isSavingSongMeta}>
-                Close
-              </button>
-            </div>
-
-            <div className="song-detail-layout song-editor-layout">
-              <div className="song-detail-video-panel">
-                {editingSong.videoFile ? (
-                  <video
-                    controls
-                    className="song-detail-video"
-                    src={`/media/songs/${editingSong.videoFile}`}
-                  />
-                ) : (
-                  <p className="empty-state">Video not available.</p>
-                )}
-              </div>
-
-              <div className="song-detail-panels song-editor-panels">
-                <div className="song-detail-summary-panel">
-                  <div className="song-detail-header-row song-editor-header-row">
-                    {editingSong.thumbnailUrl ? (
-                      <img
-                        className="song-detail-thumbnail song-detail-thumbnail--small"
-                        src={editingSong.thumbnailUrl}
-                        alt={editingSong.title}
-                      />
-                    ) : (
-                      <div className="song-detail-thumbnail song-detail-thumbnail--small song-detail-thumbnail--placeholder" />
-                    )}
-
-                    <div className="song-detail-meta song-editor-meta">
-                      <input
-                        className="song-editor-input song-editor-input--title"
-                        value={editingSong.title}
-                        onChange={(event) => setEditingSong({ ...editingSong, title: event.target.value })}
-                        placeholder="Title"
-                        aria-label="Title"
-                      />
-                      <input
-                        className="song-editor-input song-editor-input--artist"
-                        value={editingSong.artist}
-                        onChange={(event) => setEditingSong({ ...editingSong, artist: event.target.value })}
-                        placeholder="Artist"
-                        aria-label="Artist"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="song-editor-meta-grid top-gap">
-                    <label>
-                      Language
-                      <input
-                        className="song-editor-input"
-                        value={editingSong.language ?? ''}
-                        onChange={(event) => setEditingSong({ ...editingSong, language: event.target.value || null })}
-                        placeholder="Language"
-                      />
-                    </label>
-                    <label>
-                      Genre
-                      <input
-                        className="song-editor-input"
-                        value={editingSong.genre ?? ''}
-                        onChange={(event) => setEditingSong({ ...editingSong, genre: event.target.value || null })}
-                        placeholder="Genre"
-                      />
-                    </label>
-                    <label className="song-editor-meta-grid-wide">
-                      Tags (comma-separated)
-                      <input
-                        className="song-editor-input"
-                        value={editingSong.tags.join(', ')}
-                        onChange={(event) => setEditingSong({ ...editingSong, tags: splitChipInput(event.target.value) })}
-                        placeholder="tag one, tag two"
-                      />
-                    </label>
-                    <label className="song-editor-meta-grid-wide">
-                      Thumbnail image
-                      <input
-                        className="song-editor-file-input"
-                        type="file"
-                        accept="image/*"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0]
-                          if (file === undefined) {
-                            return
-                          }
-                          void readFileAsDataUrl(file).then((dataUrl) => setEditingSongThumbnailDataUrl(dataUrl))
-                        }}
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                <div className="song-detail-lyrics-panel">
-                  <h3>Lyrics</h3>
-                  <textarea
-                    value={editingSong.lyrics ?? ''}
-                    onChange={(event) => setEditingSong({ ...editingSong, lyrics: event.target.value || null })}
-                    placeholder="Lyrics"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="row-actions top-gap">
-              <button type="button" onClick={() => void handleSaveSongEditor()} disabled={isSavingSongMeta}>
-                {isSavingSongMeta ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </section>
-        </div>
+        <SongEditModal
+          song={editingSong}
+          thumbnailDataUrl={editingSongThumbnailDataUrl}
+          isSaving={isSavingSongMeta}
+          onClose={closeSongEditor}
+          onSongChange={setEditingSong}
+          onThumbnailDataUrlChange={setEditingSongThumbnailDataUrl}
+          onSave={() => void handleSaveSongEditor()}
+          tagSuggestions={knownTagSuggestions}
+          showTrimAction={false}
+          showArchiveAction={false}
+          showMagicFixAction={false}
+        />
       ) : null}
     </main>
   )

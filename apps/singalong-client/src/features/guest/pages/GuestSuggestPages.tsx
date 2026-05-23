@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { useGuestSession } from '../hooks/useGuestSession'
 import { SuggestSearchPage } from '../../suggest/pages/SuggestSearchPage'
 import { SuggestUpdatePage } from '../../suggest/pages/SuggestUpdatePage'
@@ -32,7 +32,6 @@ export function GuestSuggestSearchRoute() {
       authToken={access.guestAuth.accessToken}
       showChangeNicknameAction={false}
       searchPath="/guest/songbook/suggest/search"
-      identifyPath="/guest/songbook/suggest/identify"
       updatePath="/guest/songbook/suggest/update"
       backToSongbookPath="/guest/songbook"
       backToSongbookLabel="Back to Songbook"
@@ -45,16 +44,6 @@ export function GuestSuggestSearchRoute() {
       onChangeNickname={clearSuggestDraft}
     />
   )
-}
-
-export function GuestSuggestIdentifyRoute() {
-  const location = useLocation()
-  const access = useGuestSuggestAccess()
-  if (access === null) {
-    return <Navigate to="/guest/join" replace />
-  }
-
-  return <Navigate to={`/guest/songbook/suggest/search${location.search}`} replace />
 }
 
 export function GuestSuggestUpdateRoute() {
@@ -88,7 +77,9 @@ export function GuestSuggestUpdateRoute() {
       backPath="/guest/songbook/suggest/search"
       downloadPath="/guest/home"
       downloadAndReservePath="/guest/home"
-      backButtonLabel="Back"
+      backButtonLabel="Back to Search"
+      downloadButtonLabel="Download & Back to Home"
+      downloadAndReserveButtonLabel="Download & Reserve"
       onDownload={() => {
         setDraft(null)
       }}
