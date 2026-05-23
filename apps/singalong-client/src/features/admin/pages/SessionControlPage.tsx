@@ -6,6 +6,10 @@ import { useAdminService } from '../hooks/useAdminService'
 import { useGuestService } from '../../guest/hooks/useGuestService'
 import { fetchSongDetail } from '../services/adminService'
 import { SongEditModal } from './AdminSongbookPage'
+import {
+  AdminSessionSuggestSearchRoute,
+  AdminSessionSuggestUpdateRoute,
+} from './AdminSessionSuggestPages'
 import { buildGuestJoinUrl } from '../../guest/services/guestService'
 import {
   mergeDownloadProgressItems,
@@ -27,6 +31,7 @@ import type {
   SongbookSong,
   SongQueueItem,
   StoredAuth,
+  SuggestDraft,
   WSIncoming,
 } from '../../../shared/types/client'
 
@@ -428,6 +433,8 @@ export function SessionControlPage({
   const [previewSong, setPreviewSong] = useState<SongbookSong | null>(null)
   const [editingSong, setEditingSong] = useState<SongbookSong | null>(null)
   const [editingSongThumbnailDataUrl, setEditingSongThumbnailDataUrl] = useState<string | null>(null)
+  const [isSuggestModalOpen, setIsSuggestModalOpen] = useState(false)
+  const [suggestDraft, setSuggestDraft] = useState<SuggestDraft | null>(null)
   const [, setWsMessage] = useState('')
   const socketRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
@@ -1286,7 +1293,7 @@ export function SessionControlPage({
                 <button
                   type="button"
                   className="icon-control-button"
-                  onClick={() => navigate(`/admin/sessions/${sessionCode}/songbook/suggest/search`)}
+                  onClick={() => setIsSuggestModalOpen(true)}
                   title="Suggest a song"
                   aria-label="Suggest a song"
                 >
@@ -1674,6 +1681,51 @@ export function SessionControlPage({
           showArchiveAction={false}
           showMagicFixAction={false}
         />
+      ) : null}
+
+      {isSuggestModalOpen && suggestDraft === null ? (
+        <div
+          className="modal-backdrop admin-session-suggest-backdrop"
+          role="presentation"
+          onClick={() => setIsSuggestModalOpen(false)}
+        >
+          <div role="presentation" onClick={(event) => event.stopPropagation()}>
+            <AdminSessionSuggestSearchRoute
+              auth={auth}
+              onIdentifyDraft={setSuggestDraft}
+              onCancel={() => setIsSuggestModalOpen(false)}
+              isModal
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {isSuggestModalOpen && suggestDraft !== null ? (
+        <div
+          className="modal-backdrop admin-session-suggest-backdrop"
+          role="presentation"
+          onClick={() => {
+            setIsSuggestModalOpen(false)
+            setSuggestDraft(null)
+          }}
+        >
+          <div role="presentation" onClick={(event) => event.stopPropagation()}>
+            <AdminSessionSuggestUpdateRoute
+              auth={auth}
+              draft={suggestDraft}
+              onDraftChange={(draft) => {
+                setSuggestDraft(draft)
+                if (draft === null) {
+                  setIsSuggestModalOpen(false)
+                }
+              }}
+              onCancel={() => {
+                setIsSuggestModalOpen(false)
+                setSuggestDraft(null)
+              }}
+            />
+          </div>
+        </div>
       ) : null}
     </main>
   )

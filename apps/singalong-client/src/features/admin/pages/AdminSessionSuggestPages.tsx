@@ -10,12 +10,14 @@ type AdminSessionSuggestSearchRouteProps = {
   auth: StoredAuth
   onIdentifyDraft: (draft: SuggestDraft) => void
   onCancel: () => void
+  isModal?: boolean
 }
 
 export function AdminSessionSuggestSearchRoute({
   auth,
   onIdentifyDraft,
   onCancel,
+  isModal = false,
 }: AdminSessionSuggestSearchRouteProps) {
   const navigate = useNavigate()
   const { sessionCode = '' } = useParams()
@@ -24,7 +26,8 @@ export function AdminSessionSuggestSearchRoute({
   }
 
   const searchPath = `/admin/sessions/${sessionCode}/songbook/suggest/search`
-  const updatePath = `/admin/sessions/${sessionCode}/songbook/suggest/update`
+  // Use dummy path when in modal mode to prevent navigation
+  const updatePath = isModal ? '#' : `/admin/sessions/${sessionCode}/songbook/suggest/update`
   const backPath = `/admin/sessions/${sessionCode}`
 
   return (
