@@ -580,12 +580,29 @@ button:disabled {
   padding: 0.5rem 0.75rem;
   min-width: 0;
   width: 100%;
-  cursor: pointer;
   transition: background 0.15s ease-in-out, transform 0.15s ease-in-out;
 }
 
-.reservation-item:hover {
+.reservation-item--draggable {
+  padding-left: 0.5rem;
+}
+
+.reservation-item--interactive {
+  cursor: pointer;
+}
+
+.reservation-item--interactive:hover {
   background: color-mix(in srgb, var(--surface-card) 84%, white 16%);
+}
+
+.reservation-item--static {
+  cursor: default;
+}
+
+.reservation-reorder-list .reservation-item,
+.reservation-reorder-list .reservation-item * {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .reservation-item.is-dragging {
@@ -596,6 +613,67 @@ button:disabled {
 .reservation-item .songbook-info {
   min-width: 0;
   flex: 1;
+}
+
+.reservation-drag-handle {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border-radius: 999px;
+  flex-shrink: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.reservation-drag-handle:hover:not(:disabled),
+.reservation-drag-handle:focus-visible {
+  background: color-mix(in srgb, var(--surface-button-secondary) 78%, white 22%);
+}
+
+.reservation-drag-handle:active {
+  cursor: grabbing;
+}
+
+.reservation-drag-handle .material-symbols-outlined {
+  font-size: 1.5rem;
+}
+
+.reservation-item-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.reservation-item-step-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reservation-reorder-list .reservation-item,
+.reservation-reorder-list .reservation-item * {
+  user-select: none;
+}
+
+.reservation-step-button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 4px;
+}
+
+.reservation-step-button:disabled,
+.icon-control-button:disabled {
+  opacity: 0.45;
 }
 
 .reservation-reserved-by {
@@ -640,6 +718,31 @@ button:disabled {
   min-height: 0;
 }
 
+.reservation-reorder-list {
+  gap: 0;
+}
+
+.reservation-drop-zone {
+  display: flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 6px 0;
+}
+
+.reservation-drop-line {
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-primary) 72%, transparent);
+  transition: height 0.15s ease-in-out, background 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.reservation-drop-zone.is-active .reservation-drop-line {
+  height: 4px;
+  background: var(--accent-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 42%, transparent);
+}
+
 .queue-item-details {
   font-size: 0.85rem;
 }
@@ -670,14 +773,20 @@ button:disabled {
   background: rgba(0, 0, 0, 0.18);
 }
 
+.guest-songbook-suggest-backdrop > div {
+  width: min(1080px, calc(100vw - 48px));
+  max-width: 100%;
+}
+
 .guest-songbook-suggest-backdrop .app-shell {
   min-height: auto;
   display: block;
   padding: 0;
+  width: 100%;
 }
 
 .guest-songbook-suggest-backdrop .card {
-  width: min(1080px, calc(100vw - 48px));
+  width: 100%;
 }
 
 .admin-session-suggest-backdrop {
@@ -2258,6 +2367,11 @@ button.small {
     justify-content: stretch;
     padding: 0;
     place-items: initial;
+  }
+
+  .guest-songbook-suggest-backdrop > div {
+    width: 100%;
+    max-width: none;
   }
 
   .guest-songbook-suggest-backdrop .app-shell {

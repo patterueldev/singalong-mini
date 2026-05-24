@@ -62,6 +62,7 @@ router = APIRouter(prefix="/api/songs", tags=["songs"])
 logger = logging.getLogger(__name__)
 SUGGEST_KEYWORD_REGEX = re.compile(r"\b(karaoke|instrumental|off[\s-]?vocal)\b|カラオケ", re.IGNORECASE)
 FILENAME_TOKEN_SANITIZER_REGEX = re.compile(r"[^a-zA-Z0-9_-]+")
+SEARCH_NORMALIZER_REGEX = re.compile(r"[^\w]+", re.UNICODE)
 
 
 def _format_duration(seconds: int | float | None) -> str:
@@ -153,6 +154,24 @@ def _normalize_entries(values: list[str], lowercase: bool = False) -> list[str]:
 def _sanitize_filename_token(value: str) -> str:
     token = FILENAME_TOKEN_SANITIZER_REGEX.sub("_", value.strip()).strip("_")
     return token or "song"
+
+
+def _normalize_search_text(value: str | None) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = SEARCH_NORMALIZER_REGEX.sub(" ", value.casefold()).strip()
+    return re.sub(r"\s+", " ", normalized)
+
+
+def _search_normalized_expression(column):
+    return func.trim(
+        func.regexp_replace(
+            func.lower(func.coalesce(column, "")),
+            r"[^\w]+",
+            " ",
+            "g",
+        )
+    )
 
 
 def _parse_song_extra_metadata(raw: str | None) -> dict[str, object]:
@@ -888,15 +907,15 @@ def search_songs(
     base_query = db.query(Song).filter(Song.archived_at.is_(None))
     if not include_unpublished:
         base_query = base_query.filter(Song.status == "published")
-    keyword = q.strip()
+    keyword = _normalize_search_text(q)
     if keyword:
         pattern = f"%{keyword}%"
         base_query = base_query.filter(
             or_(
-                Song.title.ilike(pattern),
-                Song.artist.ilike(pattern),
-                Song.genre.ilike(pattern),
-                Song.tags.ilike(pattern),
+                _search_normalized_expression(Song.title).like(pattern),
+                _search_normalized_expression(Song.artist).like(pattern),
+                _search_normalized_expression(Song.genre).like(pattern),
+                _search_normalized_expression(Song.tags).like(pattern),
             )
         )
     base_query = base_query.order_by(func.lower(Song.title), func.lower(Song.artist), Song.id)

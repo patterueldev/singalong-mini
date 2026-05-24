@@ -11,6 +11,9 @@ type SongDetailsModalProps = {
   onReserve?: () => void
   reserveDisabled?: boolean
   isReserving?: boolean
+  editLabel?: string
+  onEditDetails?: () => void
+  editDisabled?: boolean
 }
 
 export function SongDetailsModal({
@@ -23,6 +26,9 @@ export function SongDetailsModal({
   onReserve,
   reserveDisabled = false,
   isReserving = false,
+  editLabel = 'Edit Details',
+  onEditDetails,
+  editDisabled = false,
 }: SongDetailsModalProps) {
   if (!isOpen) {
     return null
@@ -44,11 +50,18 @@ export function SongDetailsModal({
           </button>
         </div>
 
-        {onReserve ? (
+        {onReserve || onEditDetails ? (
           <div className="row-actions top-gap">
-            <button type="button" onClick={onReserve} disabled={reserveDisabled || isLoading || song === null}>
-              {isReserving ? 'Reserving…' : reserveLabel}
-            </button>
+            {onReserve ? (
+              <button type="button" onClick={onReserve} disabled={reserveDisabled || isLoading || song === null}>
+                {isReserving ? 'Reserving…' : reserveLabel}
+              </button>
+            ) : null}
+            {onEditDetails ? (
+              <button type="button" className="secondary" onClick={onEditDetails} disabled={editDisabled || isLoading || song === null}>
+                {editLabel}
+              </button>
+            ) : null}
           </div>
         ) : null}
 

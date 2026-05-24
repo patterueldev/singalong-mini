@@ -9,11 +9,11 @@ type ReservationListItemProps = {
   showOutcome?: boolean
   draggable?: boolean
   onDragStart?: (event: DragEvent<HTMLElement>) => void
-  onDragOver?: (event: DragEvent<HTMLElement>) => void
-  onDrop?: (event: DragEvent<HTMLElement>) => void
   onDragEnd?: () => void
   className?: string
   extraAction?: ReactNode
+  rightActions?: ReactNode
+  dragHandleLabel?: string
 }
 
 export function ReservationListItem({
@@ -23,11 +23,11 @@ export function ReservationListItem({
   showOutcome = false,
   draggable = false,
   onDragStart,
-  onDragOver,
-  onDrop,
   onDragEnd,
   className = '',
   extraAction,
+  rightActions,
+  dragHandleLabel = 'Drag to reorder',
 }: ReservationListItemProps) {
   const stoppedAt =
     typeof item.playbackPositionSeconds === 'number' && Number.isFinite(item.playbackPositionSeconds)
@@ -35,10 +35,11 @@ export function ReservationListItem({
       : null
   return (
     <article
-      className={`queue-item reservation-item ${className}`.trim()}
+      className={`queue-item reservation-item ${
+        draggable ? 'reservation-item--draggable' : ''
+      } ${onClick !== undefined ? 'reservation-item--interactive' : 'reservation-item--static'} ${className}`.trim()}
       role={onClick !== undefined ? 'button' : undefined}
       tabIndex={onClick !== undefined ? 0 : undefined}
-      draggable={draggable}
       onClick={onClick}
       onKeyDown={(event) => {
         if (onClick !== undefined && (event.key === 'Enter' || event.key === ' ')) {
@@ -46,11 +47,35 @@ export function ReservationListItem({
           onClick()
         }
       }}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      onDragEnd={onDragEnd}
     >
+      {draggable ? (
+        <button
+          type="button"
+          className="reservation-drag-handle"
+          draggable
+          aria-label={dragHandleLabel}
+          title={dragHandleLabel}
+          onKeyDown={(event) => {
+            event.stopPropagation()
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+            }
+          }}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+          onDragStart={(event) => {
+            event.stopPropagation()
+            onDragStart?.(event)
+          }}
+          onDragEnd={onDragEnd}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true">
+            drag_indicator
+          </span>
+        </button>
+      ) : null}
       {item.thumbnailUrl ? (
         <img className="songbook-thumbnail" src={item.thumbnailUrl} alt={item.title} loading="lazy" />
       ) : (
@@ -82,6 +107,7 @@ export function ReservationListItem({
         ) : null}
         {extraAction !== undefined ? <div className="reservation-extra-action">{extraAction}</div> : null}
       </div>
+      {rightActions !== undefined ? <div className="reservation-item-controls">{rightActions}</div> : null}
     </article>
   )
 }

@@ -229,7 +229,7 @@ export function PlayerPage() {
     if (currentQueueItem === null) {
       setCurrentSong(null)
       resumePositionRef.current = 0
-      resumeIsPlayingRef.current = true
+      resumeIsPlayingRef.current = false
       return
     }
 
@@ -375,7 +375,8 @@ export function PlayerPage() {
         }
 
         if (incoming.type === 'queue.updated') {
-          setQueueItems(normalizeSessionQueueItems(incoming.payload.items))
+          const queueItemsPayload = Array.isArray(incoming.payload.items) ? incoming.payload.items : []
+          setQueueItems(normalizeSessionQueueItems(queueItemsPayload))
           return
         }
 
@@ -547,7 +548,7 @@ export function PlayerPage() {
   // (2) WS reconnect where songSrc + showMainVideo haven't changed so the resume
   //     effect won't re-run.
   useEffect(() => {
-    if (socketStatus !== 'Connected' || currentSong === null) {
+    if (socketStatus !== 'Connected' || currentSong === null || currentQueueItem === null) {
       return
     }
     const video = videoRef.current
@@ -560,7 +561,7 @@ export function PlayerPage() {
       }
     }, 500)
     return () => window.clearTimeout(timer)
-  }, [socketStatus, currentSong, showMainVideo])
+  }, [socketStatus, currentQueueItem, currentSong, showMainVideo])
 
   useEffect(() => {
     const video = videoRef.current
@@ -727,7 +728,8 @@ export function PlayerPage() {
       ref={playerContainerRef}
       onClick={() => {
         const video = videoRef.current
-        if (video !== null && resumeIsPlayingRef.current && video.paused) {
+        const shouldResume = video !== null && currentQueueItem !== null && showMainVideo && resumeIsPlayingRef.current && video.paused
+        if (shouldResume && video !== null) {
           void video.play().catch(() => undefined)
         }
       }}

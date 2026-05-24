@@ -13,6 +13,7 @@ type SuggestSearchPageProps = {
   onCancel: () => void
   onChangeNickname: () => void
   onIdentify: (sourceUrl: string) => void
+  initialQuery?: string
   searchPath?: string
   backToSongbookPath?: string
   backToSongbookLabel?: string
@@ -56,6 +57,7 @@ export function SuggestSearchPage({
   onCancel,
   onChangeNickname,
   onIdentify,
+  initialQuery = '',
   searchPath = '/songbook/suggest/search',
   updatePath = '/songbook/suggest/update',
   backToSongbookPath = '/songbook',
@@ -75,7 +77,7 @@ export function SuggestSearchPage({
   const { search: suggestSearch, identify: suggestIdentify } = useSuggestService()
   const lastSearchedKeywordRef = useRef('')
   const lastAutoIdentifyUrlRef = useRef('')
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(() => initialQuery.trim())
   const [effectiveQuery, setEffectiveQuery] = useState('')
   const [queryInfo, setQueryInfo] = useState('')
   const [results, setResults] = useState<SuggestResult[]>([])

@@ -22,11 +22,13 @@ function useGuestSuggestAccess() {
 type GuestSuggestSearchRouteProps = {
   onIdentifyDraft?: (draft: SuggestDraft) => void
   onCancel?: () => void
+  initialKeyword?: string
 }
 
 export function GuestSuggestSearchRoute({
   onIdentifyDraft,
   onCancel,
+  initialKeyword = '',
 }: GuestSuggestSearchRouteProps = {}) {
   const access = useGuestSuggestAccess()
   const navigate = useNavigate()
@@ -63,6 +65,7 @@ export function GuestSuggestSearchRoute({
       showCloseAction={!!onIdentifyDraft}
       closeActionLabel="Close"
       showSignedIn={false}
+      initialQuery={initialKeyword}
     />
   )
 }

@@ -626,7 +626,6 @@ export function SuggestUpdatePage({
                 inputValue={tagInput}
                 placeholder="romantic, duet, female vocal..."
                 helperText="Optional tags (saved as lowercase) separated by commas or Enter."
-                datalistId="tag-suggestions"
                 suggestions={metadataSuggestions.tags.filter((item) => !draft.tags.includes(item))}
                 onInputValueChange={setTagInput}
                 onCommitValue={commitTags}
@@ -634,8 +633,8 @@ export function SuggestUpdatePage({
                   updateDraft({ tags: normalizeTagList([...draft.tags, value]) })
                   setTagInput('')
                 }}
-                onRemoveValue={(value) =>
-                  updateDraft({ tags: draft.tags.filter((item) => item !== value) })
+                onRemoveValue={(index) =>
+                  updateDraft({ tags: draft.tags.filter((_, itemIndex) => itemIndex !== index) })
                 }
               />
             </div>
