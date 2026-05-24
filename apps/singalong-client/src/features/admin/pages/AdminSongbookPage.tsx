@@ -403,7 +403,6 @@ export function SongEditModal({
                   inputValue={tagInput}
                   placeholder="romantic, duet, female vocal..."
                   helperText="Optional tags (saved as lowercase) separated by commas or Enter."
-                  datalistId="admin-edit-tag-suggestions"
                   suggestions={filteredTagSuggestions}
                   onInputValueChange={setTagInput}
                   onCommitValue={commitTags}
@@ -411,8 +410,10 @@ export function SongEditModal({
                     onSongChange({ ...song, tags: normalizeTagList([...song.tags, value]) })
                     setTagInput('')
                   }}
-                  onRemoveValue={(value) => onSongChange({ ...song, tags: song.tags.filter((item) => item !== value) })}
-                />
+                  onRemoveValue={(index) =>
+                    onSongChange({ ...song, tags: song.tags.filter((_, itemIndex) => itemIndex !== index) })
+                  }
+                  />
               </div>
 
               <div className="form-field">

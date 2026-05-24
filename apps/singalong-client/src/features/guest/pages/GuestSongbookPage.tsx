@@ -307,6 +307,7 @@ export function GuestSongbookPage() {
             <GuestSuggestSearchRoute
               onIdentifyDraft={setSuggestDraft}
               onCancel={() => setIsSuggestModalOpen(false)}
+              initialKeyword={query.trim()}
             />
           </div>
         </div>

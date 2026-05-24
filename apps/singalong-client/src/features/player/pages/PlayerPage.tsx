@@ -727,7 +727,7 @@ export function PlayerPage() {
       ref={playerContainerRef}
       onClick={() => {
         const video = videoRef.current
-        if (video !== null && resumeIsPlayingRef.current && video.paused) {
+        if (video !== null && showMainVideo && resumeIsPlayingRef.current && video.paused) {
           void video.play().catch(() => undefined)
         }
       }}

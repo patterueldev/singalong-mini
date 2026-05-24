@@ -6,11 +6,10 @@ type ChipFieldProps = {
   helperText?: string
   required?: boolean
   suggestions?: string[]
-  datalistId?: string
   onInputValueChange: (value: string) => void
   onCommitValue: () => void
   onSelectSuggestion?: (value: string) => void
-  onRemoveValue: (value: string) => void
+  onRemoveValue: (index: number) => void
 }
 
 export function ChipField({
@@ -21,7 +20,6 @@ export function ChipField({
   helperText,
   required,
   suggestions,
-  datalistId,
   onInputValueChange,
   onCommitValue,
   onSelectSuggestion,
@@ -35,10 +33,10 @@ export function ChipField({
           {values.length === 0 ? (
             <span className="chip-empty">{required ? 'At least one required' : 'None yet'}</span>
           ) : (
-            values.map((value) => (
-              <span className="chip" key={value}>
+            values.map((value, index) => (
+              <span className="chip" key={`${value}-${index}`}>
                 {value}
-                <button type="button" aria-label={`Remove ${value}`} onClick={() => onRemoveValue(value)}>
+                <button type="button" aria-label={`Remove ${value}`} onClick={() => onRemoveValue(index)}>
                   ×
                 </button>
               </span>
@@ -48,7 +46,6 @@ export function ChipField({
         <div className="chip-input-row">
           <input
             value={inputValue}
-            list={datalistId}
             onChange={(event) => onInputValueChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ',') {
@@ -63,13 +60,6 @@ export function ChipField({
             Add
           </button>
         </div>
-        {datalistId !== undefined && suggestions !== undefined && suggestions.length > 0 ? (
-          <datalist id={datalistId}>
-            {suggestions.map((suggestion) => (
-              <option key={suggestion} value={suggestion} />
-            ))}
-          </datalist>
-        ) : null}
         {suggestions !== undefined && suggestions.length > 0 ? (
           <div className="chip-suggestion-list">
             {suggestions.map((suggestion) => (
@@ -77,6 +67,7 @@ export function ChipField({
                 key={suggestion}
                 type="button"
                 className="chip-suggestion"
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onSelectSuggestion?.(suggestion)}
               >
                 {suggestion}
