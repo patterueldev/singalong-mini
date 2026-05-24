@@ -1,0 +1,119 @@
+#
+# Production Build & Push
+#
+# Purpose:
+#   Automated build and push to GHCR when code is merged to main branch.
+#   Detects what changed and delegates to build orchestrator.
+#
+# Trigger:
+#   - Push to main branch (PR merge)
+#
+# What it does:
+#   1. Detects changes in master and node services
+#   2. Calls build-orchestrator.yml with detected changes
+#   3. Orchestrator builds and pushes images for changed services
+#   4. Images tagged as ghcr.io/org/repo/service:latest
+#
+# Related Workflows:
+#   • .github/workflows/build-orchestrator.yml (core build orchestration)
+#   • .github/workflows/build-master.yml (master service build)
+#   • .github/workflows/build-node.yml (node service build)
+#
+# Notes:
+#   - Runs on every push to main
+#   - Only builds services with detected changes
+#   - Images tagged with :latest
+#   - Requires GITHUB_TOKEN for GHCR push
+#
+
+name: Production Build & Push
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.changes.outputs.web }}
+      player: ${{ steps.changes.outputs.player }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch (for PRs)
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin ${{ github.base_ref }}:${{ github.base_ref }}
+
+      - name: Detect changed files
+        id: changes
+        run: |
+          # Determine the comparison base
+          # For pull_request events, compare against base branch
+          # For push events, compare against previous commit
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            # Pull request: compare against base branch
+            PREVIOUS_COMMIT="origin/${{ github.base_ref }}"
+            CURRENT_COMMIT="HEAD"
+          else
+            # Push event: compare against previous commit
+            if [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+              PREVIOUS_COMMIT="${{ github.event.before }}"
+            else
+              PREVIOUS_COMMIT="HEAD~1"
+            fi
+            CURRENT_COMMIT="HEAD"
+          fi
+
+          echo "Comparing changes between $PREVIOUS_COMMIT and $CURRENT_COMMIT"
+          echo ""
+
+          # Check if apps/singalong-backend or apps/singalong-client files changed
+          if git diff --name-only $PREVIOUS_COMMIT $CURRENT_COMMIT | grep -q "^apps/singalong-backend/" || git diff --name-only $PREVIOUS_COMMIT $CURRENT_COMMIT | grep -q "^apps/singalong-client/"; then
+            echo "web=true" >> $GITHUB_OUTPUT
+            echo "✓ Changes detected in web service"
+          else
+            echo "web=false" >> $GITHUB_OUTPUT
+            echo "✗ No changes in web service"
+          fi
+
+          # Check if apps/singalong-player files changed
+          if git diff --name-only $PREVIOUS_COMMIT $CURRENT_COMMIT | grep -q "^apps/singalong-player/" || git diff --name-only $PREVIOUS_COMMIT $CURRENT_COMMIT | grep -q "^infrastructure.*player"; then
+            echo "player=true" >> $GITHUB_OUTPUT
+            echo "✓ Changes detected in player service"
+          else
+            echo "player=false" >> $GITHUB_OUTPUT
+            echo "✗ No changes in player service"
+          fi
+
+          echo ""
+          echo "Changed files:"
+          git diff --name-only $PREVIOUS_COMMIT HEAD
+
+      - name: Output detection results
+        run: |
+          echo "Detection complete:"
+          echo "- Web changed: ${{ steps.changes.outputs.web }}"
+          echo "- Player changed: ${{ steps.changes.outputs.player }}"
+
+  build:
+    name: Orchestrate Production Build
+    needs: detect-changes
+    uses: ./.github/workflows/build-orchestrator.yml
+    with:
+      env: prod
+      web: ${{ needs.detect-changes.outputs.web }}
+      player: ${{ needs.detect-changes.outputs.player }}
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
