@@ -73,6 +73,10 @@ jobs:
       - name: Generate Summary
         run: |
           ENV_LABEL="${{ inputs.env }}"
+          IMAGE_TAG="$ENV_LABEL"
+          if [ "$IMAGE_TAG" = "prod" ]; then
+            IMAGE_TAG="latest"
+          fi
           ENV_UPPER=$(echo $ENV_LABEL | tr '[:lower:]' '[:upper:]')
           
           echo "## 🚀 Build Summary ($ENV_UPPER)" >> $GITHUB_STEP_SUMMARY
@@ -92,7 +96,7 @@ jobs:
             WEB_ICON=$([ "$WEB_STATUS" = "success" ] && echo "✅" || echo "❌")
             echo "- $WEB_ICON Web (Docker): $WEB_STATUS" >> $GITHUB_STEP_SUMMARY
             if [ "$WEB_STATUS" = "success" ]; then
-              echo "  - Image: \`ghcr.io/${{ github.repository }}/web:$ENV_LABEL\`" >> $GITHUB_STEP_SUMMARY
+              echo "  - Image: \`ghcr.io/${{ github.repository }}/web:$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
             fi
           else
             echo "- ⊘ Web: skipped (no changes)" >> $GITHUB_STEP_SUMMARY
