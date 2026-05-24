@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 type ChipFieldProps = {
   label: string
   values: string[]
@@ -25,18 +27,39 @@ export function ChipField({
   onSelectSuggestion,
   onRemoveValue,
 }: ChipFieldProps) {
+  const inputId = useId()
+
   return (
-    <label>
-      {label}
+    <div>
+      <label className="form-label" htmlFor={inputId}>
+        {label}
+      </label>
       <div className="chip-input-shell">
         <div className="chip-list">
           {values.length === 0 ? (
             <span className="chip-empty">{required ? 'At least one required' : 'None yet'}</span>
           ) : (
             values.map((value, index) => (
-              <span className="chip" key={`${value}-${index}`}>
+              <span className="chip" key={value}>
                 {value}
-                <button type="button" aria-label={`Remove ${value}`} onClick={() => onRemoveValue(index)}>
+                <button
+                  type="button"
+                  className="chip-tag-remove"
+                  aria-label={`Remove ${value}`}
+                  onPointerDown={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                  }}
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onRemoveValue(index)
+                  }}
+                >
                   ×
                 </button>
               </span>
@@ -45,15 +68,15 @@ export function ChipField({
         </div>
         <div className="chip-input-row">
           <input
+            id={inputId}
             value={inputValue}
             onChange={(event) => onInputValueChange(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ',') {
+              if (event.key === 'Enter') {
                 event.preventDefault()
                 onCommitValue()
               }
             }}
-            onBlur={onCommitValue}
             placeholder={placeholder}
           />
           <button type="button" className="secondary" onClick={onCommitValue}>
@@ -77,6 +100,6 @@ export function ChipField({
         ) : null}
       </div>
       {helperText !== undefined ? <span className="field-help">{helperText}</span> : null}
-    </label>
+    </div>
   )
 }

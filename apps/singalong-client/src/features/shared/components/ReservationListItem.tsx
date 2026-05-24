@@ -12,6 +12,7 @@ type ReservationListItemProps = {
   onDragEnd?: () => void
   className?: string
   extraAction?: ReactNode
+  rightActions?: ReactNode
   dragHandleLabel?: string
 }
 
@@ -25,6 +26,7 @@ export function ReservationListItem({
   onDragEnd,
   className = '',
   extraAction,
+  rightActions,
   dragHandleLabel = 'Drag to reorder',
 }: ReservationListItemProps) {
   const stoppedAt =
@@ -33,7 +35,9 @@ export function ReservationListItem({
       : null
   return (
     <article
-      className={`queue-item reservation-item ${draggable ? 'reservation-item--draggable' : ''} ${className}`.trim()}
+      className={`queue-item reservation-item ${
+        draggable ? 'reservation-item--draggable' : ''
+      } ${onClick !== undefined ? 'reservation-item--interactive' : 'reservation-item--static'} ${className}`.trim()}
       role={onClick !== undefined ? 'button' : undefined}
       tabIndex={onClick !== undefined ? 0 : undefined}
       onClick={onClick}
@@ -103,6 +107,7 @@ export function ReservationListItem({
         ) : null}
         {extraAction !== undefined ? <div className="reservation-extra-action">{extraAction}</div> : null}
       </div>
+      {rightActions !== undefined ? <div className="reservation-item-controls">{rightActions}</div> : null}
     </article>
   )
 }

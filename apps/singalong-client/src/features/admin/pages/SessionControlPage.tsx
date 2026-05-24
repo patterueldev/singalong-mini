@@ -81,6 +81,17 @@ function getSongQualityBadgeClass(score: number): string {
   return 'notice'
 }
 
+function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
+  if (fromIndex === toIndex) {
+    return items
+  }
+
+  const next = [...items]
+  const [moved] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, moved)
+  return next
+}
+
 type DownloadProgressModalProps = {
   isOpen: boolean
   status: string
@@ -308,6 +319,7 @@ export function SessionControlPage({
     fetchSongbook,
     searchSongbook,
     reserveSessionQueueSong,
+    removeQueueItem,
     updateSessionMetadata,
     updateSongAdminDetails,
   } = useAdminService()
@@ -331,6 +343,8 @@ export function SessionControlPage({
     positionSeconds: 0,
     durationSeconds: 0,
   })
+  const [isSeekingPlayback, setIsSeekingPlayback] = useState(false)
+  const [seekDraftPositionSeconds, setSeekDraftPositionSeconds] = useState<number | null>(null)
   const [workspace, setWorkspace] = useState<SessionWorkspace | null>(null)
   const [participants, setParticipants] = useState<SessionParticipant[]>([])
   const [sessionTitleInput, setSessionTitleInput] = useState('')
@@ -351,6 +365,9 @@ export function SessionControlPage({
   const [reserveSongTarget, setReserveSongTarget] = useState<SongbookSong | null>(null)
   const [isSubmittingReserve, setIsSubmittingReserve] = useState(false)
   const [previewSong, setPreviewSong] = useState<SongbookSong | null>(null)
+  const [previewSongAction, setPreviewSongAction] = useState<'reserve' | 'remove-from-queue' | 'view-only'>('reserve')
+  const [previewQueueItemId, setPreviewQueueItemId] = useState<string | null>(null)
+  const [isRemovingQueueItem, setIsRemovingQueueItem] = useState(false)
   const [editingSong, setEditingSong] = useState<SongbookSong | null>(null)
   const [editingSongThumbnailDataUrl, setEditingSongThumbnailDataUrl] = useState<string | null>(null)
   const [isSuggestModalOpen, setIsSuggestModalOpen] = useState(false)
@@ -377,6 +394,10 @@ export function SessionControlPage({
     () => buildGuestJoinUrl(guestJoinBaseUrl, activeSessionCode),
     [activeSessionCode, guestJoinBaseUrl],
   )
+  const seekPositionSeconds =
+    isSeekingPlayback && seekDraftPositionSeconds !== null
+      ? seekDraftPositionSeconds
+      : playbackState.positionSeconds
 
   useEffect(() => {
     let cancelled = false
@@ -415,6 +436,34 @@ export function SessionControlPage({
       }),
     )
   }, [sessionCode])
+
+  const seekDraftPositionRef = useRef(0)
+
+  const beginSeek = useCallback(() => {
+    if (isSeekingPlayback) {
+      return
+    }
+    seekDraftPositionRef.current = playbackState.positionSeconds
+    setSeekDraftPositionSeconds(playbackState.positionSeconds)
+    setIsSeekingPlayback(true)
+  }, [isSeekingPlayback, playbackState.positionSeconds])
+
+  const updateSeekDraft = useCallback((nextPosition: number) => {
+    seekDraftPositionRef.current = nextPosition
+    setSeekDraftPositionSeconds(nextPosition)
+  }, [])
+
+  const commitSeek = useCallback(() => {
+    if (!isSeekingPlayback && seekDraftPositionSeconds === null) {
+      return
+    }
+    const nextPosition =
+      seekDraftPositionSeconds !== null ? seekDraftPositionSeconds : seekDraftPositionRef.current
+    setIsSeekingPlayback(false)
+    setSeekDraftPositionSeconds(null)
+    setPlaybackState((previous) => ({ ...previous, positionSeconds: nextPosition }))
+    sendCommand('playback.seek', { position_seconds: nextPosition })
+  }, [isSeekingPlayback, seekDraftPositionSeconds, sendCommand])
 
   const refreshWorkspace = useCallback(async () => {
     if (activeSessionCode === null) {
@@ -566,11 +615,17 @@ export function SessionControlPage({
     }
   }, [activeSessionCode, activeSessionId])
 
-  const handleOpenSongDetails = useCallback(async (songId: string) => {
+  const openSongDetails = useCallback(async (
+    songId: string,
+    action: 'reserve' | 'remove-from-queue' | 'view-only' = 'reserve',
+    queueItemId: string | null = null,
+  ) => {
     if (activeSessionCode === null || activeSessionId === null) {
       return
     }
     setPreviewSong(null)
+    setPreviewSongAction(action)
+    setPreviewQueueItemId(queueItemId)
     try {
       const detail = await fetchSongDetail(songId, undefined, activeSessionId)
       setPreviewSong(detail)
@@ -579,6 +634,15 @@ export function SessionControlPage({
       setWsMessage(message)
     }
   }, [activeSessionCode, activeSessionId])
+
+  const handleOpenSongDetails = useCallback((songId: string) => {
+    void openSongDetails(songId, 'reserve')
+  }, [openSongDetails])
+
+  const handleOpenQueueSongDetails = useCallback((queueItem: SongQueueItem) => {
+    const action = queueItem.status === 'playing' ? 'view-only' : 'remove-from-queue'
+    void openSongDetails(queueItem.songId, action, action === 'remove-from-queue' ? queueItem.id : null)
+  }, [openSongDetails])
 
   const handleSaveSongEditor = useCallback(async () => {
     if (editingSong === null) {
@@ -688,16 +752,46 @@ export function SessionControlPage({
 
   const closeSongDetails = useCallback(() => {
     setPreviewSong(null)
+    setPreviewSongAction('reserve')
+    setPreviewQueueItemId(null)
   }, [])
 
-  const handleReserveFromSongDetails = useCallback(() => {
+  const handlePrimaryActionFromSongDetails = useCallback(() => {
     if (previewSong === null) {
+      return
+    }
+    if (previewSongAction === 'view-only') {
+      return
+    }
+    if (previewSongAction === 'remove-from-queue') {
+      if (activeSessionCode === null || previewQueueItemId === null) {
+        return
+      }
+      setWsMessage('')
+      setIsRemovingQueueItem(true)
+      void removeQueueItem(activeSessionCode, previewQueueItemId, auth.accessToken)
+        .then(async () => {
+          await refreshQueue()
+          await loadSongbook()
+          await refreshParticipants()
+          setWsMessage('Removed from queue.')
+          closeSongDetails()
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : 'Failed to remove queue item'
+          setWsMessage(message)
+        })
+        .finally(() => {
+          setIsRemovingQueueItem(false)
+        })
       return
     }
     setReserveSongTarget(previewSong)
     setIsReserveModalOpen(true)
     setPreviewSong(null)
-  }, [previewSong])
+    setPreviewSongAction('reserve')
+    setPreviewQueueItemId(null)
+  }, [activeSessionCode, auth.accessToken, closeSongDetails, loadSongbook, previewQueueItemId, previewSong, previewSongAction, refreshParticipants, refreshQueue, removeQueueItem])
 
   const handleEditFromSongDetails = useCallback(() => {
     if (previewSong === null) {
@@ -771,20 +865,42 @@ export function SessionControlPage({
 
     setIsSavingReservationOrder(true)
     try {
-      for (let index = 0; index < reservationReorderDraft.length; index += 1) {
-        const item = reservationReorderDraft[index]
-        await apiJson<{ message: string }>(`/sessions/${activeSessionCode}/queue/${item.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            action: 'reorder',
-            target_order: index + 2,
-          }),
-        }, auth.accessToken)
+      const latestQueueItems = await fetchSessionQueue(activeSessionCode, auth.accessToken)
+      const latestPendingItems = latestQueueItems
+        .filter((item) => item.status === 'pending')
+        .sort((left, right) => left.queueOrder - right.queueOrder)
+      const latestPendingIds = new Set(latestPendingItems.map((item) => item.id))
+      const draftItems = reservationReorderDraft.filter((item) => latestPendingIds.has(item.id))
+      const draftIds = new Set(draftItems.map((item) => item.id))
+      const untouchedItems = latestPendingItems.filter((item) => !draftIds.has(item.id))
+      const reorderedItems = [...draftItems, ...untouchedItems]
+
+      if (reorderedItems.length === 0) {
+        setIsReservationsReorderOpen(false)
+        setReservationDragSongId(null)
+        setReservationDropIndex(null)
+        setWsMessage('No pending songs left to reorder.')
+        return
       }
-      await refreshQueue()
+
+      for (let index = reorderedItems.length - 1; index >= 0; index -= 1) {
+        const item = reorderedItems[index]
+        await apiJson<{ message: string }>(
+          `/sessions/${activeSessionCode}/queue/${item.id}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({
+              action: 'reorder',
+              target_order: index + 1,
+            }),
+          },
+          auth.accessToken,
+        )
+      }
       setIsReservationsReorderOpen(false)
       setReservationDragSongId(null)
       setReservationDropIndex(null)
+      await refreshQueue()
       setWsMessage('Reservation order updated.')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update reservation order'
@@ -792,13 +908,31 @@ export function SessionControlPage({
     } finally {
       setIsSavingReservationOrder(false)
     }
-  }, [activeSessionCode, auth.accessToken, refreshQueue, reservationReorderDraft])
+  }, [activeSessionCode, auth.accessToken, fetchSessionQueue, refreshQueue, reservationReorderDraft])
 
   const handleReservationDragStart = useCallback((songId: string) => {
     setReservationDragSongId(songId)
   }, [])
 
   const handleReservationDragEnd = useCallback(() => {
+    setReservationDragSongId(null)
+    setReservationDropIndex(null)
+  }, [])
+
+  const moveReservationDraftItem = useCallback((queueItemId: string, delta: number) => {
+    setReservationReorderDraft((current) => {
+      const sourceIndex = current.findIndex((item) => item.id === queueItemId)
+      if (sourceIndex < 0) {
+        return current
+      }
+
+      const targetIndex = sourceIndex + delta
+      if (targetIndex < 0 || targetIndex >= current.length) {
+        return current
+      }
+
+      return moveArrayItem(current, sourceIndex, targetIndex)
+    })
     setReservationDragSongId(null)
     setReservationDropIndex(null)
   }, [])
@@ -813,16 +947,12 @@ export function SessionControlPage({
       if (sourceIndex < 0) {
         return current
       }
-      const next = [...current]
-      const [moved] = next.splice(sourceIndex, 1)
-      const normalizedTargetIndex = Math.max(0, Math.min(targetIndex, next.length))
-      const insertionIndex = sourceIndex < normalizedTargetIndex ? normalizedTargetIndex - 1 : normalizedTargetIndex
-      const finalIndex = Math.max(0, Math.min(insertionIndex, next.length))
+      const insertionIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
+      const finalIndex = Math.max(0, Math.min(insertionIndex, current.length - 1))
       if (finalIndex === sourceIndex) {
         return current
       }
-      next.splice(finalIndex, 0, moved)
-      return next
+      return moveArrayItem(current, sourceIndex, finalIndex)
     })
     setReservationDragSongId(null)
     setReservationDropIndex(null)
@@ -1092,7 +1222,7 @@ export function SessionControlPage({
             </div>
             <div className="top-gap">
               <div className="playback-seek-row">
-                <span className="playback-duration-label">{formatDurationClock(playbackState.positionSeconds)}</span>
+                <span className="playback-duration-label">{formatDurationClock(seekPositionSeconds)}</span>
                 <input
                   className="playback-seek"
                   type="range"
@@ -1101,21 +1231,37 @@ export function SessionControlPage({
                   step={0.1}
                   value={Math.min(
                     playbackState.durationSeconds > 0 ? playbackState.durationSeconds : 100,
-                    Math.max(0, playbackState.positionSeconds),
+                    Math.max(0, seekPositionSeconds),
                   )}
                   style={
                     {
                       '--range-progress': `${
                         playbackState.durationSeconds > 0
-                          ? Math.min(100, Math.max(0, (playbackState.positionSeconds / playbackState.durationSeconds) * 100))
-                          : Math.min(100, Math.max(0, playbackState.positionSeconds))
+                          ? Math.min(100, Math.max(0, (seekPositionSeconds / playbackState.durationSeconds) * 100))
+                          : Math.min(100, Math.max(0, seekPositionSeconds))
                       }%`,
                     } as CSSProperties
                   }
                   onChange={(event) => {
                     const nextPosition = Number(event.target.value)
+                    if (isSeekingPlayback) {
+                      updateSeekDraft(nextPosition)
+                      return
+                    }
+                    seekDraftPositionRef.current = nextPosition
+                    setSeekDraftPositionSeconds(nextPosition)
                     setPlaybackState((previous) => ({ ...previous, positionSeconds: nextPosition }))
                     sendCommand('playback.seek', { position_seconds: nextPosition })
+                  }}
+                  onPointerDown={beginSeek}
+                  onPointerUp={commitSeek}
+                  onPointerCancel={commitSeek}
+                  onBlur={commitSeek}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      commitSeek()
+                    }
                   }}
                 />
                 <span className="playback-duration-label">
@@ -1200,7 +1346,7 @@ export function SessionControlPage({
                         key={song.id}
                         item={song}
                         showPlayingIcon={index === 0}
-                        onClick={() => void handleOpenSongEditor(song.songId)}
+                        onClick={() => void handleOpenQueueSongDetails(song)}
                       />
                     ))
                   )}
@@ -1510,7 +1656,46 @@ export function SessionControlPage({
                             }}
                             onDragEnd={handleReservationDragEnd}
                             className={reservationDragSongId === item.songId ? 'is-dragging' : ''}
-                            onClick={() => void handleOpenSongEditor(item.songId)}
+                            rightActions={
+                              <div className="reservation-item-step-controls" role="group" aria-label="Move reservation">
+                                <button
+                                  type="button"
+                                  className="icon-control-button reservation-step-button"
+                                  onClick={() => moveReservationDraftItem(item.id, -index)}
+                                  disabled={index === 0 || isSavingReservationOrder}
+                                  aria-label={`Move ${item.title} to top`}
+                                  title="Move to top"
+                                >
+                                  <span className="material-symbols-outlined" aria-hidden="true">
+                                    vertical_align_top
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="icon-control-button reservation-step-button"
+                                  onClick={() => moveReservationDraftItem(item.id, -1)}
+                                  disabled={index === 0 || isSavingReservationOrder}
+                                  aria-label={`Move ${item.title} up`}
+                                  title="Move up"
+                                >
+                                  <span className="material-symbols-outlined" aria-hidden="true">
+                                    keyboard_arrow_up
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="icon-control-button reservation-step-button"
+                                  onClick={() => moveReservationDraftItem(item.id, 1)}
+                                  disabled={index === reservationReorderDraft.length - 1 || isSavingReservationOrder}
+                                  aria-label={`Move ${item.title} down`}
+                                  title="Move down"
+                                >
+                                  <span className="material-symbols-outlined" aria-hidden="true">
+                                    keyboard_arrow_down
+                                  </span>
+                                </button>
+                              </div>
+                            }
                           />
                           <div
                             className={`reservation-drop-zone ${reservationDropIndex === index + 1 ? 'is-active' : ''}`}
@@ -1637,7 +1822,10 @@ export function SessionControlPage({
           isOpen
           song={previewSong}
           onClose={closeSongDetails}
-          onReserve={handleReserveFromSongDetails}
+          reserveLabel={previewSongAction === 'remove-from-queue' ? 'Remove from Queue' : 'Reserve'}
+          onReserve={previewSongAction === 'view-only' ? undefined : handlePrimaryActionFromSongDetails}
+          reserveDisabled={isRemovingQueueItem || isSubmittingReserve}
+          isReserving={previewSongAction === 'remove-from-queue' ? isRemovingQueueItem : isSubmittingReserve}
           onEditDetails={handleEditFromSongDetails}
         />
       ) : null}

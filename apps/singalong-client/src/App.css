@@ -580,7 +580,6 @@ button:disabled {
   padding: 0.5rem 0.75rem;
   min-width: 0;
   width: 100%;
-  cursor: pointer;
   transition: background 0.15s ease-in-out, transform 0.15s ease-in-out;
 }
 
@@ -588,8 +587,22 @@ button:disabled {
   padding-left: 0.5rem;
 }
 
-.reservation-item:hover {
+.reservation-item--interactive {
+  cursor: pointer;
+}
+
+.reservation-item--interactive:hover {
   background: color-mix(in srgb, var(--surface-card) 84%, white 16%);
+}
+
+.reservation-item--static {
+  cursor: default;
+}
+
+.reservation-reorder-list .reservation-item,
+.reservation-reorder-list .reservation-item * {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .reservation-item.is-dragging {
@@ -631,6 +644,36 @@ button:disabled {
 
 .reservation-drag-handle .material-symbols-outlined {
   font-size: 1.5rem;
+}
+
+.reservation-item-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.reservation-item-step-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reservation-reorder-list .reservation-item,
+.reservation-reorder-list .reservation-item * {
+  user-select: none;
+}
+
+.reservation-step-button {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 4px;
+}
+
+.reservation-step-button:disabled,
+.icon-control-button:disabled {
+  opacity: 0.45;
 }
 
 .reservation-reserved-by {
