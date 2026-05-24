@@ -31,8 +31,7 @@ name: Production Build & Push
 on:
   push:
     branches:
-      # - main
-      - rc/v2.0.0 # TODO: TEMPORARY TRIGGER TO TEST PRODUCTION BUILD
+      - main
 
 permissions:
   contents: read
@@ -99,9 +98,6 @@ jobs:
           echo ""
           echo "Changed files:"
           git diff --name-only $PREVIOUS_COMMIT HEAD
-
-          # TODO: TEMPORARY OVERRIDE
-          echo "web=true" >> $GITHUB_OUTPUT
 
       - name: Output detection results
         run: |
