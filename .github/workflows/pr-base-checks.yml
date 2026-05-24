@@ -1,0 +1,31 @@
+name: PR / Base Checks
+
+on:
+  workflow_call:
+
+jobs:
+  enforce-rc-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce RC-only PRs to main
+        run: |
+          PR_HEAD_REF="${{ github.event.pull_request.head.ref }}"
+          PR_BASE_REF="${{ github.event.pull_request.base.ref }}"
+
+          # Enforce strict rule: ONLY rc/vX.Y.Z or hotfix/* branches can PR to main
+          if [ "${PR_BASE_REF}" = "main" ]; then
+            # Check if branch matches rc/vX.Y.Z or hotfix/* pattern
+            if [[ "${PR_HEAD_REF}" =~ ^(rc/v[0-9]+\.[0-9]+\.[0-9]+|hotfix/.+)$ ]]; then
+              echo "✅ PR to 'main' from allowed branch: ${PR_HEAD_REF}"
+            else
+              echo "❌ PR to 'main' must originate from rc/vX.Y.Z or hotfix/* branch"
+              echo "PR Source Branch: ${PR_HEAD_REF}"
+              echo "PR Base Branch: ${PR_BASE_REF}"
+              echo "Expected Patterns: rc/vX.Y.Z (e.g., rc/v1.0.5) or hotfix/* (e.g., hotfix/critical-fix)"
+              exit 1
+            fi
+          else
+            echo "✅ PR base is not 'main' — no branch restriction enforced"
+            echo "PR Source Branch: ${PR_HEAD_REF}"
+            echo "PR Base Branch: ${PR_BASE_REF}"
+          fi

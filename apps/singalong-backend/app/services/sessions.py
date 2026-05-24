@@ -80,3 +80,21 @@ def archive_session(db: Session, session_id: UUID) -> KaraokeSession:
     db.commit()
     db.refresh(session)
     return session
+
+
+def update_session(db: Session, session_id: UUID, name: str | None = None, vibes: str | None = None) -> KaraokeSession:
+    session = db.get(KaraokeSession, session_id)
+    if session is None:
+        raise SessionNotFoundError
+
+    if name is not None:
+        normalized_name = name.strip()
+        if normalized_name == "":
+            raise SessionValidationError("Session name cannot be empty")
+        session.name = normalized_name
+    if vibes is not None:
+        session.vibes = vibes.strip() or None
+
+    db.commit()
+    db.refresh(session)
+    return session

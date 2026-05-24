@@ -1,18 +1,23 @@
+import asyncio
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import WebSocketException, status
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from .bootstrap import seed_admin_user
 from .config import settings
 from .db import Base, engine, get_db
 from .models import User
+from .routers.media import router as media_router
+from .routers.songs import router as songs_router
 from .routers.sessions import router as sessions_router
+from .routers.users import legacy_router as users_legacy_router
 from .routers.users import router as users_router
-from .services.auth import authenticate_websocket_user
+from .services.auth import authenticate_websocket_user, authenticate_websocket_user_optional
 from .services.sessions import get_active_session_by_code
 from .services.ws import ws_hub
 
@@ -25,17 +30,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(users_router)
+app.include_router(users_legacy_router)
 app.include_router(sessions_router)
+app.include_router(songs_router)
+app.include_router(media_router)
 
-admin_static_path = Path(settings.admin_static_dir)
-admin_index_path = admin_static_path / "index.html"
+client_static_path = Path(settings.client_static_dir)
+client_index_path = client_static_path / "index.html"
 
 
-def _serve_admin_path(path: str = "") -> FileResponse:
-    if not admin_static_path.exists() or not admin_index_path.exists():
-        raise HTTPException(status_code=404, detail="Admin app is not available")
+def _serve_client_path(path: str = "") -> FileResponse:
+    if not client_static_path.exists() or not client_index_path.exists():
+        raise HTTPException(status_code=404, detail="Client app is not available")
 
-    root = admin_static_path.resolve()
+    root = client_static_path.resolve()
     requested = (root / path).resolve()
     try:
         requested.relative_to(root)
@@ -48,12 +56,12 @@ def _serve_admin_path(path: str = "") -> FileResponse:
     if path != "" and "." in Path(path).name:
         raise HTTPException(status_code=404, detail="Static asset not found")
 
-    return FileResponse(admin_index_path)
+    return FileResponse(client_index_path)
 
 
 @app.get("/")
 def root():
-    return RedirectResponse(url="/guest", status_code=307)
+    return RedirectResponse(url="/client/guest", status_code=307)
 
 
 @app.get("/api")
@@ -61,43 +69,29 @@ def api_root():
     return {"message": "Singalong API root"}
 
 
-@app.get("/admin")
-def admin_root():
-    return RedirectResponse(url="/admin/", status_code=307)
+@app.get("/api/public-config")
+def public_config(request: Request):
+    configured = settings.singalong_base_url.strip()
+    if configured != "":
+        return {"guest_base_url": configured.rstrip("/")}
+
+    request_base = str(request.base_url).rstrip("/")
+    return {"guest_base_url": request_base}
 
 
-@app.get("/admin/")
-def admin_index():
-    return _serve_admin_path()
+@app.get("/client")
+def client_root():
+    return RedirectResponse(url="/client/", status_code=307)
 
 
-@app.get("/admin/{full_path:path}")
-def admin_path(full_path: str):
-    return _serve_admin_path(full_path)
+@app.get("/client/")
+def client_index():
+    return _serve_client_path()
 
 
-@app.get("/guest", response_class=HTMLResponse)
-def guest():
-    return """
-    <!doctype html>
-    <html><head><title>Singalong Guest</title></head>
-    <body style="font-family: sans-serif; margin: 2rem;">
-      <h1>Singalong Guest</h1>
-      <p>Guest app is not implemented yet. This is a mock page.</p>
-    </body></html>
-    """
-
-
-@app.get("/suggest", response_class=HTMLResponse)
-def suggest():
-    return """
-    <!doctype html>
-    <html><head><title>Singalong Suggest</title></head>
-    <body style="font-family: sans-serif; margin: 2rem;">
-      <h1>Song Suggestions</h1>
-      <p>Suggestions app is not implemented yet. This is a mock page.</p>
-    </body></html>
-    """
+@app.get("/client/{full_path:path}")
+def client_path(full_path: str):
+    return _serve_client_path(full_path)
 
 
 def _require_active_session(db: Session, session_code: str):
@@ -131,9 +125,15 @@ async def websocket_player(
     token: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    _ = _authenticate_ws_channel(websocket, db, token, {"player", "admin"})
+    user = _authenticate_ws_channel(websocket, db, token, {"player", "admin"})
     _require_active_session(db, session_code)
-    await ws_hub.run_connection(websocket=websocket, channel="player", session_code=session_code)
+    await ws_hub.run_connection(
+        websocket=websocket,
+        channel="player",
+        session_code=session_code,
+        db=db,
+        username=user.username,
+    )
 
 
 @app.websocket("/ws/admin")
@@ -143,21 +143,39 @@ async def websocket_admin(
     token: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    _ = _authenticate_ws_channel(websocket, db, token, {"admin"})
+    user = _authenticate_ws_channel(websocket, db, token, {"admin"})
     _require_active_session(db, session_code)
-    await ws_hub.run_connection(websocket=websocket, channel="admin", session_code=session_code)
+    await ws_hub.run_connection(
+        websocket=websocket,
+        channel="admin",
+        session_code=session_code,
+        db=db,
+        username=user.username,
+    )
 
 
 @app.websocket("/ws/guest")
 async def websocket_guest(
     websocket: WebSocket,
-    session_code: str = Query(..., min_length=6, max_length=6),
+    session_code: str | None = Query(None, min_length=6, max_length=6),
     token: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    _ = _authenticate_ws_channel(websocket, db, token, {"guest", "admin"})
-    _require_active_session(db, session_code)
-    await ws_hub.run_connection(websocket=websocket, channel="guest", session_code=session_code)
+    user = authenticate_websocket_user_optional(
+        websocket=websocket,
+        db=db,
+        token_query=token,
+        allowed_roles={"guest", "admin"},
+    )
+    if session_code is not None:
+        _require_active_session(db, session_code)
+    await ws_hub.run_connection(
+        websocket=websocket,
+        channel="guest",
+        session_code=session_code,
+        db=db,
+        username=user.username if user is not None else None,
+    )
 
 
 @app.get("/health")
@@ -166,6 +184,57 @@ def health():
 
 
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+    if inspector.has_table("sessions"):
+        session_columns = {column["name"] for column in inspector.get_columns("sessions")}
+        if "vibes" not in session_columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE sessions ADD COLUMN vibes TEXT"))
+    if inspector.has_table("song_queue"):
+        queue_columns = {column["name"] for column in inspector.get_columns("song_queue")}
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TYPE song_queue_status ADD VALUE IF NOT EXISTS 'playing'"))
+            if "playback_position_seconds" not in queue_columns:
+                conn.execute(text("ALTER TABLE song_queue ADD COLUMN playback_position_seconds DOUBLE PRECISION"))
+            if "playback_volume_pct" not in queue_columns:
+                conn.execute(text("ALTER TABLE song_queue ADD COLUMN playback_volume_pct INTEGER"))
+            if "playback_is_playing" not in queue_columns:
+                conn.execute(text("ALTER TABLE song_queue ADD COLUMN playback_is_playing BOOLEAN"))
+    if inspector.has_table("songs"):
+        songs_columns = {column["name"] for column in inspector.get_columns("songs")}
+        with engine.begin() as conn:
+            if "trim_start_ms" not in songs_columns:
+                conn.execute(text("ALTER TABLE songs ADD COLUMN trim_start_ms INTEGER"))
+            if "trim_end_ms" not in songs_columns:
+                conn.execute(text("ALTER TABLE songs ADD COLUMN trim_end_ms INTEGER"))
+            if "was_trimmed" not in songs_columns:
+                conn.execute(text("ALTER TABLE songs ADD COLUMN was_trimmed BOOLEAN DEFAULT FALSE"))
+            if "trimmed_at" not in songs_columns:
+                conn.execute(text("ALTER TABLE songs ADD COLUMN trimmed_at TIMESTAMP WITH TIME ZONE"))
     seed_admin_user()
+    ws_hub.bind_event_loop(asyncio.get_running_loop())
+
+    # Initialize song downloader
+    from pathlib import Path
+
+    from .config import settings
+    from .db import SessionLocal
+    from .services.song_downloader_service import get_downloader, initialize_downloader
+    from .tasks.trim_cleanup_task import start_cleanup_scheduler
+
+    media_dir = Path(settings.media_root_dir)
+    initialize_downloader(media_dir, SessionLocal, settings.ytdlp_cookies_file)
+    get_downloader().recover_pending_downloads()
+
+    # Start trim archive cleanup scheduler
+    start_cleanup_scheduler()
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """Shutdown event handler."""
+    from .tasks.trim_cleanup_task import stop_cleanup_scheduler
+
+    stop_cleanup_scheduler()

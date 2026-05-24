@@ -1,0 +1,37 @@
+name: PR / Client App Checks
+
+on:
+  workflow_call:
+
+jobs:
+  client-checks:
+    name: Client app checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/singalong-client
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/singalong-client/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run type checks
+        run: npm run build 2>&1 | grep -E "(error|warning)" || echo "✓ Type checks passed"
+
+      - name: Build for production
+        run: npm run build
+
+      - name: Verify build artifacts
+        run: |
+          [ -d "dist" ] && echo "✅ Client build succeeded" || exit 1

@@ -103,6 +103,29 @@ def authenticate_websocket_user(
     return user
 
 
+def authenticate_websocket_user_optional(
+    websocket: WebSocket,
+    db: Session,
+    allowed_roles: set[str],
+    token_query: str | None = None,
+) -> User | None:
+    token = token_query
+    if token is None or token == "":
+        authorization = websocket.headers.get("authorization")
+        if authorization is not None and authorization.lower().startswith("bearer "):
+            token = authorization[7:]
+
+    if token is None or token == "":
+        return None
+
+    return authenticate_websocket_user(
+        websocket=websocket,
+        db=db,
+        allowed_roles=allowed_roles,
+        token_query=token,
+    )
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
@@ -122,5 +145,32 @@ def require_admin_user(current_user: User = Depends(get_current_user)) -> User:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",
+        )
+    return current_user
+
+
+def require_admin_or_player_user(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in {"admin", "player"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or player access required",
+        )
+    return current_user
+
+
+def require_admin_or_guest_user(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in {"admin", "guest"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or guest access required",
+        )
+    return current_user
+
+
+def require_admin_player_guest_user(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in {"admin", "player", "guest"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin, player, or guest access required",
         )
     return current_user
