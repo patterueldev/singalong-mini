@@ -1,6 +1,7 @@
 """Web Researcher Agent - Research song metadata using an LLM."""
 import json
 import logging
+import sys
 from typing import Optional
 
 from app.services.llm_client import LLMClient, create_llm_client
@@ -41,8 +42,6 @@ class WebResearcherAgent:
             - tags: Optional[list[str]]
             - research_confidence: float (0.0-1.0)
         """
-        import sys
-
         try:
             print(
                 f"[WEB_RESEARCHER] research() called - title={title[:60] if title else ''} artist={artist}",
