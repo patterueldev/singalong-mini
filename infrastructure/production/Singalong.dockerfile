@@ -1,4 +1,4 @@
-FROM node:22-alpine AS client-builder
+FROM node:24-alpine AS client-builder
 
 WORKDIR /build/client
 
@@ -10,7 +10,7 @@ ENV VITE_BASE_PATH=/client/
 RUN npm run build
 
 
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 
