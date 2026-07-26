@@ -1,11 +1,10 @@
-"""Title Guesser Agent - Extract song title and artist from YouTube metadata using OpenAI."""
+"""Title Guesser Agent - Extract song title and artist from YouTube metadata using an LLM."""
 import json
 import logging
-import os
 import re
 from typing import Optional
 
-from openai import OpenAI
+from app.services.llm_client import LLMClient, create_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +33,9 @@ class TitleGuesserAgent:
         "practice", "練習", "練習用", "原曲キー",
     }
 
-    def __init__(self):
+    def __init__(self, llm_client: LLMClient | None = None):
         """Initialize the Title Guesser agent."""
-        self.client = None
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if openai_key:
-            self.client = OpenAI(api_key=openai_key)
+        self.llm = llm_client or create_llm_client("title_guesser")
 
     def extract(
         self,
@@ -88,36 +84,36 @@ class TitleGuesserAgent:
                 video_has_lyrics,
             )
 
-            # Use OpenAI to intelligently extract title and artist
-            if self.client:
+            # Use LLM to intelligently extract title and artist
+            if self.llm:
                 print(
-                    "[TITLE_GUESSER] Calling OpenAI to extract title and artist...",
+                    "[TITLE_GUESSER] Calling LLM to extract title and artist...",
                     file=sys.stderr,
                     flush=True,
                 )
-                logger.info("[TITLE_GUESSER] Calling OpenAI to extract title and artist")
+                logger.info("[TITLE_GUESSER] Calling LLM to extract title and artist")
 
                 extracted_title, extracted_artist, confidence = (
                     self._extract_with_openai(youtube_title, youtube_description)
                 )
                 print(
-                    f"[TITLE_GUESSER] OpenAI extraction - artist={extracted_artist} title={extracted_title[:80] if extracted_title else ''} confidence={confidence:.2f}",
+                    f"[TITLE_GUESSER] LLM extraction - artist={extracted_artist} title={extracted_title[:80] if extracted_title else ''} confidence={confidence:.2f}",
                     file=sys.stderr,
                     flush=True,
                 )
                 logger.info(
-                    "[TITLE_GUESSER] OpenAI extraction - artist=%s title=%s confidence=%.2f",
+                    "[TITLE_GUESSER] LLM extraction - artist=%s title=%s confidence=%.2f",
                     extracted_artist,
                     extracted_title[:80] if extracted_title else "",
                     confidence,
                 )
             else:
                 print(
-                    "[TITLE_GUESSER] No OpenAI client, using fallback extraction",
+                    "[TITLE_GUESSER] No LLM client, using fallback extraction",
                     file=sys.stderr,
                     flush=True,
                 )
-                logger.warning("[TITLE_GUESSER] No OpenAI client, using fallback extraction")
+                logger.warning("[TITLE_GUESSER] No LLM client, using fallback extraction")
                 extracted_title, extracted_artist, confidence = self._extract_with_regex(
                     youtube_title
                 )
@@ -145,7 +141,7 @@ class TitleGuesserAgent:
 
     def _extract_with_openai(self, youtube_title: str, youtube_description: str) -> tuple:
         """
-        Use OpenAI to extract song title and artist from YouTube metadata.
+        Use LLM to extract song title and artist from YouTube metadata.
 
         Returns:
             Tuple of (extracted_title, extracted_artist, confidence)
@@ -188,14 +184,13 @@ Examples:
   Output: {{"title": "Some random song", "artist": null, "confidence": 0.3}}"""
 
             print(
-                f"[TITLE_GUESSER] OpenAI request - prompt length={len(prompt)}",
+                f"[TITLE_GUESSER] LLM request - prompt length={len(prompt)}",
                 file=sys.stderr,
                 flush=True,
             )
-            logger.info("[TITLE_GUESSER] OpenAI request - prompt length=%d", len(prompt))
+            logger.info("[TITLE_GUESSER] LLM request - prompt length=%d", len(prompt))
 
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self.llm.chat_completion(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
                 max_tokens=200,
@@ -203,11 +198,11 @@ Examples:
 
             response_text = response.choices[0].message.content.strip()
             print(
-                f"[TITLE_GUESSER] OpenAI response - raw={response_text[:200]}",
+                f"[TITLE_GUESSER] LLM response - raw={response_text[:200]}",
                 file=sys.stderr,
                 flush=True,
             )
-            logger.info("[TITLE_GUESSER] OpenAI response - raw=%s", response_text[:200])
+            logger.info("[TITLE_GUESSER] LLM response - raw=%s", response_text[:200])
 
             # Parse JSON response
             result = json.loads(response_text)
@@ -216,12 +211,12 @@ Examples:
             confidence = float(result.get("confidence", 0.5))
 
             print(
-                f"[TITLE_GUESSER] OpenAI parsed - title={extracted_title} artist={extracted_artist} confidence={confidence}",
+                f"[TITLE_GUESSER] LLM parsed - title={extracted_title} artist={extracted_artist} confidence={confidence}",
                 file=sys.stderr,
                 flush=True,
             )
             logger.info(
-                "[TITLE_GUESSER] OpenAI parsed - title=%s artist=%s confidence=%.2f",
+                "[TITLE_GUESSER] LLM parsed - title=%s artist=%s confidence=%.2f",
                 extracted_title,
                 extracted_artist,
                 confidence,
@@ -230,12 +225,12 @@ Examples:
             return extracted_title or "", extracted_artist, confidence
 
         except json.JSONDecodeError as e:
-            print(f"[TITLE_GUESSER] OpenAI JSON parse failed: {e}", file=sys.stderr, flush=True)
-            logger.exception("[TITLE_GUESSER] OpenAI JSON parse failed: %s", e)
+            print(f"[TITLE_GUESSER] LLM JSON parse failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("[TITLE_GUESSER] LLM JSON parse failed: %s", e)
             return self._extract_with_regex(youtube_title)
         except Exception as e:
-            print(f"[TITLE_GUESSER] OpenAI API call failed: {e}", file=sys.stderr, flush=True)
-            logger.exception("[TITLE_GUESSER] OpenAI API call failed: %s", e)
+            print(f"[TITLE_GUESSER] LLM API call failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("[TITLE_GUESSER] LLM API call failed: %s", e)
             return self._extract_with_regex(youtube_title)
 
     def _extract_with_regex(self, title: str) -> tuple:

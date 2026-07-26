@@ -600,16 +600,28 @@ async def suggest_song_enhance(
     print(f"[ENHANCE] Starting enhancement request - source_id={payload.source_id} title={payload.title} artist={payload.artist}", file=sys.stderr, flush=True)
     logger.info("[ENHANCE] Starting enhancement request - source_id=%s title=%s artist=%s", payload.source_id, payload.title, payload.artist)
     
-    # Validate OpenAI API key is available
-    if not os.getenv("OPENAI_API_KEY"):
-        print("[ENHANCE] OPENAI_API_KEY not configured", file=sys.stderr, flush=True)
-        logger.warning("[ENHANCE] OPENAI_API_KEY not configured")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OPENAI_API_KEY is not configured",
-        )
-    print("[ENHANCE] OPENAI_API_KEY is available", file=sys.stderr, flush=True)
-    logger.info("[ENHANCE] OPENAI_API_KEY is available")
+    # Validate AI API key is available for the configured provider
+    provider = settings.ai_provider
+    if provider == "openai":
+        if not settings.openai_api_key:
+            print("[ENHANCE] OPENAI_API_KEY not configured", file=sys.stderr, flush=True)
+            logger.warning("[ENHANCE] OPENAI_API_KEY not configured")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OPENAI_API_KEY is not configured",
+            )
+    elif provider == "deepseek":
+        if not settings.deepseek_api_key:
+            print("[ENHANCE] DEEPSEEK_API_KEY not configured", file=sys.stderr, flush=True)
+            logger.warning("[ENHANCE] DEEPSEEK_API_KEY not configured")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="DEEPSEEK_API_KEY is not configured",
+            )
+    else:
+        logger.warning("[ENHANCE] Unknown AI provider: %s", provider)
+    print(f"[ENHANCE] AI provider={provider} key is available", file=sys.stderr, flush=True)
+    logger.info("[ENHANCE] AI provider=%s key is available", provider)
 
     try:
         # Create orchestrator and prepare payload for enhancement

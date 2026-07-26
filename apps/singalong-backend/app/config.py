@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     ytdlp_cookies_file: str = "/data/cookies.txt"
     singalong_base_url: str = "http://localhost:9000"
 
+    ai_provider: str = "deepseek"
+    openai_api_key: str = ""
+    deepseek_api_key: str = ""
+
+    ai_title_guesser_model: str = ""
+    ai_web_researcher_model: str = ""
+    ai_language_identifier_model: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

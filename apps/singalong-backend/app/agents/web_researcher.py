@@ -1,23 +1,19 @@
-"""Web Researcher Agent - Research song metadata using OpenAI and MusicBrainz."""
+"""Web Researcher Agent - Research song metadata using an LLM."""
 import json
 import logging
-import os
 from typing import Optional
 
-from openai import OpenAI
+from app.services.llm_client import LLMClient, create_llm_client
 
 logger = logging.getLogger(__name__)
 
 
 class WebResearcherAgent:
-    """Researches song metadata using OpenAI agent with function calling."""
+    """Researches song metadata using an LLM."""
 
-    def __init__(self):
+    def __init__(self, llm_client: LLMClient | None = None):
         """Initialize the Web Researcher agent."""
-        self.client = None
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if openai_key:
-            self.client = OpenAI(api_key=openai_key)
+        self.llm = llm_client or create_llm_client("web_researcher")
 
     async def research(
         self,
@@ -26,7 +22,7 @@ class WebResearcherAgent:
         youtube_title: str = "",
     ) -> dict:
         """
-        Research song metadata using OpenAI to find:
+        Research song metadata using an LLM to find:
         - Verified artist name
         - Release year
         - Genre
@@ -59,13 +55,13 @@ class WebResearcherAgent:
                 artist,
             )
 
-            if not self.client:
+            if not self.llm:
                 print(
-                    "[WEB_RESEARCHER] No OpenAI client available, returning baseline",
+                    "[WEB_RESEARCHER] No LLM client available, returning baseline",
                     file=sys.stderr,
                     flush=True,
                 )
-                logger.warning("[WEB_RESEARCHER] No OpenAI client available")
+                logger.warning("[WEB_RESEARCHER] No LLM client available")
                 return {
                     "verified_artist": artist,
                     "verified_year": None,
@@ -74,7 +70,7 @@ class WebResearcherAgent:
                     "research_confidence": 0.0,
                 }
 
-            # Use OpenAI to research the song
+            # Use LLM to research the song
             prompt = f"""You are a music researcher. Based on the song title and artist, provide metadata research results.
 
 Song Title: {title}
@@ -105,14 +101,13 @@ Guidelines:
 - Confidence should reflect how certain you are"""
 
             print(
-                f"[WEB_RESEARCHER] Calling OpenAI to research song...",
+                f"[WEB_RESEARCHER] Calling LLM to research song...",
                 file=sys.stderr,
                 flush=True,
             )
-            logger.info("[WEB_RESEARCHER] Calling OpenAI to research song")
+            logger.info("[WEB_RESEARCHER] Calling LLM to research song")
 
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self.llm.chat_completion(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=300,
@@ -120,11 +115,11 @@ Guidelines:
 
             response_text = response.choices[0].message.content.strip()
             print(
-                f"[WEB_RESEARCHER] OpenAI response - raw={response_text[:200]}",
+                f"[WEB_RESEARCHER] LLM response - raw={response_text[:200]}",
                 file=sys.stderr,
                 flush=True,
             )
-            logger.info("[WEB_RESEARCHER] OpenAI response - raw=%s", response_text[:200])
+            logger.info("[WEB_RESEARCHER] LLM response - raw=%s", response_text[:200])
 
             # Parse JSON response
             result = json.loads(response_text)

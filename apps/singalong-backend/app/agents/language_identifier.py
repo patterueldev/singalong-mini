@@ -1,23 +1,19 @@
-"""Language Identifier Agent - Detect language using OpenAI."""
+"""Language Identifier Agent - Detect language using an LLM."""
 import json
 import logging
-import os
 from typing import Optional
 
-from openai import OpenAI
+from app.services.llm_client import LLMClient, create_llm_client
 
 logger = logging.getLogger(__name__)
 
 
 class LanguageIdentifierAgent:
-    """Detects language from song metadata using OpenAI."""
+    """Detects language from song metadata using an LLM."""
 
-    def __init__(self):
+    def __init__(self, llm_client: LLMClient | None = None):
         """Initialize the Language Identifier agent."""
-        self.client = None
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if openai_key:
-            self.client = OpenAI(api_key=openai_key)
+        self.llm = llm_client or create_llm_client("language_identifier")
 
     async def detect(
         self,
@@ -26,7 +22,7 @@ class LanguageIdentifierAgent:
         youtube_title: str = "",
     ) -> dict:
         """
-        Detect language from song metadata using OpenAI.
+        Detect language from song metadata using an LLM.
 
         Args:
             title: Song title
@@ -53,13 +49,13 @@ class LanguageIdentifierAgent:
                 youtube_title[:60] if youtube_title else "",
             )
 
-            if not self.client:
+            if not self.llm:
                 print(
-                    "[LANGUAGE_IDENTIFIER] No OpenAI client, using fallback",
+                    "[LANGUAGE_IDENTIFIER] No LLM client, using fallback",
                     file=sys.stderr,
                     flush=True,
                 )
-                logger.warning("[LANGUAGE_IDENTIFIER] No OpenAI client")
+                logger.warning("[LANGUAGE_IDENTIFIER] No LLM client")
                 return {
                     "language": "en",
                     "confidence": 0.1,
@@ -83,7 +79,7 @@ class LanguageIdentifierAgent:
                 combined_text[:100],
             )
 
-            # Use OpenAI to detect language
+            # Use LLM to detect language
             prompt = f"""You are a language detection expert. Identify the language of the song title and artist.
 
 Song Title: {title}
@@ -107,14 +103,13 @@ Guidelines:
 - Confidence reflects how certain you are about the language"""
 
             print(
-                "[LANGUAGE_IDENTIFIER] Calling OpenAI to detect language...",
+                "[LANGUAGE_IDENTIFIER] Calling LLM to detect language...",
                 file=sys.stderr,
                 flush=True,
             )
-            logger.info("[LANGUAGE_IDENTIFIER] Calling OpenAI to detect language")
+            logger.info("[LANGUAGE_IDENTIFIER] Calling LLM to detect language")
 
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            response = self.llm.chat_completion(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=100,
@@ -122,11 +117,11 @@ Guidelines:
 
             response_text = response.choices[0].message.content.strip()
             print(
-                f"[LANGUAGE_IDENTIFIER] OpenAI response - raw={response_text[:150]}",
+                f"[LANGUAGE_IDENTIFIER] LLM response - raw={response_text[:150]}",
                 file=sys.stderr,
                 flush=True,
             )
-            logger.info("[LANGUAGE_IDENTIFIER] OpenAI response - raw=%s", response_text[:150])
+            logger.info("[LANGUAGE_IDENTIFIER] LLM response - raw=%s", response_text[:150])
 
             # Parse JSON response
             result = json.loads(response_text)

@@ -27,6 +27,8 @@ services:
       JWT_SECRET_KEY: ${SINGALONG_JWT_SECRET_KEY:-singalong-dev-jwt-secret-key-longer-than-32-bytes-required}
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${SINGALONG_JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-43200}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      AI_PROVIDER: ${AI_PROVIDER:-deepseek}
     ports:
       - "8000:8000"
     volumes:
