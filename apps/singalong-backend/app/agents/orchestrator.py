@@ -1,6 +1,7 @@
 """Orchestrator Agent - Coordinates enhancement agents and consolidates results."""
 import asyncio
 import logging
+import sys
 from typing import Optional
 
 from .language_identifier import LanguageIdentifierAgent
@@ -41,7 +42,6 @@ class OrchestratorAgent:
         Returns:
             Enhanced payload in the same canonical shape
         """
-        import sys
         try:
             print("[ORCHESTRATOR] enhance() started", file=sys.stderr, flush=True)
             print(f"[ORCHESTRATOR] Input payload - title={canonical_payload.get('title')} artist={canonical_payload.get('artist')} language={canonical_payload.get('language')}", file=sys.stderr, flush=True)
