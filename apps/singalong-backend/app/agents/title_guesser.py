@@ -2,6 +2,7 @@
 import json
 import logging
 import re
+import sys
 from typing import Optional
 
 from app.services.llm_client import LLMClient, create_llm_client
@@ -57,8 +58,6 @@ class TitleGuesserAgent:
             - video_has_lyrics: bool
             - confidence: float (0.0-1.0)
         """
-        import sys
-
         try:
             print(
                 f"[TITLE_GUESSER] extract() called - input_title={youtube_title[:80] if youtube_title else ''}",
@@ -146,8 +145,6 @@ class TitleGuesserAgent:
         Returns:
             Tuple of (extracted_title, extracted_artist, confidence)
         """
-        import sys
-
         try:
             prompt = f"""You are a music metadata extraction expert. Extract the song title and artist from the YouTube video title.
 
@@ -193,7 +190,7 @@ Examples:
             response = self.llm.chat_completion(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
-                max_tokens=200,
+                max_tokens=300,
             )
 
             response_text = response.choices[0].message.content.strip()

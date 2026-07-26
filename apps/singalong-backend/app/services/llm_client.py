@@ -22,9 +22,9 @@ PROVIDER_CONFIG = {
         "base_url": "https://api.deepseek.com/v1",
         "api_key_env": "DEEPSEEK_API_KEY",
         "default_models": {
-            "title_guesser": "deepseek-chat",
-            "web_researcher": "deepseek-chat",
-            "language_identifier": "deepseek-chat",
+            "title_guesser": "deepseek-v4-pro",
+            "web_researcher": "deepseek-v4-flash",
+            "language_identifier": "deepseek-v4-flash",
         },
     },
 }

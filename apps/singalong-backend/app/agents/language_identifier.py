@@ -1,6 +1,7 @@
 """Language Identifier Agent - Detect language using an LLM."""
 import json
 import logging
+import sys
 from typing import Optional
 
 from app.services.llm_client import LLMClient, create_llm_client
@@ -34,8 +35,6 @@ class LanguageIdentifierAgent:
             - language: str (ISO 639-1 code)
             - confidence: float (0.0-1.0)
         """
-        import sys
-
         try:
             print(
                 f"[LANGUAGE_IDENTIFIER] detect() called - title={title[:60] if title else ''} artist={artist} youtube_title={youtube_title[:60] if youtube_title else ''}",
@@ -112,7 +111,7 @@ Guidelines:
             response = self.llm.chat_completion(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
-                max_tokens=100,
+                max_tokens=150,
             )
 
             response_text = response.choices[0].message.content.strip()
@@ -123,7 +122,15 @@ Guidelines:
             )
             logger.info("[LANGUAGE_IDENTIFIER] LLM response - raw=%s", response_text[:150])
 
-            # Parse JSON response
+            if not response_text:
+                print(
+                    "[LANGUAGE_IDENTIFIER] Empty response from LLM, using fallback",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                logger.warning("[LANGUAGE_IDENTIFIER] Empty response from LLM")
+                return {"language": "en", "confidence": 0.1}
+
             result = json.loads(response_text)
             detected_lang = result.get("language", "en")
             confidence = float(result.get("confidence", 0.5))
