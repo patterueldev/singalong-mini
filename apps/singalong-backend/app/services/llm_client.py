@@ -59,13 +59,24 @@ class LLMClient:
         temperature: float = 0.3,
         max_tokens: int = 300,
     ):
-        return self._client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-        )
+        # DeepSeek's JSON mode documents an occasional empty-content response as a
+        # known, expected failure mode (independent of max_tokens) — retry once
+        # before handing an empty response back to the caller.
+        response = None
+        for attempt in range(2):
+            response = self._client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+            )
+            if response.choices[0].message.content and response.choices[0].message.content.strip():
+                return response
+            logger.warning(
+                "Empty LLM response from model=%s (attempt %d/2), retrying...", self.model, attempt + 1
+            )
+        return response
 
 
 def _resolve_api_key(provider: str) -> str:

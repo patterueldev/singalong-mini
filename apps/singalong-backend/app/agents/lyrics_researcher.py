@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 EARLY_EXIT_CONFIDENCE_THRESHOLD = 0.7
 MAX_PAGES_TO_FETCH = 3
+TRANSLATION_URL_MARKERS = ("english-translation", "-translation-", "traduccion", "traduction")
 
 
 class LyricsResearcherAgent:
@@ -103,7 +104,9 @@ confident they are correct. Do NOT make up lyrics for songs you don't know.
 
 If the song is in Japanese, provide ROMANIZED (romaji) lyrics, not Japanese script
 (hiragana/katakana/kanji) — this is a karaoke app and guests need to read/sing along.
-For songs in other languages, keep the lyrics in their original written form.
+For songs in other languages, keep the lyrics in their original written form — do NOT
+translate them into English or any other language; guests need to sing along to the
+actual recording.
 
 Song: {title} by {artist or "Unknown"}
 
@@ -153,8 +156,26 @@ Return ONLY valid JSON:
                 logger.info("[LYRICS_RESEARCHER] Phase B - no Brave search results")
                 return None
 
+            # Prefer pages that are actually the song's lyrics, not a translation of them into
+            # another language (e.g. Genius' "English Translations" annotation pages) — those
+            # would silently hand back translated lyrics instead of the as-performed ones.
+            non_translation_results = [
+                r for r in results if not any(marker in r["url"].lower() for marker in TRANSLATION_URL_MARKERS)
+            ]
+            if len(non_translation_results) < len(results):
+                print(
+                    f"[LYRICS_RESEARCHER] Phase B - filtered out {len(results) - len(non_translation_results)} likely translation page(s)",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                logger.info(
+                    "[LYRICS_RESEARCHER] Phase B - filtered out %d likely translation page(s)",
+                    len(results) - len(non_translation_results),
+                )
+            search_results = non_translation_results or results
+
             best: Optional[dict] = None
-            for result in results[:MAX_PAGES_TO_FETCH]:
+            for result in search_results[:MAX_PAGES_TO_FETCH]:
                 page_text = await self.brave.fetch_page_text(result["url"])
                 if not page_text:
                     continue
@@ -199,10 +220,16 @@ Return ONLY valid JSON:
 "{title}" by {artist or "Unknown"} if they are present in this text. Do NOT make up lyrics —
 if the page does not contain this song's lyrics, return null.
 
+This is for a karaoke singalong app — the lyrics must be usable to sing along to the actual
+recording. If this page is a TRANSLATION of the lyrics into a different language than the
+song is actually performed in (e.g. a Genius "English Translation" annotation page, or any
+page presenting an interpretation/translation rather than the as-sung lyrics), return null —
+a translation is not singable against the recording, even though it is real text on the page.
+
 If the lyrics are in Japanese, output ROMANIZED (romaji) lyrics, not Japanese script
 (hiragana/katakana/kanji), even if the source page shows native script — this is a
 karaoke app and guests need to read/sing along. For songs in other languages, keep the
-lyrics in their original written form.
+lyrics in their original written form (do not translate them into English).
 
 Page text:
 {page_text}
