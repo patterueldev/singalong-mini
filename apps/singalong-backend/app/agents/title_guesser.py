@@ -13,27 +13,6 @@ logger = logging.getLogger(__name__)
 class TitleGuesserAgent:
     """Extracts song title and artist from YouTube video title using OpenAI."""
 
-    # Karaoke-related keywords (English and Japanese)
-    KARAOKE_KEYWORDS = {
-        "karaoke", "カラオケ", "acoustic", "cover",
-        "練習用", "原曲キー",
-    }
-
-    OFF_VOCAL_KEYWORDS = {
-        "off-vocal", "off vocal", "offvocal", "オフボーカル",
-        "instrumental", "インストルメンタル", "インスト",
-        "karaoke", "カラオケ",
-    }
-
-    LYRICS_KEYWORDS = {
-        "lyrics", "lyric", "歌詞", "字幕",
-        "karaoke", "カラオケ", "practice", "練習用",
-    }
-
-    PRACTICE_KEYWORDS = {
-        "practice", "練習", "練習用", "原曲キー",
-    }
-
     def __init__(self, llm_client: LLMClient | None = None):
         """Initialize the Title Guesser agent."""
         self.llm = llm_client or create_llm_client("title_guesser")
@@ -44,7 +23,7 @@ class TitleGuesserAgent:
         youtube_description: str = "",
     ) -> dict:
         """
-        Extract song title, artist, and karaoke flags from YouTube metadata using OpenAI.
+        Extract song title and artist from YouTube metadata using OpenAI.
 
         Args:
             youtube_title: The YouTube video title
@@ -54,8 +33,6 @@ class TitleGuesserAgent:
             Dictionary with:
             - extracted_title: str
             - extracted_artist: Optional[str]
-            - is_off_vocal: bool
-            - video_has_lyrics: bool
             - confidence: float (0.0-1.0)
         """
         try:
@@ -67,20 +44,6 @@ class TitleGuesserAgent:
             logger.info(
                 "[TITLE_GUESSER] extract() called - input_title=%s",
                 youtube_title[:80] if youtube_title else "",
-            )
-
-            # First, detect flags using keyword patterns (fast heuristic)
-            is_off_vocal = self._detect_off_vocal(youtube_title, youtube_description)
-            video_has_lyrics = self._detect_lyrics(youtube_title, youtube_description)
-            print(
-                f"[TITLE_GUESSER] flags detected - is_off_vocal={is_off_vocal} video_has_lyrics={video_has_lyrics}",
-                file=sys.stderr,
-                flush=True,
-            )
-            logger.info(
-                "[TITLE_GUESSER] flags detected - is_off_vocal=%s video_has_lyrics=%s",
-                is_off_vocal,
-                video_has_lyrics,
             )
 
             # Use LLM to intelligently extract title and artist
@@ -120,8 +83,6 @@ class TitleGuesserAgent:
             result = {
                 "extracted_title": extracted_title,
                 "extracted_artist": extracted_artist,
-                "is_off_vocal": is_off_vocal,
-                "video_has_lyrics": video_has_lyrics,
                 "confidence": confidence,
             }
             print("[TITLE_GUESSER] extract() completed successfully", file=sys.stderr, flush=True)
@@ -133,8 +94,6 @@ class TitleGuesserAgent:
             return {
                 "extracted_title": youtube_title,
                 "extracted_artist": None,
-                "is_off_vocal": False,
-                "video_has_lyrics": False,
                 "confidence": 0.1,
             }
 
@@ -246,28 +205,6 @@ Examples:
         suffixes_pattern = r"\s*(?:\[.*?\]|\(.*?\))?\s*(?:HD|4K|Official|Lyric|Music Video|Audio|Full|Extended|Version|Remaster|2024|2023|2022|2021)?\s*$"
         cleaned = re.sub(suffixes_pattern, "", title, flags=re.IGNORECASE)
         return cleaned.strip()
-
-    def _detect_off_vocal(self, title: str, description: str) -> bool:
-        """Detect if the video is off-vocal/instrumental."""
-        text = f"{title} {description}".lower()
-        for keyword in self.OFF_VOCAL_KEYWORDS:
-            if keyword.lower() in text:
-                return True
-        return False
-
-    def _detect_lyrics(self, title: str, description: str) -> bool:
-        """Detect if the video has lyrics displayed."""
-        text = f"{title} {description}".lower()
-        for keyword in self.KARAOKE_KEYWORDS:
-            if keyword.lower() in text:
-                return True
-        for keyword in self.LYRICS_KEYWORDS:
-            if keyword.lower() in text:
-                return True
-        for keyword in self.PRACTICE_KEYWORDS:
-            if keyword.lower() in text:
-                return True
-        return False
 
     def _extract_artist(self, title: str) -> Optional[str]:
         """Extract artist name from title using common patterns."""

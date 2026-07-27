@@ -22,8 +22,16 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
 
     ai_title_guesser_model: str = ""
-    ai_web_researcher_model: str = ""
+    ai_off_vocal_detector_model: str = ""
+    ai_artist_researcher_model: str = ""
+    ai_genre_classifier_model: str = ""
+    ai_tags_suggester_model: str = ""
     ai_language_identifier_model: str = ""
+    ai_lyrics_researcher_model: str = ""
+
+    brave_api_key: str = ""
+    enable_lyrics_web_search: bool = True
+    enable_metadata_web_search: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
