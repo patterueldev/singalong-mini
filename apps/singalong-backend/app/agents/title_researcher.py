@@ -92,7 +92,7 @@ Return ONLY valid JSON: {{ "verified_title": "...", "confidence": 0.0-1.0 }}"""
             response = self.llm.chat_completion(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
-                max_tokens=200,
+                max_tokens=300,
             )
 
             response_text = response.choices[0].message.content.strip()

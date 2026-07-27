@@ -251,6 +251,7 @@ export function SuggestUpdatePage({
           video_has_lyrics: enhanced.video_has_lyrics,
           genre: enhanced.genre || '',
           tags: enhanced.tags || [],
+          lyrics: enhanced.lyrics || '',
         })
         setEnhanceMessage(response.status === 'degraded' ? '✓ Enhanced (partial)' : '✓ Enhanced successfully!')
         setTimeout(() => setEnhanceMessage(''), 3000)

@@ -118,7 +118,7 @@ Return ONLY valid JSON with these exact fields (no markdown, no extra text):
             response = self.llm.chat_completion(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
-                max_tokens=150,
+                max_tokens=250,
             )
 
             response_text = response.choices[0].message.content.strip()
