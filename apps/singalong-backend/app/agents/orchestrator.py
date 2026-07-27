@@ -7,6 +7,7 @@ from typing import Optional
 from app.config import settings
 
 from .artist_researcher import ArtistResearcherAgent
+from .content_classifier import SongContentClassifierAgent
 from .genre_classifier import GenreClassifierAgent
 from .language_identifier import LanguageIdentifierAgent
 from .lyrics_researcher import LyricsResearcherAgent
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 OFF_VOCAL_CONFIDENCE_THRESHOLD = 0.6
 LYRICS_CONFIDENCE_THRESHOLD = 0.7
 LANGUAGE_CONFIDENCE_THRESHOLD = 0.6
+CONTENT_CONFIDENCE_THRESHOLD = 0.6
 
 
 class OrchestratorAgent:
@@ -31,6 +33,7 @@ class OrchestratorAgent:
         """Initialize the Orchestrator with all sub-agents."""
         self.title_guesser = TitleGuesserAgent()
         self.off_vocal_detector = OffVocalDetectorAgent()
+        self.content_classifier = SongContentClassifierAgent()
         self.title_researcher = TitleResearcherAgent()
         self.artist_researcher = ArtistResearcherAgent()
         self.genre_classifier = GenreClassifierAgent()
@@ -69,18 +72,27 @@ class OrchestratorAgent:
 
             youtube_title = canonical_payload.get("title", "")
             youtube_description = canonical_payload.get("_youtube_description", "")
+            youtube_duration = canonical_payload.get("_youtube_duration")
+            youtube_categories = canonical_payload.get("_youtube_categories")
 
-            # ── Wave 1: Title Guess + Off-Vocal + Identity Web Search (parallel) ──
+            # ── Wave 1: Title Guess + Off-Vocal + Content Classifier + Identity Web Search (parallel) ──
             print(
-                "[ORCHESTRATOR] === WAVE 1: Title Guesser + Off-Vocal Detector + Identity Web Search ===",
+                "[ORCHESTRATOR] === WAVE 1: Title Guesser + Off-Vocal Detector + Content Classifier + Identity Web Search ===",
                 file=sys.stderr,
                 flush=True,
             )
-            logger.info("[ORCHESTRATOR] === WAVE 1: Title Guesser + Off-Vocal Detector + Identity Web Search ===")
+            logger.info(
+                "[ORCHESTRATOR] === WAVE 1: Title Guesser + Off-Vocal Detector + Content Classifier + "
+                "Identity Web Search ==="
+            )
             loop = asyncio.get_event_loop()
-            tg_result, ov_result, web_context = await asyncio.gather(
+            tg_result, ov_result, cc_result, web_context = await asyncio.gather(
                 loop.run_in_executor(None, self.title_guesser.extract, youtube_title, youtube_description),
                 loop.run_in_executor(None, self.off_vocal_detector.detect, youtube_title, youtube_description),
+                loop.run_in_executor(
+                    None, self.content_classifier.classify, youtube_title, youtube_description,
+                    youtube_duration, youtube_categories,
+                ),
                 self._run_identity_web_search(youtube_title),
             )
 
@@ -103,7 +115,7 @@ class OrchestratorAgent:
             )
 
             partial = self._consolidate_waves_1_2(
-                canonical_payload, tg_result, ov_result, tr_result, ar_result, gc_result, ts_result, li_result
+                canonical_payload, tg_result, ov_result, cc_result, tr_result, ar_result, gc_result, ts_result, li_result
             )
 
             # ── Wave 3: Lyrics (sequential, needs final title + artist) ──
@@ -207,6 +219,7 @@ class OrchestratorAgent:
         original: dict,
         title_guesser: dict,
         off_vocal: dict,
+        content_classification: dict,
         title_research: dict,
         artist_research: dict,
         genre_classification: dict,
@@ -219,6 +232,14 @@ class OrchestratorAgent:
         combined_tags = list(dict.fromkeys([*matched_tags, *new_tags]))
 
         genre = genre_classification.get("matched_genre") or genre_classification.get("new_genre_suggestion")
+
+        # Content classification is only trusted (i.e. allowed to flag) above threshold —
+        # low-confidence guesses default to "assume it's a song" to avoid false positives.
+        is_likely_song = (
+            content_classification.get("is_likely_song", True)
+            if content_classification.get("confidence", 0) >= CONTENT_CONFIDENCE_THRESHOLD
+            else True
+        )
 
         return {
             # Source fields: always preserved
@@ -255,6 +276,9 @@ class OrchestratorAgent:
             "tags": combined_tags or original.get("tags"),
             # Lyrics: preserved through Wave 3
             "lyrics": original.get("lyrics"),
+            "is_likely_song": is_likely_song,
+            "content_confidence": content_classification.get("confidence", 0.0),
+            "content_notice": content_classification.get("reason") if not is_likely_song else None,
         }
 
     def _final_consolidation(

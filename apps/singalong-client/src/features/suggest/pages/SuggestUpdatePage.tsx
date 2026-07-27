@@ -71,6 +71,14 @@ export function SuggestUpdatePage({
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [enhanceMessage, setEnhanceMessage] = useState('')
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+  const [contentWarningState, setContentWarningState] = useState(() => ({
+    sourceId: draft.source_id,
+    dismissed: false,
+  }))
+  if (contentWarningState.sourceId !== draft.source_id) {
+    setContentWarningState({ sourceId: draft.source_id, dismissed: false })
+  }
+  const isContentWarningDismissed = contentWarningState.dismissed
   const [genreInput, setGenreInput] = useState(draft.genre)
   const [tagInput, setTagInput] = useState('')
   const [metadataSuggestions, setMetadataSuggestions] = useState<SuggestMetadataSuggestionsResponse>({
@@ -251,7 +259,11 @@ export function SuggestUpdatePage({
           tags: enhanced.tags || [],
           lyrics: enhanced.lyrics || '',
           isEnhanced: true,
+          isLikelySong: enhanced.is_likely_song,
+          contentConfidence: enhanced.content_confidence,
+          contentNotice: enhanced.content_notice,
         })
+        setContentWarningState((current) => ({ ...current, dismissed: false }))
         setIsDetailsOpen(true)
         setEnhanceMessage(response.status === 'degraded' ? '✓ Enhanced (partial)' : '✓ Enhanced successfully!')
         setTimeout(() => setEnhanceMessage(''), 3000)
@@ -535,6 +547,25 @@ export function SuggestUpdatePage({
           </section>
 
         </div>
+
+        {draft.isLikelySong === false && !isContentWarningDismissed ? (
+          <div className="warning-banner top-gap" role="alert">
+            <span>
+              This doesn't look like a karaoke song — double-check before downloading.
+              {draft.contentNotice ? ` ${draft.contentNotice}` : ''}
+            </span>
+            <button
+              type="button"
+              className="warning-banner-dismiss"
+              aria-label="Dismiss warning"
+              onClick={() => setContentWarningState((current) => ({ ...current, dismissed: true }))}
+            >
+              <span className="material-symbols-outlined" aria-hidden="true">
+                close
+              </span>
+            </button>
+          </div>
+        ) : null}
 
         <CollapsibleSection title="More details" isOpen={isDetailsOpen} onToggle={() => setIsDetailsOpen((open) => !open)}>
           <div className="row-actions">

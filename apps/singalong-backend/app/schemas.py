@@ -180,6 +180,7 @@ class SongSuggestDownloadRequest(BaseModel):
     reserve_session_code: str | None = Field(default=None, min_length=6, max_length=6)
     reserved_for_nickname: str | None = Field(default=None, min_length=1, max_length=50)
     already_enhanced: bool = False
+    is_likely_song: bool = True
 
 
 class SongSuggestDownloadResponse(BaseModel):
@@ -231,6 +232,9 @@ class SongSuggestIdentifyResponse(BaseModel):
     genre: str | None = None
     tags: list[str] | None = None
     lyrics: str | None = None
+    is_likely_song: bool = True
+    content_confidence: float = 0.0
+    content_notice: str | None = None
 
 
 class SongSuggestUpdateRequest(BaseModel):

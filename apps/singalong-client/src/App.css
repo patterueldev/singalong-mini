@@ -244,6 +244,31 @@ button:disabled {
   font-weight: 600;
 }
 
+.warning-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border-primary));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface-panel));
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.warning-banner-dismiss {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 2px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
 .success-message {
   margin: 12px 0 0;
   color: var(--success);
