@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useSuggestService } from '../hooks/useSuggestService'
 import { ChipField } from '../components/ChipField'
 import { BlockingHud } from '../components/BlockingHud'
+import { CollapsibleSection } from '../components/CollapsibleSection'
 import { LANGUAGE_OPTIONS } from '../../../shared/config/client'
 import { readFileAsDataUrl } from '../../../shared/lib/files'
 import { normalizeLanguageCodeForUi } from '../../../shared/lib/format'
@@ -25,10 +26,8 @@ type SuggestUpdatePageProps = {
   onDownload: (title: string) => void
   onCancel: () => void
   cancelPath?: string
-  backPath?: string
   downloadPath?: string
   downloadAndReservePath?: string
-  backButtonLabel?: string
   downloadButtonLabel?: string
   downloadAndReserveButtonLabel?: string
   showDownloadAndReserve?: boolean
@@ -48,10 +47,8 @@ export function SuggestUpdatePage({
   onDownload,
   onCancel,
   cancelPath = '/songbook',
-  backPath = '/songbook/suggest/search',
   downloadPath = '/songbook',
   downloadAndReservePath = '/songbook',
-  backButtonLabel = 'Back',
   downloadButtonLabel = 'Download',
   downloadAndReserveButtonLabel = 'Download & Reserve',
   showDownloadAndReserve = false,
@@ -73,6 +70,7 @@ export function SuggestUpdatePage({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [enhanceMessage, setEnhanceMessage] = useState('')
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false)
   const [genreInput, setGenreInput] = useState(draft.genre)
   const [tagInput, setTagInput] = useState('')
   const [metadataSuggestions, setMetadataSuggestions] = useState<SuggestMetadataSuggestionsResponse>({
@@ -254,6 +252,7 @@ export function SuggestUpdatePage({
           lyrics: enhanced.lyrics || '',
           isEnhanced: true,
         })
+        setIsDetailsOpen(true)
         setEnhanceMessage(response.status === 'degraded' ? '✓ Enhanced (partial)' : '✓ Enhanced successfully!')
         setTimeout(() => setEnhanceMessage(''), 3000)
       } else {
@@ -306,30 +305,6 @@ export function SuggestUpdatePage({
               Cancel
             </button>
           </div>
-        </div>
-        <div className="row-actions top-gap">
-          <button
-            type="button"
-            className="youtube-button"
-            disabled={isEnhancing || isSubmitting}
-            onClick={previewOnYoutube}
-          >
-            Preview on Youtube
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            disabled={isEnhancing || isSubmitting}
-            onClick={handleEnhance}
-            title={isEnhancing ? 'Enhancing...' : 'Use AI to enhance song metadata'}
-          >
-            {isEnhancing ? 'Enhancing...' : 'Enhance'} <span aria-hidden="true">✦</span>
-          </button>
-          {enhanceMessage && (
-            <span className="enhance-message" style={{ color: enhanceMessage.startsWith('Error') ? '#d32f2f' : '#4caf50' }}>
-              {enhanceMessage}
-            </span>
-          )}
         </div>
         <form
           className="form top-gap"
@@ -526,19 +501,6 @@ export function SuggestUpdatePage({
                   required
                 />
               </label>
-              <label>
-                Language
-                <select
-                  value={normalizeLanguageCodeForUi(draft.language) || 'other'}
-                  onChange={(event) => updateDraft({ language: event.target.value })}
-                >
-                  {LANGUAGE_OPTIONS.map((option) => (
-                    <option key={option.code} value={option.code}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <div className="checkbox-grid">
                 <label className="checkbox-field">
                   <input
@@ -572,7 +534,50 @@ export function SuggestUpdatePage({
             </div>
           </section>
 
-          <section className="panel full-span">
+        </div>
+
+        <CollapsibleSection title="More details" isOpen={isDetailsOpen} onToggle={() => setIsDetailsOpen((open) => !open)}>
+          <div className="row-actions">
+            <button
+              type="button"
+              className="youtube-button"
+              disabled={isEnhancing || isSubmitting}
+              onClick={previewOnYoutube}
+            >
+              Preview on Youtube
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={isEnhancing || isSubmitting}
+              onClick={handleEnhance}
+              title={isEnhancing ? 'Enhancing...' : 'Use AI to enhance song metadata'}
+            >
+              {isEnhancing ? 'Enhancing...' : 'Enhance'} <span aria-hidden="true">✦</span>
+            </button>
+            {enhanceMessage && (
+              <span
+                className="enhance-message"
+                style={{ color: enhanceMessage.startsWith('Error') ? '#d32f2f' : '#4caf50' }}
+              >
+                {enhanceMessage}
+              </span>
+            )}
+          </div>
+          <label>
+            Language
+            <select
+              value={normalizeLanguageCodeForUi(draft.language) || 'other'}
+              onChange={(event) => updateDraft({ language: event.target.value })}
+            >
+              {LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <section className="panel">
             <label>
               Genre
               <input
@@ -643,7 +648,7 @@ export function SuggestUpdatePage({
             </div>
           </section>
 
-          <section className="panel full-span">
+          <section className="panel">
             <div className="panel-header">
               <h2>Lyrics</h2>
               <button type="button" className="secondary" onClick={openLyricsSearch}>
@@ -660,7 +665,7 @@ export function SuggestUpdatePage({
               />
             </label>
           </section>
-        </div>
+        </CollapsibleSection>
         {showDownloadAndReserve && (normalizedReserveTargetOptions.length > 0 || allowCustomReserveTarget) ? (
           <div className="form top-gap">
             <label>
@@ -713,18 +718,6 @@ export function SuggestUpdatePage({
               {isSubmitting ? 'Saving…' : downloadAndReserveButtonLabel}
             </button>
           ) : null}
-          <button
-            type="button"
-            className="secondary"
-            disabled={isEnhancing || isSubmitting}
-            onClick={() => {
-              confirmExitUpdate(() => {
-                navigate(backPath)
-              })
-            }}
-          >
-            {backButtonLabel}
-          </button>
         </div>
         {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
         </form>
