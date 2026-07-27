@@ -21,6 +21,7 @@ class ArtistResearcherAgent:
         title: str,
         artist: Optional[str] = None,
         youtube_title: str = "",
+        web_context: Optional[list[str]] = None,
     ) -> dict:
         """
         Verify the correct artist for a song using an LLM.
@@ -29,6 +30,7 @@ class ArtistResearcherAgent:
             title: Song title
             artist: Preliminary artist guess (optional)
             youtube_title: Original YouTube title (optional)
+            web_context: Optional web search snippets ("title: description") for extra context
 
         Returns:
             Dictionary with:
@@ -56,6 +58,10 @@ class ArtistResearcherAgent:
                 logger.warning("[ARTIST_RESEARCHER] No LLM client available")
                 return {"verified_artist": artist, "confidence": 0.1}
 
+            context_block = (
+                "\n".join(f"- {c}" for c in web_context) if web_context else "(no web context available)"
+            )
+
             prompt = f"""You are a music metadata curator specializing in anime, VTuber, and J-pop songs.
 
 Given a song title and a preliminary artist guess, verify the correct artist.
@@ -65,6 +71,9 @@ Normalize artist names (e.g., "YOASOBI" not "Yoasobi", "Ado" not "ado").
 Title: {title}
 Preliminary Artist: {artist or "unknown"}
 Original YouTube Title: {youtube_title or "(not provided)"}
+
+Web search context:
+{context_block}
 
 Return ONLY valid JSON: {{ "verified_artist": "...", "confidence": 0.0-1.0 }}"""
 

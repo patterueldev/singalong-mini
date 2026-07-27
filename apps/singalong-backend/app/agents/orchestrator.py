@@ -13,6 +13,7 @@ from .lyrics_researcher import LyricsResearcherAgent
 from .off_vocal_detector import OffVocalDetectorAgent
 from .tags_suggester import TagsSuggesterAgent
 from .title_guesser import TitleGuesserAgent
+from .title_researcher import TitleResearcherAgent
 from ..services.brave_search import BraveSearchService
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ class OrchestratorAgent:
         """Initialize the Orchestrator with all sub-agents."""
         self.title_guesser = TitleGuesserAgent()
         self.off_vocal_detector = OffVocalDetectorAgent()
+        self.title_researcher = TitleResearcherAgent()
         self.artist_researcher = ArtistResearcherAgent()
         self.genre_classifier = GenreClassifierAgent()
         self.tags_suggester = TagsSuggesterAgent()
@@ -66,33 +68,40 @@ class OrchestratorAgent:
             youtube_title = canonical_payload.get("title", "")
             youtube_description = canonical_payload.get("_youtube_description", "")
 
-            # ── Wave 1: Title + Off-Vocal (parallel, both sync methods) ──
-            print("[ORCHESTRATOR] === WAVE 1: Title Guesser + Off-Vocal Detector ===", file=sys.stderr, flush=True)
-            logger.info("[ORCHESTRATOR] === WAVE 1: Title Guesser + Off-Vocal Detector ===")
+            # ── Wave 1: Title Guess + Off-Vocal + Identity Web Search (parallel) ──
+            print(
+                "[ORCHESTRATOR] === WAVE 1: Title Guesser + Off-Vocal Detector + Identity Web Search ===",
+                file=sys.stderr,
+                flush=True,
+            )
+            logger.info("[ORCHESTRATOR] === WAVE 1: Title Guesser + Off-Vocal Detector + Identity Web Search ===")
             loop = asyncio.get_event_loop()
-            tg_result, ov_result = await asyncio.gather(
+            tg_result, ov_result, web_context = await asyncio.gather(
                 loop.run_in_executor(None, self.title_guesser.extract, youtube_title, youtube_description),
                 loop.run_in_executor(None, self.off_vocal_detector.detect, youtube_title, youtube_description),
+                self._run_identity_web_search(youtube_title),
             )
 
             resolved_title = tg_result.get("extracted_title") or canonical_payload.get("title", "")
             resolved_artist = tg_result.get("extracted_artist") or canonical_payload.get("artist")
 
-            # ── Metadata web search (sequential, feeds Wave 2's Genre/Tags agents) ──
-            web_context = await self._run_metadata_web_search(resolved_title, resolved_artist)
-
-            # ── Wave 2: Artist + Genre + Tags + Language (parallel) ──
-            print("[ORCHESTRATOR] === WAVE 2: Artist + Genre + Tags + Language ===", file=sys.stderr, flush=True)
-            logger.info("[ORCHESTRATOR] === WAVE 2: Artist + Genre + Tags + Language ===")
-            ar_result, gc_result, ts_result, li_result = await asyncio.gather(
-                self._run_artist_researcher(resolved_title, resolved_artist, youtube_title),
+            # ── Wave 2: Title Research + Artist + Genre + Tags + Language (parallel) ──
+            print(
+                "[ORCHESTRATOR] === WAVE 2: Title + Artist + Genre + Tags + Language ===",
+                file=sys.stderr,
+                flush=True,
+            )
+            logger.info("[ORCHESTRATOR] === WAVE 2: Title + Artist + Genre + Tags + Language ===")
+            tr_result, ar_result, gc_result, ts_result, li_result = await asyncio.gather(
+                self._run_title_researcher(youtube_title, resolved_title, resolved_artist, web_context),
+                self._run_artist_researcher(resolved_title, resolved_artist, youtube_title, web_context),
                 self._run_genre_classifier(resolved_title, resolved_artist, existing_genres, web_context),
                 self._run_tags_suggester(resolved_title, resolved_artist, existing_tags, web_context),
                 self._run_language_identifier(resolved_title, resolved_artist, youtube_title),
             )
 
             partial = self._consolidate_waves_1_2(
-                canonical_payload, tg_result, ov_result, ar_result, gc_result, ts_result, li_result
+                canonical_payload, tg_result, ov_result, tr_result, ar_result, gc_result, ts_result, li_result
             )
 
             # ── Wave 3: Lyrics (sequential, needs final title + artist) ──
@@ -109,21 +118,32 @@ class OrchestratorAgent:
             logger.exception("[ORCHESTRATOR] enhance() failed, returning original payload: %s", e)
             return canonical_payload
 
-    async def _run_metadata_web_search(self, title: str, artist: Optional[str]) -> list[str]:
+    async def _run_identity_web_search(self, youtube_title: str) -> list[str]:
         if not settings.enable_metadata_web_search:
             return []
         try:
-            query = f"{title} {artist}".strip() if artist else title
-            results = await self.brave.search(query, count=5)
+            results = await self.brave.search(youtube_title, count=5)
             return [f"{r['title']}: {r['description']}" for r in results if r.get("description")]
         except Exception as e:
-            print(f"[ORCHESTRATOR] metadata web search failed: {e}", file=sys.stderr, flush=True)
-            logger.exception("[ORCHESTRATOR] metadata web search failed: %s", e)
+            print(f"[ORCHESTRATOR] identity web search failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("[ORCHESTRATOR] identity web search failed: %s", e)
             return []
 
-    async def _run_artist_researcher(self, title: str, artist: Optional[str], youtube_title: str) -> dict:
+    async def _run_title_researcher(
+        self, youtube_title: str, title_guess: str, artist_guess: Optional[str], web_context: list[str]
+    ) -> dict:
         try:
-            return await self.artist_researcher.research(title, artist, youtube_title)
+            return await self.title_researcher.research(youtube_title, title_guess, artist_guess, web_context)
+        except Exception as e:
+            print(f"[ORCHESTRATOR] title_researcher failed: {e}", file=sys.stderr, flush=True)
+            logger.exception("[ORCHESTRATOR] title_researcher failed: %s", e)
+            return {"verified_title": title_guess, "confidence": 0.1}
+
+    async def _run_artist_researcher(
+        self, title: str, artist: Optional[str], youtube_title: str, web_context: list[str]
+    ) -> dict:
+        try:
+            return await self.artist_researcher.research(title, artist, youtube_title, web_context)
         except Exception as e:
             print(f"[ORCHESTRATOR] artist_researcher failed: {e}", file=sys.stderr, flush=True)
             logger.exception("[ORCHESTRATOR] artist_researcher failed: %s", e)
@@ -170,6 +190,7 @@ class OrchestratorAgent:
         original: dict,
         title_guesser: dict,
         off_vocal: dict,
+        title_research: dict,
         artist_research: dict,
         genre_classification: dict,
         tags_suggestion: dict,
@@ -188,8 +209,10 @@ class OrchestratorAgent:
             "source_id": original.get("source_id", ""),
             "source": original.get("source", "youtube"),
             "source_thumbnail": original.get("source_thumbnail", ""),
-            # Title from Title Guesser, fallback to original
-            "title": title_guesser.get("extracted_title") or original.get("title", "Unknown Song"),
+            # Title: Title Researcher -> Title Guesser -> original
+            "title": title_research.get("verified_title")
+            or title_guesser.get("extracted_title")
+            or original.get("title", "Unknown Song"),
             # Artist: Artist Researcher -> Title Guesser -> original
             "artist": artist_research.get("verified_artist")
             or title_guesser.get("extracted_artist")
