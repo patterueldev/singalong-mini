@@ -633,13 +633,27 @@ async def suggest_song_enhance(
         print("[ENHANCE] OrchestratorAgent initialized", file=sys.stderr, flush=True)
         logger.info("[ENHANCE] OrchestratorAgent initialized")
 
+        # Re-fetch the real YouTube title/description so extraction agents see the
+        # original noisy title, not whatever the client's current form state holds
+        # (which may already be a previously-cleaned or manually-edited title).
+        youtube_title = payload.title
+        youtube_description = ""
+        try:
+            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+                info = ydl.extract_info(payload.source_url, download=False)
+            youtube_title = info.get("title") or payload.title
+            youtube_description = info.get("description") or ""
+        except Exception as exc:
+            print(f"[ENHANCE] Failed to fetch fresh YouTube metadata: {exc}", file=sys.stderr, flush=True)
+            logger.warning("[ENHANCE] Failed to fetch fresh YouTube metadata, using submitted title: %s", exc)
+
         # Convert request to dict for processing
         enhancement_payload = {
             "source_url": payload.source_url,
             "source_id": payload.source_id,
             "source": payload.source,
             "source_thumbnail": payload.source_thumbnail,
-            "title": payload.title,
+            "title": youtube_title,
             "artist": payload.artist,
             "language": payload.language or None,
             "is_off_vocal": payload.is_off_vocal,
@@ -647,6 +661,7 @@ async def suggest_song_enhance(
             "genre": payload.genre[0] if payload.genre else None,
             "tags": payload.tags or None,
             "lyrics": payload.lyrics or None,
+            "_youtube_description": youtube_description,
         }
         print(f"[ENHANCE] Prepared enhancement_payload: source_id={enhancement_payload['source_id']} title={enhancement_payload['title']}", file=sys.stderr, flush=True)
         logger.info("[ENHANCE] Prepared enhancement_payload: source_id=%s title=%s", enhancement_payload["source_id"], enhancement_payload["title"])
