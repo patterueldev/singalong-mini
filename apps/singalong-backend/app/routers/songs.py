@@ -472,6 +472,7 @@ async def suggest_song_identify(
     payload: SongSuggestIdentifyRequest,
     enhance: bool = False,
     _: User = Depends(_require_songbook_user),
+    db: Session = Depends(get_db),
 ):
     youtube_id = extract_youtube_video_id(payload.url.strip())
     if youtube_id is None:
@@ -528,7 +529,9 @@ async def suggest_song_identify(
             "lyrics": baseline_identify_result.lyrics,
             "_youtube_description": description,
         }
-        enhanced_payload = await orchestrator.enhance(enhancement_payload)
+        existing_genres = _extract_distinct_genres(db, None, 500)
+        existing_tags = _extract_distinct_tags(db, None, 800)
+        enhanced_payload = await orchestrator.enhance(enhancement_payload, existing_genres, existing_tags)
         if not isinstance(enhanced_payload, dict):
             raise ValueError("Enhanced payload is not a dictionary")
 
@@ -582,6 +585,7 @@ def suggest_song_update(payload: SongSuggestUpdateRequest, _: User = Depends(_re
 async def suggest_song_enhance(
     payload: SongSuggestEnhanceRequest,
     _: User = Depends(_require_songbook_user),
+    db: Session = Depends(get_db),
 ):
     """
     Enhance song metadata using multiple AI agents.
@@ -648,9 +652,12 @@ async def suggest_song_enhance(
         logger.info("[ENHANCE] Prepared enhancement_payload: source_id=%s title=%s", enhancement_payload["source_id"], enhancement_payload["title"])
 
         # Run enhancement orchestration
+        existing_genres = _extract_distinct_genres(db, None, 500)
+        existing_tags = _extract_distinct_tags(db, None, 800)
+
         print("[ENHANCE] Calling orchestrator.enhance()", file=sys.stderr, flush=True)
         logger.info("[ENHANCE] Calling orchestrator.enhance()")
-        enhanced_payload = await orchestrator.enhance(enhancement_payload)
+        enhanced_payload = await orchestrator.enhance(enhancement_payload, existing_genres, existing_tags)
         print(f"[ENHANCE] orchestrator.enhance() completed - title={enhanced_payload.get('title')} artist={enhanced_payload.get('artist')}", file=sys.stderr, flush=True)
         logger.info("[ENHANCE] orchestrator.enhance() completed - title=%s artist=%s", enhanced_payload.get("title"), enhanced_payload.get("artist"))
 

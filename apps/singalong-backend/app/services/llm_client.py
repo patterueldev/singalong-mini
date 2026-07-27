@@ -14,8 +14,12 @@ PROVIDER_CONFIG = {
         "api_key_env": "OPENAI_API_KEY",
         "default_models": {
             "title_guesser": "gpt-3.5-turbo",
-            "web_researcher": "gpt-3.5-turbo",
+            "off_vocal_detector": "gpt-4o-mini",
+            "artist_researcher": "gpt-4o-mini",
+            "genre_classifier": "gpt-4o-mini",
+            "tags_suggester": "gpt-4o-mini",
             "language_identifier": "gpt-3.5-turbo",
+            "lyrics_researcher": "gpt-4o",
         },
     },
     "deepseek": {
@@ -23,8 +27,12 @@ PROVIDER_CONFIG = {
         "api_key_env": "DEEPSEEK_API_KEY",
         "default_models": {
             "title_guesser": "deepseek-v4-pro",
-            "web_researcher": "deepseek-v4-flash",
+            "off_vocal_detector": "deepseek-v4-flash",
+            "artist_researcher": "deepseek-v4-flash",
+            "genre_classifier": "deepseek-v4-flash",
+            "tags_suggester": "deepseek-v4-flash",
             "language_identifier": "deepseek-v4-flash",
+            "lyrics_researcher": "deepseek-v4-pro",
         },
     },
 }
@@ -70,8 +78,12 @@ def _resolve_api_key(provider: str) -> str:
 def _resolve_model(agent_name: str, provider: str) -> str:
     per_agent_models = {
         "title_guesser": settings.ai_title_guesser_model,
-        "web_researcher": settings.ai_web_researcher_model,
+        "off_vocal_detector": settings.ai_off_vocal_detector_model,
+        "artist_researcher": settings.ai_artist_researcher_model,
+        "genre_classifier": settings.ai_genre_classifier_model,
+        "tags_suggester": settings.ai_tags_suggester_model,
         "language_identifier": settings.ai_language_identifier_model,
+        "lyrics_researcher": settings.ai_lyrics_researcher_model,
     }
     override = per_agent_models.get(agent_name, "")
     if override:
@@ -81,7 +93,7 @@ def _resolve_model(agent_name: str, provider: str) -> str:
     )
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=8)
 def create_llm_client(agent_name: str) -> LLMClient | None:
     provider = settings.ai_provider
     if provider not in PROVIDER_CONFIG:

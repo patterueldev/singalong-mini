@@ -30,6 +30,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       AI_PROVIDER: ${AI_PROVIDER:-deepseek}
+      BRAVE_API_KEY: ${BRAVE_API_KEY}
+      ENABLE_LYRICS_WEB_SEARCH: ${ENABLE_LYRICS_WEB_SEARCH:-true}
+      ENABLE_METADATA_WEB_SEARCH: ${ENABLE_METADATA_WEB_SEARCH:-true}
       CLIENT_STATIC_DIR: /app/static/client
     volumes:
       - ./data/singalong-backend:/data
