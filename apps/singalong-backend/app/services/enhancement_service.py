@@ -14,6 +14,7 @@ from uuid import UUID
 
 from ..agents.orchestrator import OrchestratorAgent
 from ..models import Song
+from .title_format import clamp_title_length
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ class EnhancementService:
             if song is None:
                 return
             if enhanced.get("title"):
-                song.title = enhanced["title"]
+                song.title = clamp_title_length(enhanced["title"])
             if enhanced.get("artist"):
                 song.artist = enhanced["artist"]
             if enhanced.get("language"):
