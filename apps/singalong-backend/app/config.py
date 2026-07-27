@@ -23,6 +23,7 @@ class Settings(BaseSettings):
 
     ai_title_guesser_model: str = ""
     ai_off_vocal_detector_model: str = ""
+    ai_title_researcher_model: str = ""
     ai_artist_researcher_model: str = ""
     ai_genre_classifier_model: str = ""
     ai_tags_suggester_model: str = ""

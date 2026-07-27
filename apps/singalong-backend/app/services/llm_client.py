@@ -15,6 +15,7 @@ PROVIDER_CONFIG = {
         "default_models": {
             "title_guesser": "gpt-3.5-turbo",
             "off_vocal_detector": "gpt-4o-mini",
+            "title_researcher": "gpt-4o-mini",
             "artist_researcher": "gpt-4o-mini",
             "genre_classifier": "gpt-4o-mini",
             "tags_suggester": "gpt-4o-mini",
@@ -28,6 +29,7 @@ PROVIDER_CONFIG = {
         "default_models": {
             "title_guesser": "deepseek-v4-pro",
             "off_vocal_detector": "deepseek-v4-flash",
+            "title_researcher": "deepseek-v4-flash",
             "artist_researcher": "deepseek-v4-flash",
             "genre_classifier": "deepseek-v4-flash",
             "tags_suggester": "deepseek-v4-flash",
@@ -79,6 +81,7 @@ def _resolve_model(agent_name: str, provider: str) -> str:
     per_agent_models = {
         "title_guesser": settings.ai_title_guesser_model,
         "off_vocal_detector": settings.ai_off_vocal_detector_model,
+        "title_researcher": settings.ai_title_researcher_model,
         "artist_researcher": settings.ai_artist_researcher_model,
         "genre_classifier": settings.ai_genre_classifier_model,
         "tags_suggester": settings.ai_tags_suggester_model,
@@ -93,7 +96,7 @@ def _resolve_model(agent_name: str, provider: str) -> str:
     )
 
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=16)
 def create_llm_client(agent_name: str) -> LLMClient | None:
     provider = settings.ai_provider
     if provider not in PROVIDER_CONFIG:

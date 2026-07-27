@@ -1,4 +1,4 @@
-"""Brave Search API client — used by LyricsResearcher (web fallback) and GenreClassifier/TagsSuggester (metadata context)."""
+"""Brave Search API client — used by LyricsResearcher (web fallback) and TitleResearcher/ArtistResearcher/GenreClassifier/TagsSuggester (identity + metadata context)."""
 import logging
 import re
 
