@@ -279,6 +279,7 @@ export type SuggestDraft = {
   tags: string[]
   lyrics: string
   source_thumbnail_data_url: string
+  isEnhanced?: boolean
 }
 
 export type LanguageCode = 'en' | 'ja' | 'ko' | 'zh' | 'other'
