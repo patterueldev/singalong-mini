@@ -10,7 +10,7 @@ from app.services.llm_client import LLMClient, create_llm_client
 
 logger = logging.getLogger(__name__)
 
-PHASE_A_CONFIDENCE_THRESHOLD = 0.7
+EARLY_EXIT_CONFIDENCE_THRESHOLD = 0.7
 MAX_PAGES_TO_FETCH = 3
 
 
@@ -56,20 +56,22 @@ class LyricsResearcherAgent:
             )
             logger.info("[LYRICS_RESEARCHER] Phase A result - confidence=%.2f", phase_a_result["confidence"])
 
-            if phase_a_result["confidence"] >= PHASE_A_CONFIDENCE_THRESHOLD:
-                return phase_a_result
-
             if not settings.enable_lyrics_web_search:
                 print(
-                    "[LYRICS_RESEARCHER] Phase A confidence low and web search disabled, returning Phase A",
+                    "[LYRICS_RESEARCHER] Web search disabled, returning Phase A (LLM recall) result",
                     file=sys.stderr,
                     flush=True,
                 )
-                logger.info("[LYRICS_RESEARCHER] Phase A confidence low and web search disabled")
+                logger.info("[LYRICS_RESEARCHER] Web search disabled, returning Phase A result")
                 return phase_a_result
 
+            # Phase A's self-reported confidence on exact lyrics recall isn't reliable — an
+            # LLM can be confidently wrong reciting from memory. A Phase B match is grounded
+            # in an actually-fetched page (and its own prompt refuses to fabricate), so it's
+            # preferred over pure recall whenever it found anything, regardless of Phase A's
+            # (unreliable) self-reported number.
             phase_b_result = await self._phase_b_web_search(title, artist)
-            if phase_b_result and phase_b_result["confidence"] > phase_a_result["confidence"]:
+            if phase_b_result and phase_b_result.get("lyrics"):
                 print(
                     f"[LYRICS_RESEARCHER] Using Phase B result - confidence={phase_b_result['confidence']} source_url={phase_b_result['source_url']}",
                     file=sys.stderr,
@@ -98,6 +100,10 @@ class LyricsResearcherAgent:
             prompt = f"""You know song lyrics from your training data. Given a song title and artist,
 provide the lyrics if you know them. ONLY return lyrics if you are highly
 confident they are correct. Do NOT make up lyrics for songs you don't know.
+
+If the song is in Japanese, provide ROMANIZED (romaji) lyrics, not Japanese script
+(hiragana/katakana/kanji) — this is a karaoke app and guests need to read/sing along.
+For songs in other languages, keep the lyrics in their original written form.
 
 Song: {title} by {artist or "Unknown"}
 
@@ -175,7 +181,7 @@ Return ONLY valid JSON:
 
                 if best is None or candidate["confidence"] > best["confidence"]:
                     best = candidate
-                if best["confidence"] >= PHASE_A_CONFIDENCE_THRESHOLD:
+                if best["confidence"] >= EARLY_EXIT_CONFIDENCE_THRESHOLD:
                     break
 
             return best
@@ -192,6 +198,11 @@ Return ONLY valid JSON:
             prompt = f"""Below is text extracted from a web page. Extract the full lyrics for the song
 "{title}" by {artist or "Unknown"} if they are present in this text. Do NOT make up lyrics —
 if the page does not contain this song's lyrics, return null.
+
+If the lyrics are in Japanese, output ROMANIZED (romaji) lyrics, not Japanese script
+(hiragana/katakana/kanji), even if the source page shows native script — this is a
+karaoke app and guests need to read/sing along. For songs in other languages, keep the
+lyrics in their original written form.
 
 Page text:
 {page_text}
