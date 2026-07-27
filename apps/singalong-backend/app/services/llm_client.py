@@ -59,9 +59,12 @@ class LLMClient:
         temperature: float = 0.3,
         max_tokens: int = 300,
     ):
-        # DeepSeek's JSON mode documents an occasional empty-content response as a
-        # known, expected failure mode (independent of max_tokens) — retry once
-        # before handing an empty response back to the caller.
+        # DeepSeek's reasoning models emit hidden chain-of-thought (reasoning_content)
+        # that counts against the same max_tokens budget as the visible JSON content —
+        # if thinking runs long, content comes back empty or truncated. None of this
+        # pipeline's structured-extraction tasks need chain-of-thought, so disable it.
+        extra_body = {"thinking": {"type": "disabled"}} if self.provider == "deepseek" else None
+
         response = None
         for attempt in range(2):
             response = self._client.chat.completions.create(
@@ -70,6 +73,7 @@ class LLMClient:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 response_format={"type": "json_object"},
+                **({"extra_body": extra_body} if extra_body else {}),
             )
             if response.choices[0].message.content and response.choices[0].message.content.strip():
                 return response
