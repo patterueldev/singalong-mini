@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 OFF_VOCAL_CONFIDENCE_THRESHOLD = 0.6
 LYRICS_CONFIDENCE_THRESHOLD = 0.7
+LANGUAGE_CONFIDENCE_THRESHOLD = 0.6
 
 
 class OrchestratorAgent:
@@ -109,7 +110,20 @@ class OrchestratorAgent:
             logger.info("[ORCHESTRATOR] === WAVE 3: Lyrics Researcher ===")
             lyrics_result = await self._run_lyrics_researcher(partial["title"], partial.get("artist"))
 
-            enhanced = self._final_consolidation(partial, lyrics_result)
+            # ── Language re-detection (sequential, only if lyrics were found — the strongest signal) ──
+            language_refinement = None
+            if lyrics_result.get("confidence", 0) >= LYRICS_CONFIDENCE_THRESHOLD:
+                print(
+                    "[ORCHESTRATOR] === Language re-detection using researched lyrics ===",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                logger.info("[ORCHESTRATOR] === Language re-detection using researched lyrics ===")
+                language_refinement = await self._run_language_identifier(
+                    partial["title"], partial.get("artist"), youtube_title, lyrics_result.get("lyrics")
+                )
+
+            enhanced = self._final_consolidation(partial, lyrics_result, language_refinement)
             print("[ORCHESTRATOR] Enhancement completed successfully", file=sys.stderr, flush=True)
             logger.info("[ORCHESTRATOR] Enhancement completed successfully")
             return enhanced
@@ -169,9 +183,11 @@ class OrchestratorAgent:
             logger.exception("[ORCHESTRATOR] tags_suggester failed: %s", e)
             return {"matched_tags": [], "new_tags": [], "confidence": 0.0}
 
-    async def _run_language_identifier(self, title: str, artist: Optional[str], youtube_title: str) -> dict:
+    async def _run_language_identifier(
+        self, title: str, artist: Optional[str], youtube_title: str, lyrics: Optional[str] = None
+    ) -> dict:
         try:
-            return await self.language_identifier.detect(title, artist, youtube_title)
+            return await self.language_identifier.detect(title, artist, youtube_title, lyrics)
         except Exception as e:
             print(f"[ORCHESTRATOR] language_identifier failed: {e}", file=sys.stderr, flush=True)
             logger.exception("[ORCHESTRATOR] language_identifier failed: %s", e)
@@ -238,11 +254,16 @@ class OrchestratorAgent:
             "lyrics": original.get("lyrics"),
         }
 
-    def _final_consolidation(self, partial: dict, lyrics_result: dict) -> dict:
-        """Apply the Lyrics Researcher's result with its confidence gate."""
+    def _final_consolidation(
+        self, partial: dict, lyrics_result: dict, language_refinement: Optional[dict]
+    ) -> dict:
+        """Apply the Lyrics Researcher's result and, if lyrics were found, a lyrics-informed language re-check."""
         lyrics = (
             lyrics_result.get("lyrics")
             if lyrics_result.get("confidence", 0) >= LYRICS_CONFIDENCE_THRESHOLD
             else None
         )
-        return {**partial, "lyrics": lyrics or partial.get("lyrics")}
+        language = partial.get("language")
+        if language_refinement and language_refinement.get("confidence", 0) >= LANGUAGE_CONFIDENCE_THRESHOLD:
+            language = language_refinement.get("language") or language
+        return {**partial, "lyrics": lyrics or partial.get("lyrics"), "language": language}
