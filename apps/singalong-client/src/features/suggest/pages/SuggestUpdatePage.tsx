@@ -252,6 +252,7 @@ export function SuggestUpdatePage({
           genre: enhanced.genre || '',
           tags: enhanced.tags || [],
           lyrics: enhanced.lyrics || '',
+          isEnhanced: true,
         })
         setEnhanceMessage(response.status === 'degraded' ? '✓ Enhanced (partial)' : '✓ Enhanced successfully!')
         setTimeout(() => setEnhanceMessage(''), 3000)
@@ -588,7 +589,6 @@ export function SuggestUpdatePage({
                   }
                 }}
                 placeholder="Pop, ballad, rock..."
-                required
               />
               {metadataSuggestions.genres.length > 0 ? (
                 <datalist id="genre-suggestions">
@@ -618,7 +618,9 @@ export function SuggestUpdatePage({
                     ))}
                 </div>
               ) : null}
-              <span className="field-help">Add at least one genre.</span>
+              <span className="field-help">
+                Optional — leave blank to have it filled in automatically after downloading.
+              </span>
             </label>
             <div className="top-gap">
               <ChipField
@@ -693,7 +695,7 @@ export function SuggestUpdatePage({
           <button
             type="submit"
             data-action="download"
-            disabled={isSubmitting || draft.genre.trim() === '' || isEnhancing}
+            disabled={isSubmitting}
           >
             {isSubmitting ? 'Saving…' : downloadButtonLabel}
           </button>
@@ -703,8 +705,6 @@ export function SuggestUpdatePage({
               data-action="download-reserve"
               disabled={
                 isSubmitting ||
-                draft.genre.trim() === '' ||
-                isEnhancing ||
                 (allowCustomReserveTarget &&
                   reserveTargetChoice === '__custom__' &&
                   customReserveTarget.trim() === '')
@@ -725,9 +725,6 @@ export function SuggestUpdatePage({
           >
             {backButtonLabel}
           </button>
-          {draft.genre.trim() === '' ? (
-            <p className="subtitle">Add at least one genre before downloading.</p>
-          ) : null}
         </div>
         {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
         </form>

@@ -213,6 +213,13 @@ async def on_startup():
                 conn.execute(text("ALTER TABLE songs ADD COLUMN was_trimmed BOOLEAN DEFAULT FALSE"))
             if "trimmed_at" not in songs_columns:
                 conn.execute(text("ALTER TABLE songs ADD COLUMN trimmed_at TIMESTAMP WITH TIME ZONE"))
+            if "enhancement_status" not in songs_columns:
+                conn.execute(text("ALTER TABLE songs ADD COLUMN enhancement_status VARCHAR(10)"))
+            # A background enhancement job can't be resumed across a process restart —
+            # reset anything left mid-flight so it doesn't look stuck forever.
+            conn.execute(
+                text("UPDATE songs SET enhancement_status = 'error' WHERE enhancement_status IN ('pending', 'running')")
+            )
     seed_admin_user()
     ws_hub.bind_event_loop(asyncio.get_running_loop())
 

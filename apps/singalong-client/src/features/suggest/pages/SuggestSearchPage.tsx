@@ -99,7 +99,7 @@ export function SuggestSearchPage({
       if (singlePageUrlIdentify && onIdentifyDraft !== undefined) {
         setErrorMessage('')
         setIsIdentifyingUrl(true)
-        void suggestIdentify(result.sourceUrl, authToken, true)
+        void suggestIdentify(result.sourceUrl, authToken)
           .then((response) => {
             onIdentifyDraft(buildInitialSuggestDraft(response))
             navigate(updatePath, { replace: true })
@@ -231,7 +231,7 @@ export function SuggestSearchPage({
     navigate(searchPath, { replace: true })
     setErrorMessage('')
     setIsIdentifyingUrl(true)
-    void suggestIdentify(sourceUrl, authToken, true)
+    void suggestIdentify(sourceUrl, authToken)
       .then((response) => {
         onIdentifyDraft(buildInitialSuggestDraft(response))
         navigate(updatePath, { replace: true })
@@ -265,7 +265,7 @@ export function SuggestSearchPage({
     setErrorMessage('')
     setIsIdentifyingUrl(true)
 
-    void suggestIdentify(normalizedUrl, authToken, true)
+    void suggestIdentify(normalizedUrl, authToken)
       .then((response) => {
         if (onIdentifyDraft !== undefined) {
           onIdentifyDraft(buildInitialSuggestDraft(response))
@@ -441,7 +441,7 @@ export function SuggestSearchPage({
               if (singlePageUrlIdentify && onIdentifyDraft !== undefined) {
                 setErrorMessage('')
                 setIsIdentifyingUrl(true)
-                void suggestIdentify(pendingIdentifyResult.sourceUrl, authToken, true)
+                void suggestIdentify(pendingIdentifyResult.sourceUrl, authToken)
                   .then((response) => {
                     onIdentifyDraft(buildInitialSuggestDraft(response))
                     navigate(updatePath, { replace: true })

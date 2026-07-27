@@ -10,6 +10,7 @@ from .db import Base
 USER_ROLES = ("admin", "guest", "player")
 SONG_STATUSES = ("draft", "downloading", "published", "archived", "error")
 SONG_DOWNLOAD_STATUSES = ("pending", "downloading", "error")
+SONG_ENHANCEMENT_STATUSES = ("pending", "running", "done", "error")
 SONG_QUEUE_STATUSES = ("playing", "pending", "finished", "skipped")
 TRIM_HISTORY_STATUSES = ("pending", "completed", "failed", "restored")
 
@@ -94,6 +95,10 @@ class Song(Base):
     trim_end_ms: Mapped[int | None] = mapped_column(nullable=True)
     was_trimmed: Mapped[bool] = mapped_column(default=False, server_default="false")
     trimmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Tracks a background full-enhancement job kicked off by /suggest/download when the
+    # client downloads/reserves without having tapped the manual Enhance button first.
+    # Null means no background job was ever queued for this song.
+    enhancement_status: Mapped[str | None] = mapped_column(String(10), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

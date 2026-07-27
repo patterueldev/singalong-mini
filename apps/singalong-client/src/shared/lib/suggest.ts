@@ -26,6 +26,7 @@ export function buildInitialSuggestDraft(payload: SuggestIdentifyResponse): Sugg
     tags: normalizeTagList(payload.tags ?? []),
     lyrics: payload.lyrics ?? '',
     source_thumbnail_data_url: '',
+    isEnhanced: false,
   }
 }
 

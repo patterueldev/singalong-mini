@@ -179,6 +179,7 @@ class SongSuggestDownloadRequest(BaseModel):
     lyrics: str = Field(default="", max_length=20000)
     reserve_session_code: str | None = Field(default=None, min_length=6, max_length=6)
     reserved_for_nickname: str | None = Field(default=None, min_length=1, max_length=50)
+    already_enhanced: bool = False
 
 
 class SongSuggestDownloadResponse(BaseModel):
