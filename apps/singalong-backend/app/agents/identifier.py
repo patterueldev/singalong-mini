@@ -16,6 +16,7 @@ from .off_vocal_detector import OffVocalDetectorAgent
 from .title_guesser import TitleGuesserAgent
 from .title_researcher import TitleResearcherAgent
 from ..services.brave_search import BraveSearchService
+from ..services.title_format import normalize_display_title
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +77,11 @@ class IdentifierAgent:
                 "source_id": canonical_payload.get("source_id", ""),
                 "source": canonical_payload.get("source", "youtube"),
                 "source_thumbnail": canonical_payload.get("source_thumbnail", ""),
-                "title": tr_result.get("verified_title")
-                or tg_result.get("extracted_title")
-                or canonical_payload.get("title", "Unknown Song"),
+                "title": normalize_display_title(
+                    tr_result.get("verified_title")
+                    or tg_result.get("extracted_title")
+                    or canonical_payload.get("title", "Unknown Song")
+                ),
                 "artist": ar_result.get("verified_artist")
                 or tg_result.get("extracted_artist")
                 or canonical_payload.get("artist", "Unknown Artist"),

@@ -422,10 +422,8 @@ function AppShellContent() {
               }}
               onCancel={handleCancelSuggestion}
               cancelPath="/admin/songbook"
-              backPath="/admin/songbook/suggest/search"
               downloadPath="/admin/songbook/suggest/search"
               downloadAndReservePath="/admin/songbook"
-              backButtonLabel="Back to Search"
               showDownloadAndReserve
               downloadButtonLabel="Download & Add Another"
               downloadAndReserveButtonLabel="Download & Back to Songbook"
@@ -459,7 +457,6 @@ function AppShellContent() {
       onDraftChange={setSuggestDraft}
       onDownload={handleDownloadSuggestion}
       onCancel={handleCancelSuggestion}
-      backButtonLabel="Back to Search"
       showDownloadAndReserve
       downloadButtonLabel="Download & Add Another"
       downloadPath="/songbook/suggest/search"

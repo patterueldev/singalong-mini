@@ -5,6 +5,7 @@ import sys
 from typing import Optional
 
 from app.services.llm_client import LLMClient, create_llm_client
+from app.services.title_format import compose_display_title, normalize_display_title
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +71,21 @@ Given the raw YouTube video title, a preliminary song-title guess, and web searc
 verify the correct song title. If the guess seems correct, return it. If incorrect, incomplete,
 or mistranslated, correct it using the raw YouTube title and the web context below.
 
-KEEP romanized text in parentheses for Japanese/CJK titles, e.g. "(Romaji)" — do not strip it.
-Example: "恋になりたいAQUARIUM (Koi ni Naritai Aquarium)" should stay in that form.
+The preliminary title guess may already be in "<native> (<Romanization>)" form
+— e.g. "恋になりたいAQUARIUM (Koi ni Naritai AQUARIUM)". Split it back into its
+native and romanized parts, correct either part if needed, and return them
+SEPARATELY — do not return the combined string.
+
+- `verified_title`: the native title only, no parentheses.
+- `verified_title_romanized`: required whenever `verified_title` contains
+  Japanese, Chinese, or Korean characters (Hepburn romaji / Hanyu Pinyin
+  without tone marks / Revised Romanization, respectively) — generate one
+  yourself if the guess didn't provide it, or fix it if wrong. Copy any
+  embedded Latin-script segment verbatim, including capitalization
+  (e.g. native "恋になりたいAQUARIUM" -> romanized "Koi ni Naritai AQUARIUM",
+  not "Aquarium"). Set to null only if `verified_title` is fully Latin script.
+- Never return an English *translation* in `verified_title_romanized` — it
+  must be a romanization of the native title's pronunciation, not its meaning.
 
 Raw YouTube Title: {youtube_title or "(not provided)"}
 Preliminary Title Guess: {title_guess or "unknown"}
@@ -80,7 +94,7 @@ Preliminary Artist: {artist_guess or "unknown"}
 Web search context:
 {context_block}
 
-Return ONLY valid JSON: {{ "verified_title": "...", "confidence": 0.0-1.0 }}"""
+Return ONLY valid JSON: {{ "verified_title": "...", "verified_title_romanized": "... or null", "confidence": 0.0-1.0 }}"""
 
             print(
                 "[TITLE_RESEARCHER] Calling LLM to verify title...",
@@ -104,17 +118,26 @@ Return ONLY valid JSON: {{ "verified_title": "...", "confidence": 0.0-1.0 }}"""
             logger.info("[TITLE_RESEARCHER] LLM response - raw=%s", response_text[:200])
 
             result = json.loads(response_text)
-            verified_title = result.get("verified_title") or title_guess
+            native_title = result.get("verified_title")
+            if native_title:
+                verified_title = normalize_display_title(
+                    compose_display_title(native_title, result.get("verified_title_romanized"))
+                )
+            else:
+                verified_title = normalize_display_title(title_guess)
             confidence = float(result.get("confidence", 0.5))
 
             print(
-                f"[TITLE_RESEARCHER] Parsed - verified_title={verified_title} confidence={confidence}",
+                f"[TITLE_RESEARCHER] Parsed - verified_title={verified_title} "
+                f"(native={native_title} romanized={result.get('verified_title_romanized')}) confidence={confidence}",
                 file=sys.stderr,
                 flush=True,
             )
             logger.info(
-                "[TITLE_RESEARCHER] Parsed - verified_title=%s confidence=%.2f",
+                "[TITLE_RESEARCHER] Parsed - verified_title=%s (native=%s romanized=%s) confidence=%.2f",
                 verified_title,
+                native_title,
+                result.get("verified_title_romanized"),
                 confidence,
             )
 

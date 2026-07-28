@@ -15,6 +15,7 @@ from .tags_suggester import TagsSuggesterAgent
 from .title_guesser import TitleGuesserAgent
 from .title_researcher import TitleResearcherAgent
 from ..services.brave_search import BraveSearchService
+from ..services.title_format import normalize_display_title
 
 logger = logging.getLogger(__name__)
 
@@ -226,9 +227,11 @@ class OrchestratorAgent:
             "source": original.get("source", "youtube"),
             "source_thumbnail": original.get("source_thumbnail", ""),
             # Title: Title Researcher -> Title Guesser -> original
-            "title": title_research.get("verified_title")
-            or title_guesser.get("extracted_title")
-            or original.get("title", "Unknown Song"),
+            "title": normalize_display_title(
+                title_research.get("verified_title")
+                or title_guesser.get("extracted_title")
+                or original.get("title", "Unknown Song")
+            ),
             # Artist: Artist Researcher -> Title Guesser -> original
             "artist": artist_research.get("verified_artist")
             or title_guesser.get("extracted_artist")
