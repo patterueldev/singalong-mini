@@ -30,7 +30,7 @@ _CJK_RANGES = (
 _TRAILING_PAREN_PATTERN = re.compile(r"\s*\(([^()]*)\)\s*$")
 _WHITESPACE_PATTERN = re.compile(r"\s+")
 
-MAX_TITLE_LENGTH = 200
+MAX_TITLE_LENGTH = 5000
 
 
 def has_cjk_script(text: str) -> bool:
@@ -138,9 +138,9 @@ def normalize_display_title(title: str) -> str:
 
 def clamp_title_length(title: str, max_length: int = MAX_TITLE_LENGTH) -> str:
     """
-    Ensure `title` fits within `max_length` characters (the DB column is
-    String(200)). Composite titles run longer than plain ones, so prefer
-    dropping the romanization parenthetical over a mid-word truncation.
+    Safety clamp for `title` to `max_length` characters. Composite titles
+    run longer than plain ones, so prefer dropping the romanization
+    parenthetical over a mid-word truncation.
     """
     if len(title) <= max_length:
         return title

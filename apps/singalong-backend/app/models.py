@@ -65,10 +65,10 @@ class Song(Base):
     __tablename__ = "songs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    title: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
-    artist: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    artist: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     duration: Mapped[int | None] = mapped_column(nullable=True)
-    language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    language: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_off_vocal: Mapped[bool] = mapped_column(default=False, server_default="false")
     has_lyrics: Mapped[bool] = mapped_column(default=False, server_default="false")
     video_file: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -125,8 +125,8 @@ class SongDownload(Base):
     )
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
-    title: Mapped[str] = mapped_column(String(200), nullable=False)
-    artist: Mapped[str] = mapped_column(String(200), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    artist: Mapped[str] = mapped_column(Text, nullable=False)
     source_thumbnail: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_thumbnail_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
