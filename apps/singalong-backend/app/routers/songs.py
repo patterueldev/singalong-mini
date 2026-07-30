@@ -321,8 +321,12 @@ async def suggest_song_download(
         # If the client hasn't already run the full Enhance step, kick it off in the
         # background now — it races the video download; the download worker joins on
         # it (with a timeout) right before publishing so the saved song ends up
-        # already-enhanced without the user ever having to wait for it.
-        if not payload.already_enhanced:
+        # already-enhanced without the user ever having to wait for it. Skip this
+        # entirely when the content was flagged as unlikely to be a real song — no
+        # point running the full multi-agent pipeline (genre/tags/lyrics research)
+        # on content that probably isn't music; the manual Enhance button is still
+        # available if the submitter wants to run it anyway.
+        if not payload.already_enhanced and payload.is_likely_song:
             youtube_title = payload.title
             youtube_description = ""
             try:
@@ -356,6 +360,15 @@ async def suggest_song_download(
                 payload=enhancement_payload,
                 existing_genres=existing_genres,
                 existing_tags=existing_tags,
+            )
+        elif not payload.already_enhanced:
+            print(
+                f"[ENDPOINT] Skipping background enhance for song_id={song.id} — content flagged as unlikely to be a song",
+                flush=True,
+            )
+            logger.info(
+                "[ENDPOINT] Skipping background enhance for song_id=%s — content flagged as unlikely to be a song",
+                song.id,
             )
 
         return SongSuggestDownloadResponse(
@@ -531,6 +544,8 @@ async def suggest_song_identify(
 
     title = info.get("title") or f"YouTube Video {youtube_id}"
     description = info.get("description") or ""
+    duration = info.get("duration")
+    categories = info.get("categories")
     thumbnail_url = _pick_thumbnail_url(info)
 
     # Build initial response (enhance=false behavior and fallback on enhancement errors)
@@ -547,6 +562,9 @@ async def suggest_song_identify(
         genre=None,
         tags=None,
         lyrics=None,
+        is_likely_song=True,
+        content_confidence=0.0,
+        content_notice=None,
     )
 
     try:
@@ -565,6 +583,8 @@ async def suggest_song_identify(
             "tags": baseline_identify_result.tags,
             "lyrics": baseline_identify_result.lyrics,
             "_youtube_description": description,
+            "_youtube_duration": duration,
+            "_youtube_categories": categories,
         }
         identified_payload = await identifier.identify(identify_payload)
         if not isinstance(identified_payload, dict):
@@ -583,6 +603,9 @@ async def suggest_song_identify(
             genre=identified_payload.get("genre"),
             tags=identified_payload.get("tags"),
             lyrics=identified_payload.get("lyrics"),
+            is_likely_song=identified_payload.get("is_likely_song", True),
+            content_confidence=identified_payload.get("content_confidence", 0.0),
+            content_notice=identified_payload.get("content_notice"),
         )
     except Exception:
         logger.exception("[IDENTIFY] Identification failed, returning baseline identify payload")
@@ -673,11 +696,15 @@ async def suggest_song_enhance(
         # (which may already be a previously-cleaned or manually-edited title).
         youtube_title = payload.title
         youtube_description = ""
+        youtube_duration = None
+        youtube_categories = None
         try:
             with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
                 info = ydl.extract_info(payload.source_url, download=False)
             youtube_title = info.get("title") or payload.title
             youtube_description = info.get("description") or ""
+            youtube_duration = info.get("duration")
+            youtube_categories = info.get("categories")
         except Exception as exc:
             print(f"[ENHANCE] Failed to fetch fresh YouTube metadata: {exc}", file=sys.stderr, flush=True)
             logger.warning("[ENHANCE] Failed to fetch fresh YouTube metadata, using submitted title: %s", exc)
@@ -697,6 +724,8 @@ async def suggest_song_enhance(
             "tags": payload.tags or None,
             "lyrics": payload.lyrics or None,
             "_youtube_description": youtube_description,
+            "_youtube_duration": youtube_duration,
+            "_youtube_categories": youtube_categories,
         }
         print(f"[ENHANCE] Prepared enhancement_payload: source_id={enhancement_payload['source_id']} title={enhancement_payload['title']}", file=sys.stderr, flush=True)
         logger.info("[ENHANCE] Prepared enhancement_payload: source_id=%s title=%s", enhancement_payload["source_id"], enhancement_payload["title"])
@@ -725,6 +754,9 @@ async def suggest_song_enhance(
             genre=enhanced_payload.get("genre"),
             tags=enhanced_payload.get("tags"),
             lyrics=enhanced_payload.get("lyrics"),
+            is_likely_song=enhanced_payload.get("is_likely_song", True),
+            content_confidence=enhanced_payload.get("content_confidence", 0.0),
+            content_notice=enhanced_payload.get("content_notice"),
         )
 
         logger.info(

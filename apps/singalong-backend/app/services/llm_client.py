@@ -15,6 +15,7 @@ PROVIDER_CONFIG = {
         "default_models": {
             "title_guesser": "gpt-3.5-turbo",
             "off_vocal_detector": "gpt-4o-mini",
+            "content_classifier": "gpt-4o-mini",
             "title_researcher": "gpt-4o-mini",
             "artist_researcher": "gpt-4o-mini",
             "genre_classifier": "gpt-4o-mini",
@@ -29,6 +30,7 @@ PROVIDER_CONFIG = {
         "default_models": {
             "title_guesser": "deepseek-v4-pro",
             "off_vocal_detector": "deepseek-v4-flash",
+            "content_classifier": "deepseek-v4-flash",
             "title_researcher": "deepseek-v4-flash",
             "artist_researcher": "deepseek-v4-flash",
             "genre_classifier": "deepseek-v4-flash",
@@ -97,6 +99,7 @@ def _resolve_model(agent_name: str, provider: str) -> str:
     per_agent_models = {
         "title_guesser": settings.ai_title_guesser_model,
         "off_vocal_detector": settings.ai_off_vocal_detector_model,
+        "content_classifier": settings.ai_content_classifier_model,
         "title_researcher": settings.ai_title_researcher_model,
         "artist_researcher": settings.ai_artist_researcher_model,
         "genre_classifier": settings.ai_genre_classifier_model,

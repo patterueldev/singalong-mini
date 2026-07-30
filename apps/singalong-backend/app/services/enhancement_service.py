@@ -9,6 +9,7 @@ publishes a song; that reuses the same run_coroutine_threadsafe pattern already 
 app/services/ws.py for broadcasting from that same worker thread.
 """
 import asyncio
+import json
 import logging
 from uuid import UUID
 
@@ -17,6 +18,16 @@ from ..models import Song
 from .title_format import clamp_title_length
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_extra_metadata(raw: str | None) -> dict:
+    if raw is None or raw.strip() == "":
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 class EnhancementService:
@@ -110,6 +121,18 @@ class EnhancementService:
                 song.tags = ",".join(enhanced["tags"])
             if enhanced.get("lyrics"):
                 song.lyrics = enhanced["lyrics"].strip() or song.lyrics
+
+            metadata = _parse_extra_metadata(song.extra_metadata)
+            if enhanced.get("is_likely_song", True):
+                metadata.pop("content_check", None)
+            else:
+                metadata["content_check"] = {
+                    "is_likely_song": False,
+                    "confidence": enhanced.get("content_confidence", 0.0),
+                    "reason": enhanced.get("content_notice"),
+                }
+            song.extra_metadata = json.dumps(metadata) if metadata else None
+
             song.enhancement_status = "done"
             db.commit()
         finally:

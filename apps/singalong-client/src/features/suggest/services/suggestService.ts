@@ -76,6 +76,7 @@ export function download(
         reserve_session_code: options?.reserveSessionCode ?? null,
         reserved_for_nickname: options?.reservedForNickname?.trim() || null,
         already_enhanced: draft.isEnhanced ?? false,
+        is_likely_song: draft.isLikelySong ?? true,
       }),
     },
     token,
