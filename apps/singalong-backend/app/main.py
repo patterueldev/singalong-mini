@@ -1,5 +1,8 @@
 import asyncio
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import FileResponse, RedirectResponse
@@ -224,11 +227,6 @@ async def on_startup():
             lang_col = songs_columns.get("language")
             if lang_col and "VARCHAR" in str(lang_col["type"]).upper():
                 conn.execute(text("ALTER TABLE songs ALTER COLUMN language TYPE VARCHAR(20)"))
-            # Repair index on song_downloads.song_id — a prior migration ran without
-            # IF NOT EXISTS, leaving the index missing on some environments.
-            conn.execute(
-                text("CREATE UNIQUE INDEX IF NOT EXISTS ix_song_downloads_song_id ON song_downloads (song_id)")
-            )
             # A background enhancement job can't be resumed across a process restart —
             # reset anything left mid-flight so it doesn't look stuck forever.
             conn.execute(
@@ -238,11 +236,17 @@ async def on_startup():
         # column dict is fresh from the inspector).
         if inspector.has_table("song_downloads"):
             downloads_columns = {column["name"]: column for column in inspector.get_columns("song_downloads")}
-            with engine.begin() as conn:
-                for col_name in ("title", "artist"):
-                    col_info = downloads_columns.get(col_name)
-                    if col_info and "VARCHAR" in str(col_info["type"]).upper():
-                        conn.execute(text(f"ALTER TABLE song_downloads ALTER COLUMN {col_name} TYPE TEXT"))
+            for col_name in ("title", "artist"):
+                col_info = downloads_columns.get(col_name)
+                if col_info and "VARCHAR" in str(col_info["type"]).upper():
+                    try:
+                        with engine.begin() as conn:
+                            conn.execute(text(f"ALTER TABLE song_downloads ALTER COLUMN {col_name} TYPE TEXT"))
+                    except Exception as exc:
+                        logger.warning(
+                            "Could not migrate song_downloads.%s to TEXT (will retry next startup): %s",
+                            col_name, exc,
+                        )
     seed_admin_user()
     ws_hub.bind_event_loop(asyncio.get_running_loop())
 
