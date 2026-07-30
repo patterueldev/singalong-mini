@@ -84,7 +84,7 @@ export function GuestDownloadsPage() {
   }, [guestAuth, hasGuestSession, sessionCode])
 
   if (!hasGuestSession || !isValidSessionCode(sessionCode) || guestAuth === null) {
-    return <Navigate to="/guest/join" replace />
+    return <Navigate to="/join" replace />
   }
 
   const handleRetry = async (songId: string) => {
@@ -104,7 +104,7 @@ export function GuestDownloadsPage() {
             <h1>Downloads</h1>
             <p className="subtitle">Status: {status}</p>
           </div>
-          <button type="button" className="secondary icon-button" aria-label="Back to guest home" onClick={() => navigate('/guest/home')}>
+          <button type="button" className="secondary icon-button" aria-label="Back to guest home" onClick={() => navigate('/home')}>
             <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
           </button>
         </div>

@@ -6,7 +6,7 @@ COPY apps/singalong-client/package*.json /build/client/
 RUN npm install
 
 COPY apps/singalong-client /build/client
-ENV VITE_BASE_PATH=/client/
+ENV VITE_BASE_PATH=/
 RUN npm run build
 
 

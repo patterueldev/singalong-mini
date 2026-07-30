@@ -164,7 +164,7 @@ export function GuestSongbookPage() {
   const trimmedQuery = debouncedQuery.trim()
 
   if (!hasGuestSession || !isValidSessionCode(sessionCode) || guestAuth === null) {
-    return <Navigate to="/guest/join" replace />
+    return <Navigate to="/join" replace />
   }
 
   return (
@@ -192,7 +192,7 @@ export function GuestSongbookPage() {
                 type="button"
                 className="icon-control-button"
                 aria-label="Close songbook"
-                onClick={() => navigate('/guest/home')}
+                onClick={() => navigate('/home')}
               >
                 <span className="material-symbols-outlined" aria-hidden="true">close</span>
               </button>
@@ -296,7 +296,7 @@ export function GuestSongbookPage() {
           onReserved={() => {
             setActiveSongId(null)
             setMessage('Song reserved.')
-            navigate('/guest/home', { replace: true })
+            navigate('/home', { replace: true })
           }}
         />
       ) : null}
