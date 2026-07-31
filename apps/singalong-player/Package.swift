@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "SingalongPlayer",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v15),
     ],
     targets: [
         .executableTarget(
