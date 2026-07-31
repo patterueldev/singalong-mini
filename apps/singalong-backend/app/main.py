@@ -62,11 +62,6 @@ def _serve_client_path(path: str = "") -> FileResponse:
     return FileResponse(client_index_path)
 
 
-@app.get("/")
-def root():
-    return RedirectResponse(url="/client/guest", status_code=307)
-
-
 @app.get("/api")
 def api_root():
     return {"message": "Singalong API root"}
@@ -82,19 +77,12 @@ def public_config(request: Request):
     return {"guest_base_url": request_base}
 
 
-@app.get("/client")
-def client_root():
-    return RedirectResponse(url="/client/", status_code=307)
-
-
-@app.get("/client/")
-def client_index():
-    return _serve_client_path()
-
-
-@app.get("/client/{full_path:path}")
-def client_path(full_path: str):
-    return _serve_client_path(full_path)
+if client_static_path.exists() and client_index_path.exists():
+    @app.get("/{full_path:path}")
+    def client_path(full_path: str):
+        return _serve_client_path(full_path)
+else:
+    logger.info("Client static directory not found — SPA catch-all disabled (dev mode)")
 
 
 def _require_active_session(db: Session, session_code: str):

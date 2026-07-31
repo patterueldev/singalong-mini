@@ -3,12 +3,12 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: singalong
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - ./data/singalong-db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d singalong"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d singalong"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -19,7 +19,7 @@ services:
       dockerfile: infrastructure/production/Singalong.dockerfile
     container_name: singalong-app
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/singalong
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/singalong
       APP_ENV: production
       SINGALONG_HTTP_PORT: ${SINGALONG_HTTP_PORT:-9000}
       CORS_ORIGINS: http://localhost:${SINGALONG_HTTP_PORT:-9000}

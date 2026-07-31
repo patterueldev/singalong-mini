@@ -33,7 +33,7 @@ export function GuestSuggestSearchRoute({
   const access = useGuestSuggestAccess()
   const navigate = useNavigate()
   if (access === null) {
-    return <Navigate to="/guest/join" replace />
+    return <Navigate to="/join" replace />
   }
 
   const handleIdentify = (sourceUrl: string) => {
@@ -41,7 +41,7 @@ export function GuestSuggestSearchRoute({
     // and calls onIdentifyDraft when ready. No additional navigation needed in modal mode.
     // In route mode, navigate to update the URL params for the page identify logic.
     if (!onIdentifyDraft) {
-      navigate(`/guest/songbook/suggest/search?url=${encodeURIComponent(sourceUrl)}`)
+      navigate(`/songs/suggest/search?url=${encodeURIComponent(sourceUrl)}`)
     }
   }
 
@@ -50,9 +50,9 @@ export function GuestSuggestSearchRoute({
       nickname={access.guestAuth.nickname}
       authToken={access.guestAuth.accessToken}
       showChangeNicknameAction={false}
-      searchPath="/guest/songbook/suggest/search"
-      updatePath="/guest/songbook/suggest/update"
-      backToSongbookPath="/guest/songbook"
+      searchPath="/songs/suggest/search"
+      updatePath="/songs/suggest/update"
+      backToSongbookPath="/songs"
       backToSongbookLabel="Back to Songbook"
       singlePageUrlIdentify
       onIdentifyDraft={onIdentifyDraft || saveSuggestDraft}
@@ -93,10 +93,10 @@ export function GuestSuggestUpdateRoute({
   }, [draft])
 
   if (access === null) {
-    return <Navigate to="/guest/join" replace />
+    return <Navigate to="/join" replace />
   }
   if (draft === null) {
-    return <Navigate to="/guest/songbook/suggest/search" replace />
+    return <Navigate to="/songs/suggest/search" replace />
   }
 
   const handleDraftChange = (newDraft: SuggestDraft | null) => {
@@ -124,9 +124,9 @@ export function GuestSuggestUpdateRoute({
       showDownloadAndReserve
       reserveSessionCode={access.sessionCode}
       defaultReserveTarget={access.guestAuth.nickname}
-      cancelPath="/guest/songbook"
-      downloadPath="/guest/home"
-      downloadAndReservePath="/guest/home"
+      cancelPath="/songs"
+      downloadPath="/home"
+      downloadAndReservePath="/home"
       downloadButtonLabel="Download & Back to Home"
       downloadAndReserveButtonLabel="Download & Reserve"
       onDownload={() => {

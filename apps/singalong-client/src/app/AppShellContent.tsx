@@ -37,14 +37,16 @@ import {
 } from '../features/admin/services/adminService'
 import { guestLoginWithNickname } from '../features/guest/services/guestService'
 import { logoutUser } from '../features/shared/services/authService'
-import { apiJson, ApiError } from '../shared/api/httpClient'
+import { apiJson, ApiError, setOnAuthFailure } from '../shared/api/httpClient'
 import { clearStoredAuth, readStoredAuth, saveStoredAuth } from '../shared/storage/authStorage'
 import {
+  clearSuggestAuth,
   clearSuggestDraft,
   readSuggestDraft,
   saveSuggestDraft,
 } from '../shared/storage/suggestStorage'
 import {
+  clearGuestAuth,
   readGuestAuth,
   saveGuestAuth,
 } from '../shared/storage/guestStorage'
@@ -99,7 +101,32 @@ function AppShellContent() {
   }, [])
 
   useEffect(() => {
-    setPublicGuestAuth(readGuestAuth())
+    const storedGuestAuth = readGuestAuth()
+    if (storedGuestAuth === null) {
+      return
+    }
+
+    let cancelled = false
+
+    const validate = async () => {
+      try {
+        await fetchCurrentUser(storedGuestAuth.accessToken)
+        if (cancelled) return
+        setPublicGuestAuth(storedGuestAuth)
+      } catch {
+        clearGuestAuth()
+        clearSuggestAuth()
+        if (!cancelled) {
+          setPublicGuestAuth(null)
+        }
+      }
+    }
+
+    void validate()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -146,6 +173,21 @@ function AppShellContent() {
 
     return () => {
       cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    setOnAuthFailure(() => {
+      clearStoredAuth()
+      clearGuestAuth()
+      clearSuggestAuth()
+      setAuth(null)
+      setPublicGuestAuth(null)
+      setSessions([])
+    })
+
+    return () => {
+      setOnAuthFailure(null)
     }
   }, [])
 
@@ -315,8 +357,6 @@ function AppShellContent() {
   if (isHydratingAuth) {
     return <LoadingView />
   }
-
-  const rootElement = <Navigate to="/guest" replace />
   const adminElement = <Navigate to={auth === null ? '/admin/login' : '/admin/dashboard'} replace />
   const adminLoginElement =
     auth !== null ? (
@@ -540,7 +580,6 @@ function AppShellContent() {
 
   return (
     <AppRoutes
-      rootElement={rootElement}
       adminElement={adminElement}
       adminLoginElement={adminLoginElement}
       guestJoinElement={guestJoinElement}

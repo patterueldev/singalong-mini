@@ -36,12 +36,12 @@ export function GuestPage() {
 
   useEffect(() => {
     if (hasGuestSession && (querySessionCode === '' || querySessionCode === sessionCode)) {
-      navigate('/guest/home', { replace: true })
+      navigate('/home', { replace: true })
     }
   }, [hasGuestSession, navigate, querySessionCode, sessionCode])
 
   if (hasGuestSession && (querySessionCode === '' || querySessionCode === sessionCode)) {
-    return <Navigate to="/guest/home" replace />
+    return <Navigate to="/home" replace />
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -67,7 +67,7 @@ export function GuestPage() {
         return
       }
       await joinGuestSession(cleanedNickname, cleanedSessionCode)
-      navigate('/guest/home', { replace: true })
+      navigate('/home', { replace: true })
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to join session')
     } finally {

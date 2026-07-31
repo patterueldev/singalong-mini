@@ -397,7 +397,7 @@ export function GuestHomePage() {
   }, [closeSocket, guestAuth, hasGuestSession, sessionCode])
 
   if (!hasGuestSession || !isValidSessionCode(sessionCode) || guestAuth === null) {
-    return <Navigate to="/guest/join" replace />
+    return <Navigate to="/join" replace />
   }
 
   const activeQueueItems = useMemo(
@@ -463,7 +463,7 @@ export function GuestHomePage() {
               type="button"
               className="icon-control-button"
               aria-label="Songbook"
-              onClick={() => navigate('/guest/songbook')}
+              onClick={() => navigate('/songs')}
             >
               <span className="material-symbols-outlined" aria-hidden="true">menu_book</span>
             </button>
@@ -584,7 +584,7 @@ export function GuestHomePage() {
                 onClick={() => {
                   setIsLeaveModalOpen(false)
                   leaveGuestSession()
-                  navigate('/guest/join', { replace: true })
+                  navigate('/join', { replace: true })
                 }}
               >
                 Leave Session
