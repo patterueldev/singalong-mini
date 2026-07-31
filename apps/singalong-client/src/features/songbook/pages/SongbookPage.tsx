@@ -1,36 +1,116 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAdminService } from '../../admin/hooks/useAdminService'
 import { useGuestService } from '../../guest/hooks/useGuestService'
+import { useSuggestService } from '../../suggest/hooks/useSuggestService'
 import {
   mergeDownloadProgressItems,
   normalizeDownloadProgressItems,
 } from '../../shared/services/queueTransforms'
 import { buildWSUrl } from '../../../shared/api/ws'
+import { buildInitialSuggestDraft, mapSuggestSearchItem, parseYouTubeVideoId } from '../../../shared/lib/suggest'
+import { saveSuggestDraft } from '../../../shared/storage/suggestStorage'
+import { BlockingHud } from '../../suggest/components/BlockingHud'
+import { DuplicateWarningModal } from '../../suggest/components/DuplicateWarningModal'
+import { SearchResultModal } from '../../suggest/components/SearchResultModal'
+import { SearchResultsList } from '../../suggest/components/SearchResultsList'
 import { DownloadProgressModal } from '../components/DownloadProgressModal'
 import { SkeletonList } from '../components/SkeletonList'
 import { SongbookListItem } from '../components/SongbookListItem'
-import type { DownloadProgressItem, SongbookSong, WSIncoming } from '../../../shared/types/client'
+import { SongDetailsModal } from '../components/SongDetailsModal'
+import type {
+  DownloadProgressItem,
+  SongbookSong,
+  SuggestDraft,
+  SuggestResult,
+  WSIncoming,
+} from '../../../shared/types/client'
+
+const SONGBOOK_PATH = '/songbook'
+const DRAFT_PATH = '/songbook/draft'
 
 export type SongbookPageProps = {
   notice: string
   guestNickname: string
+  authToken: string
 }
 
-export function SongbookPage({ notice, guestNickname }: SongbookPageProps) {
+type SongbookSongDetailModalProps = {
+  songId: string
+  onClose: () => void
+}
+
+function SongbookSongDetailModal({ songId, onClose }: SongbookSongDetailModalProps) {
+  const { fetchSongDetail } = useAdminService()
+  const [song, setSong] = useState<SongbookSong | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [errorMessage, setErrorMessage] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setIsLoading(true)
+    setErrorMessage('')
+    void fetchSongDetail(songId)
+      .then((payload) => {
+        if (!cancelled) {
+          setSong(payload)
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setErrorMessage(error instanceof Error ? error.message : 'Song does not exist')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [fetchSongDetail, songId])
+
+  return (
+    <SongDetailsModal
+      isOpen
+      song={song}
+      isLoading={isLoading}
+      errorMessage={errorMessage}
+      onClose={onClose}
+    />
+  )
+}
+
+export function SongbookPage({ notice, guestNickname, authToken }: SongbookPageProps) {
   const navigate = useNavigate()
-  const { fetchSongbook, searchSongbook } = useAdminService()
+  const { fetchSongbook, searchSongbook, fetchSongDetail } = useAdminService()
   const { retryDownload: retrySongDownload } = useGuestService()
-  const [query, setQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const { search: suggestSearch, identify: suggestIdentify, download: suggestDownload } = useSuggestService()
+  const [searchParams] = useSearchParams()
+  const [query, setQuery] = useState(() => searchParams.get('query') ?? '')
+  const [debouncedQuery, setDebouncedQuery] = useState(() => searchParams.get('query') ?? '')
   const [songs, setSongs] = useState<SongbookSong[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
+  const [message, setMessage] = useState('')
+  const [errorMessage, setErrorMessage] = useState('')
+  const [refreshToken, setRefreshToken] = useState(0)
+  const [activeSongId, setActiveSongId] = useState<string | null>(null)
+  const [isYoutubeSearchActive, setIsYoutubeSearchActive] = useState(false)
+  const [youtubeResults, setYoutubeResults] = useState<SuggestResult[]>([])
+  const [isSearchingYoutube, setIsSearchingYoutube] = useState(false)
+  const [youtubeAppendedKaraoke, setYoutubeAppendedKaraoke] = useState(false)
+  const [isProcessingResult, setIsProcessingResult] = useState(false)
+  const [detailsResult, setDetailsResult] = useState<SuggestResult | null>(null)
+  const [pendingDuplicate, setPendingDuplicate] = useState<SuggestDraft | null>(null)
   const [isDownloadsModalOpen, setIsDownloadsModalOpen] = useState(false)
   const [downloadItems, setDownloadItems] = useState<DownloadProgressItem[]>([])
   const [downloadsSocketStatus, setDownloadsSocketStatus] = useState('Disconnected')
   const [retryingSongIds, setRetryingSongIds] = useState<string[]>([])
+  const latestYoutubeQueryRef = useRef('')
   const downloadsSocketRef = useRef<WebSocket | null>(null)
   const downloadsReconnectTimerRef = useRef<number | null>(null)
   const shouldReconnectDownloadsRef = useRef(false)
@@ -42,24 +122,140 @@ export function SongbookPage({ notice, guestNickname }: SongbookPageProps) {
     return () => clearTimeout(timer)
   }, [query])
 
-  // Fetch when debounced query or page changes
-  useEffect(() => {
-    setIsLoading(true)
-    const trimmed = debouncedQuery.trim()
-    const fetchFn = trimmed === '' ? fetchSongbook(page) : searchSongbook(trimmed, page)
-    fetchFn
-      .then((data) => {
-        setSongs(data.items)
-        setPages(data.pages)
-      })
-      .catch(() => setSongs([]))
-      .finally(() => setIsLoading(false))
-  }, [debouncedQuery, page])
+  const songbookPath = useMemo(() => {
+    const params = new URLSearchParams()
+    if (debouncedQuery !== '') {
+      params.set('query', debouncedQuery)
+    }
+    const search = params.toString()
+    return search === '' ? SONGBOOK_PATH : `${SONGBOOK_PATH}?${search}`
+  }, [debouncedQuery])
 
-  // Reset to page 1 on new query
+  // Keep the URL in sync so a refresh — or coming back from the review screen —
+  // restores the search the visitor left.
+  useEffect(() => {
+    navigate(songbookPath, { replace: true })
+  }, [navigate, songbookPath])
+
+  // Reset paging and the YouTube fallback on every new query
   useEffect(() => {
     setPage(1)
+    setIsYoutubeSearchActive(false)
+    setYoutubeResults([])
+    setYoutubeAppendedKaraoke(false)
   }, [debouncedQuery])
+
+  const handleSearchYoutube = useCallback(
+    (searchQuery: string) => {
+      if (searchQuery === '') return
+      latestYoutubeQueryRef.current = searchQuery
+      setIsYoutubeSearchActive(true)
+      setIsSearchingYoutube(true)
+      setYoutubeAppendedKaraoke(false)
+      setErrorMessage('')
+      void suggestSearch(searchQuery, authToken)
+        .then((response) => {
+          if (latestYoutubeQueryRef.current !== searchQuery) return
+          setYoutubeResults(response.results.map(mapSuggestSearchItem))
+          setYoutubeAppendedKaraoke(response.appended_karaoke)
+        })
+        .catch((error: unknown) => {
+          if (latestYoutubeQueryRef.current !== searchQuery) return
+          setYoutubeResults([])
+          setErrorMessage(error instanceof Error ? error.message : 'YouTube search failed')
+        })
+        .finally(() => {
+          if (latestYoutubeQueryRef.current !== searchQuery) return
+          setIsSearchingYoutube(false)
+        })
+    },
+    [authToken, suggestSearch],
+  )
+
+  const resolveYoutubeUrl = useCallback(
+    async (sourceUrl: string) => {
+      setIsYoutubeSearchActive(false)
+      setYoutubeResults([])
+      setYoutubeAppendedKaraoke(false)
+      setErrorMessage('')
+      try {
+        const response = await suggestSearch(sourceUrl, authToken)
+        const [item] = response.results.map(mapSuggestSearchItem)
+        if (item === undefined) {
+          setSongs([])
+          setErrorMessage('Could not resolve that YouTube link.')
+          return
+        }
+        if (item.existingSongId !== null) {
+          const song = await fetchSongDetail(item.existingSongId)
+          setSongs([song])
+        } else {
+          setSongs([])
+          setIsYoutubeSearchActive(true)
+          setYoutubeResults([item])
+        }
+      } catch (error) {
+        setSongs([])
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to resolve that YouTube link')
+      }
+    },
+    [authToken, fetchSongDetail, suggestSearch],
+  )
+
+  // Fetch the songbook, falling back to YouTube when nothing matches
+  useEffect(() => {
+    let cancelled = false
+    setIsLoading(true)
+    setErrorMessage('')
+
+    const trimmed = debouncedQuery.trim()
+
+    if (parseYouTubeVideoId(trimmed) !== null) {
+      setPages(1)
+      void resolveYoutubeUrl(trimmed).finally(() => {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const request = trimmed === '' ? fetchSongbook(page) : searchSongbook(trimmed, page)
+
+    void request
+      .then((data) => {
+        if (cancelled) return
+        setSongs(data.items)
+        setPages(data.pages)
+        if (data.items.length === 0 && trimmed !== '') {
+          handleSearchYoutube(trimmed)
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setSongs([])
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to load songbook')
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    debouncedQuery,
+    fetchSongbook,
+    handleSearchYoutube,
+    page,
+    refreshToken,
+    resolveYoutubeUrl,
+    searchSongbook,
+  ])
 
   const clearDownloadsReconnectTimer = useCallback(() => {
     if (downloadsReconnectTimerRef.current !== null) {
@@ -151,10 +347,6 @@ export function SongbookPage({ notice, guestNickname }: SongbookPageProps) {
     }
   }, [isDownloadsModalOpen, clearDownloadsReconnectTimer, closeDownloadsSocket])
 
-  const handleSongClick = (song: SongbookSong) => {
-    navigate(`/songbook/song/${song.id}`)
-  }
-
   const handleRetryDownload = useCallback((songId: string) => {
     setRetryingSongIds((current) => (current.includes(songId) ? current : [...current, songId]))
     void retrySongDownload(songId)
@@ -180,6 +372,75 @@ export function SongbookPage({ notice, guestNickname }: SongbookPageProps) {
 
   const trimmedQuery = debouncedQuery.trim()
 
+  const finishDownload = async (draft: SuggestDraft) => {
+    setIsProcessingResult(true)
+    setErrorMessage('')
+    try {
+      await suggestDownload(draft, authToken)
+      setMessage(`${draft.title} is now downloading!`)
+      setIsYoutubeSearchActive(false)
+      setYoutubeResults([])
+      setQuery('')
+      setDebouncedQuery('')
+      setRefreshToken((current) => current + 1)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to add song')
+    } finally {
+      setIsProcessingResult(false)
+    }
+  }
+
+  const identifyAndDownload = async (sourceUrl: string) => {
+    setIsProcessingResult(true)
+    setErrorMessage('')
+    setMessage('')
+    try {
+      const response = await suggestIdentify(sourceUrl, authToken)
+      const draft = buildInitialSuggestDraft(response)
+      if (draft.isLikelySong === false) {
+        saveSuggestDraft(draft)
+        navigate(DRAFT_PATH, { state: { returnTo: songbookPath } })
+        return
+      }
+      const blockingMatch = (draft.possibleDuplicates ?? []).some(
+        (match) => match.confidence === 'exact' || match.confidence === 'high',
+      )
+      if (blockingMatch) {
+        setPendingDuplicate(draft)
+        return
+      }
+      await finishDownload(draft)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to add song')
+    } finally {
+      setIsProcessingResult(false)
+    }
+  }
+
+  const identifyAndEdit = async (sourceUrl: string) => {
+    setIsProcessingResult(true)
+    setErrorMessage('')
+    setMessage('')
+    try {
+      const response = await suggestIdentify(sourceUrl, authToken)
+      saveSuggestDraft(buildInitialSuggestDraft(response))
+      navigate(DRAFT_PATH, { state: { returnTo: songbookPath } })
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to identify video')
+    } finally {
+      setIsProcessingResult(false)
+    }
+  }
+
+  // Already in the songbook? There is nothing to download — show its details instead.
+  const downloadYoutubeResult = (result: SuggestResult) => {
+    if (result.existingSongId !== null) {
+      setActiveSongId(result.existingSongId)
+      return
+    }
+    void identifyAndDownload(result.sourceUrl)
+  }
+
   return (
     <main className="app-shell">
       <section className="card">
@@ -198,26 +459,18 @@ export function SongbookPage({ notice, guestNickname }: SongbookPageProps) {
             >
               Download Progress
             </button>
-            <button
-              type="button"
-              onClick={() =>
-                navigate(
-                  '/songbook/suggest/search',
-                )
-              }
-            >
-              Suggest a Song
-            </button>
           </div>
         </div>
 
         {notice !== '' ? <p className="success-message top-gap">{notice}</p> : null}
+        {message !== '' ? <p className="success-message top-gap">{message}</p> : null}
+        {errorMessage !== '' ? <p className="error-message top-gap">{errorMessage}</p> : null}
 
         <div className="form top-gap">
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by title, artist, genre, tags, etc."
+            placeholder="Search songs, or paste a YouTube link"
           />
         </div>
 
@@ -226,23 +479,18 @@ export function SongbookPage({ notice, guestNickname }: SongbookPageProps) {
             <SkeletonList count={8} />
           ) : songs.length === 0 ? (
             trimmedQuery !== '' ? (
-              <div>
-                <p className="empty-state">"{trimmedQuery}" is not available. Would you like to suggest?</p>
-                <div className="row-actions top-gap">
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => navigate(`/songbook/suggest/search?keyword=${encodeURIComponent(trimmedQuery)}`)}
-                  >
-                    Suggest
-                  </button>
-                </div>
-              </div>
+              <p className="empty-state">
+                {parseYouTubeVideoId(trimmedQuery) !== null
+                  ? 'This URL is not available in the songbook.'
+                  : `"${trimmedQuery}" is not available in the songbook.`}
+              </p>
             ) : (
-              <p className="empty-state">No songs found. Try suggesting a new one.</p>
+              <p className="empty-state">No songs found.</p>
             )
           ) : (
-            songs.map((song) => <SongbookListItem key={song.id} song={song} onClick={() => handleSongClick(song)} />)
+            songs.map((song) => (
+              <SongbookListItem key={song.id} song={song} onClick={() => setActiveSongId(song.id)} />
+            ))
           )}
         </div>
 
@@ -269,7 +517,100 @@ export function SongbookPage({ notice, guestNickname }: SongbookPageProps) {
             </button>
           </div>
         ) : null}
+
+        {!isLoading &&
+        trimmedQuery !== '' &&
+        songs.length > 0 &&
+        !isYoutubeSearchActive &&
+        parseYouTubeVideoId(trimmedQuery) === null ? (
+          <div className="row-actions top-gap">
+            <button type="button" className="secondary" onClick={() => handleSearchYoutube(trimmedQuery)}>
+              Didn't find the song? Search YouTube
+            </button>
+          </div>
+        ) : null}
+
+        {isYoutubeSearchActive ? (
+          <div className="top-gap">
+            <h2 className="section-subheading">YouTube results</h2>
+            {!isSearchingYoutube && youtubeAppendedKaraoke ? (
+              <div className="chip-suggestion-list top-gap">
+                <button
+                  type="button"
+                  className="chip-suggestion"
+                  onClick={() => handleSearchYoutube(`${trimmedQuery} カラオケ`)}
+                >
+                  Try "{trimmedQuery} カラオケ"
+                </button>
+              </div>
+            ) : null}
+            <div className="queue-list top-gap">
+              <SearchResultsList
+                results={youtubeResults}
+                isSearching={isSearchingYoutube}
+                onSelectResult={downloadYoutubeResult}
+                menu={(result) => ({
+                  primaryLabel: result.existingSongId === null ? 'Download' : 'Details',
+                  onReserve: () => downloadYoutubeResult(result),
+                  onPreview: () => setDetailsResult(result),
+                  onEnhanceDetails:
+                    result.existingSongId === null ? () => void identifyAndEdit(result.sourceUrl) : undefined,
+                })}
+              />
+            </div>
+            {!isSearchingYoutube && youtubeResults.length === 0 ? (
+              <p className="empty-state">No YouTube results found.</p>
+            ) : null}
+          </div>
+        ) : null}
       </section>
+
+      {activeSongId !== null ? (
+        <SongbookSongDetailModal songId={activeSongId} onClose={() => setActiveSongId(null)} />
+      ) : null}
+
+      {detailsResult !== null ? (
+        <SearchResultModal
+          result={detailsResult}
+          onClose={() => setDetailsResult(null)}
+          reserveLabel={detailsResult.existingSongId === null ? 'Download' : 'Details'}
+          onReserve={() => {
+            const result = detailsResult
+            setDetailsResult(null)
+            downloadYoutubeResult(result)
+          }}
+          identifyLabel="Enhance Details"
+          onIdentify={
+            detailsResult.existingSongId === null
+              ? (result) => {
+                  setDetailsResult(null)
+                  void identifyAndEdit(result.sourceUrl)
+                }
+              : undefined
+          }
+        />
+      ) : null}
+
+      {pendingDuplicate !== null ? (
+        <DuplicateWarningModal
+          draft={pendingDuplicate}
+          matches={pendingDuplicate.possibleDuplicates ?? []}
+          description="This looks like it might already be in the songbook. Open the existing song, or add this video anyway as a separate entry."
+          existingActionLabel="View this one"
+          onReserveExisting={(songId) => {
+            setPendingDuplicate(null)
+            setActiveSongId(songId)
+          }}
+          onAddAnyway={() => {
+            const draft = pendingDuplicate
+            setPendingDuplicate(null)
+            void finishDownload(draft)
+          }}
+          onCancel={() => setPendingDuplicate(null)}
+        />
+      ) : null}
+
+      {isProcessingResult ? <BlockingHud message="Processing Song…" /> : null}
 
       <DownloadProgressModal
         isOpen={isDownloadsModalOpen}

@@ -6,6 +6,8 @@ type DuplicateWarningModalProps = {
   onReserveExisting: (songId: string) => void
   onAddAnyway: () => void
   onCancel: () => void
+  description?: string
+  existingActionLabel?: string
 }
 
 function describeStatus(match: SuggestDuplicateMatch): string | null {
@@ -30,6 +32,8 @@ export function DuplicateWarningModal({
   onReserveExisting,
   onAddAnyway,
   onCancel,
+  description = 'This looks like it might already be in the songbook. Reserve the existing song, or add this video anyway as a separate entry.',
+  existingActionLabel = 'Reserve this one',
 }: DuplicateWarningModalProps) {
   const primaryMatches = matches.filter((match) => match.confidence === 'exact' || match.confidence === 'high')
   const otherMatches = matches.filter((match) => match.confidence === 'possible')
@@ -53,10 +57,7 @@ export function DuplicateWarningModal({
           </button>
         </div>
 
-        <p className="modal-description top-gap">
-          This looks like it might already be in the songbook. Reserve the existing song, or add this video anyway
-          as a separate entry.
-        </p>
+        <p className="modal-description top-gap">{description}</p>
 
         <div className="duplicate-match-list top-gap">
           {primaryMatches.map((match) => {
@@ -74,7 +75,7 @@ export function DuplicateWarningModal({
                   {statusLabel !== null ? <p className="duplicate-match-status">{statusLabel}</p> : null}
                 </div>
                 <button type="button" onClick={() => onReserveExisting(match.song_id)}>
-                  Reserve this one
+                  {existingActionLabel}
                 </button>
               </div>
             )
