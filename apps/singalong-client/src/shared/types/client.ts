@@ -252,6 +252,9 @@ export type SuggestIdentifyResponse = {
   genre: string | null
   tags: string[] | null
   lyrics: string | null
+  is_likely_song: boolean
+  content_confidence: number
+  content_notice: string | null
 }
 
 export type SuggestEnhanceResponse = {
@@ -279,6 +282,10 @@ export type SuggestDraft = {
   tags: string[]
   lyrics: string
   source_thumbnail_data_url: string
+  isEnhanced?: boolean
+  isLikelySong?: boolean
+  contentConfidence?: number
+  contentNotice?: string | null
 }
 
 export type LanguageCode = 'en' | 'ja' | 'ko' | 'zh' | 'other'
