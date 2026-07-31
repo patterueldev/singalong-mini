@@ -2,6 +2,8 @@ Backend development instructions are maintained in `agents/singalong-backend.age
 
 ## PR requirements (MANDATORY — do not skip)
 
+**ALWAYS STRICTLY FOLLOW `.github/workflows/pr-conventional-commits.yml` WHEN MAKING PRS.** This applies to every `gh pr create` AND every `gh pr edit` that touches the title or body — no exceptions, no "just this once." Before running either command, re-read that workflow file if there's any doubt about the current rules; do not rely on memory or a template that may be stale. A PR that fails this check blocks the rest of CI from being useful and has to be fixed after the fact — get it right on the first attempt.
+
 When creating a pull request with `gh pr create`, you MUST follow these rules. The CI check in `.github/workflows/pr-conventional-commits.yml` will reject PRs that don't comply.
 
 ### Title
