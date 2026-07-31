@@ -1,55 +1,59 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
-import { useSuggestSearchFlow } from '../hooks/useSuggestSearchFlow'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { useGuestSession } from '../hooks/useGuestSession'
+import { useSuggestSearchFlow } from '../../suggest/hooks/useSuggestSearchFlow'
+import { IdentifyOverrideModal } from '../../suggest/components/IdentifyOverrideModal'
+import { SearchResultModal } from '../../suggest/components/SearchResultModal'
+import { SearchResultsList } from '../../suggest/components/SearchResultsList'
+import { BlockingHud } from '../../suggest/components/BlockingHud'
+import { clearSuggestDraft, saveSuggestDraft } from '../../../shared/storage/suggestStorage'
 import type { SuggestDraft, SuggestResult } from '../../../shared/types/client'
-import { IdentifyOverrideModal } from '../components/IdentifyOverrideModal'
-import { SearchResultModal } from '../components/SearchResultModal'
-import { SearchResultsList } from '../components/SearchResultsList'
-import { BlockingHud } from '../components/BlockingHud'
+import { isValidSessionCode } from '../../../shared/lib/validation'
 
-type SuggestSearchPageProps = {
-  nickname: string
-  authToken: string
-  onCancel: () => void
-  onChangeNickname: () => void
-  onIdentifyDraft: (draft: SuggestDraft) => void
-  initialQuery?: string
-  searchPath?: string
-  updatePath?: string
-  backToSongbookPath?: string
-  backToSongbookLabel?: string
-  showChangeNicknameAction?: boolean
-  title?: string
-  hideSearchLabel?: boolean
-  searchInputPlaceholder?: string
-  showCloseAction?: boolean
-  closeActionLabel?: string
-  showSignedIn?: boolean
+const SEARCH_PATH = '/songs/suggest/search'
+const UPDATE_PATH = '/songs/suggest/update'
+const BACK_TO_SONGBOOK_PATH = '/songs'
+
+function useGuestSuggestAccess() {
+  const { guestAuth, sessionCode, hasGuestSession } = useGuestSession()
+  if (!hasGuestSession || guestAuth === null || !isValidSessionCode(sessionCode)) {
+    return null
+  }
+  return { guestAuth, sessionCode }
 }
 
-export function SuggestSearchPage({
-  nickname,
+type GuestSuggestSearchPageProps = {
+  onIdentifyDraft?: (draft: SuggestDraft) => void
+  onCancel?: () => void
+  initialKeyword?: string
+}
+
+export function GuestSuggestSearchPage(props: GuestSuggestSearchPageProps = {}) {
+  const access = useGuestSuggestAccess()
+  if (access === null) {
+    return <Navigate to="/join" replace />
+  }
+  return <GuestSuggestSearchPageContent authToken={access.guestAuth.accessToken} {...props} />
+}
+
+type GuestSuggestSearchPageContentProps = GuestSuggestSearchPageProps & {
+  authToken: string
+}
+
+function GuestSuggestSearchPageContent({
   authToken,
-  onCancel,
-  onChangeNickname,
   onIdentifyDraft,
-  initialQuery = '',
-  searchPath = '/songbook/suggest/search',
-  updatePath = '/songbook/suggest/update',
-  backToSongbookPath = '/songbook',
-  backToSongbookLabel = 'Back to Songbook',
-  showChangeNicknameAction = true,
-  title = 'Suggest · Search YouTube',
-  hideSearchLabel = false,
-  searchInputPlaceholder,
-  showCloseAction = false,
-  closeActionLabel = 'Close',
-  showSignedIn = true,
-}: SuggestSearchPageProps) {
+  onCancel,
+  initialKeyword = '',
+}: GuestSuggestSearchPageContentProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const lastAutoIdentifyUrlRef = useRef('')
   const [selectedResult, setSelectedResult] = useState<SuggestResult | null>(null)
+
+  const isModal = onIdentifyDraft !== undefined
+  const resolvedOnIdentifyDraft = onIdentifyDraft ?? saveSuggestDraft
+  const resolvedOnCancel = onCancel ?? clearSuggestDraft
 
   const {
     query,
@@ -70,10 +74,10 @@ export function SuggestSearchPage({
     identifySourceUrl,
   } = useSuggestSearchFlow({
     authToken,
-    initialQuery,
+    initialQuery: initialKeyword,
     onIdentified: (draft) => {
-      onIdentifyDraft(draft)
-      navigate(updatePath, { replace: true })
+      resolvedOnIdentifyDraft(draft)
+      navigate(UPDATE_PATH, { replace: true })
     },
   })
 
@@ -93,66 +97,50 @@ export function SuggestSearchPage({
       return
     }
     lastAutoIdentifyUrlRef.current = sourceUrl
-    navigate(searchPath, { replace: true })
+    navigate(SEARCH_PATH, { replace: true })
     void identifySourceUrl(sourceUrl)
-  }, [identifySourceUrl, location.search, navigate, searchPath])
+  }, [identifySourceUrl, location.search, navigate])
+
+  const confirmLeaveIfDirty = () => {
+    if (query.trim() !== '' || results.length > 0) {
+      const shouldLeave = window.confirm('Cancel this suggestion and go back to songbook?')
+      if (!shouldLeave) {
+        return false
+      }
+    }
+    return true
+  }
+
+  const leaveToSongbook = () => {
+    if (!confirmLeaveIfDirty()) {
+      return
+    }
+    resolvedOnCancel()
+    navigate(BACK_TO_SONGBOOK_PATH)
+  }
 
   return (
     <main className="app-shell">
       <section className="card">
         <div className="suggest-search-header">
-          <h1>{title}</h1>
-          {showCloseAction ? (
+          <h1>Suggest a Song</h1>
+          {isModal ? (
             <button
               type="button"
               className="icon-control-button"
-              title={closeActionLabel}
-              aria-label={closeActionLabel}
-              onClick={() => {
-                if (query.trim() !== '' || results.length > 0) {
-                  const shouldLeave = window.confirm(
-                    'Cancel this suggestion and go back to songbook?',
-                  )
-                  if (!shouldLeave) {
-                    return
-                  }
-                }
-                onCancel()
-                navigate(backToSongbookPath)
-              }}
+              title="Close"
+              aria-label="Close"
+              onClick={leaveToSongbook}
             >
               <span className="material-symbols-outlined" aria-hidden="true">close</span>
             </button>
           ) : null}
         </div>
-        {showSignedIn ? <p className="subtitle">Signed in as <strong>{nickname}</strong></p> : null}
-        {showChangeNicknameAction || !showCloseAction ? (
+        {!isModal ? (
           <div className="row-actions top-gap">
-            {showChangeNicknameAction ? (
-              <button type="button" className="secondary" onClick={onChangeNickname}>
-                Change Nickname
-              </button>
-            ) : null}
-            {!showCloseAction ? (
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => {
-                  if (query.trim() !== '' || results.length > 0) {
-                    const shouldLeave = window.confirm(
-                      'Cancel this suggestion and go back to songbook?',
-                    )
-                    if (!shouldLeave) {
-                      return
-                    }
-                  }
-                  onCancel()
-                  navigate(backToSongbookPath)
-                }}
-              >
-                {backToSongbookLabel}
-              </button>
-            ) : null}
+            <button type="button" className="secondary" onClick={leaveToSongbook}>
+              Back to Songbook
+            </button>
           </div>
         ) : null}
         <form
@@ -169,16 +157,12 @@ export function SuggestSearchPage({
           }}
         >
           <label>
-            {hideSearchLabel ? (
-              <span className="sr-only">Search query or YouTube URL</span>
-            ) : (
-              'Search query or YouTube URL'
-            )}
+            <span className="sr-only">Search query or YouTube URL</span>
             <input
-              className={hideSearchLabel ? 'suggest-search-input-flat' : undefined}
+              className="suggest-search-input-flat"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={searchInputPlaceholder ?? 'Enter song keyword or URL'}
+              placeholder="Enter song keyword or URL"
             />
           </label>
         </form>

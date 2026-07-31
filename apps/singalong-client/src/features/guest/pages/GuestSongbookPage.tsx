@@ -6,7 +6,8 @@ import { guestReserveSong } from '../services/guestService'
 import { isValidSessionCode } from '../../../shared/lib/validation'
 import type { SongbookSong, SuggestDraft } from '../../../shared/types/client'
 import { SongDetailsModal } from '../../songbook/components/SongDetailsModal'
-import { GuestSuggestSearchRoute, GuestSuggestUpdateRoute } from './GuestSuggestPages'
+import { GuestSuggestSearchPage } from './GuestSuggestSearchPage'
+import { GuestSuggestUpdatePage } from './GuestSuggestUpdatePage'
 import {
   clearSuggestDraft,
   readSuggestDraft,
@@ -304,7 +305,7 @@ export function GuestSongbookPage() {
       {isSuggestModalOpen && suggestDraft === null ? (
         <div className="modal-backdrop guest-songbook-suggest-backdrop" role="presentation" onClick={() => setIsSuggestModalOpen(false)}>
           <div role="presentation" onClick={(event) => event.stopPropagation()}>
-            <GuestSuggestSearchRoute
+            <GuestSuggestSearchPage
               onIdentifyDraft={setSuggestDraft}
               onCancel={() => setIsSuggestModalOpen(false)}
               initialKeyword={query.trim()}
@@ -316,7 +317,7 @@ export function GuestSongbookPage() {
       {isSuggestModalOpen && suggestDraft !== null ? (
         <div className="modal-backdrop guest-songbook-suggest-backdrop" role="presentation" onClick={() => setIsSuggestModalOpen(false)}>
           <div role="presentation" onClick={(event) => event.stopPropagation()}>
-            <GuestSuggestUpdateRoute
+            <GuestSuggestUpdatePage
               draft={suggestDraft}
               onDraftChange={(draft) => {
                 setSuggestDraft(draft)
