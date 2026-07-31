@@ -169,8 +169,8 @@ class SongSuggestDownloadRequest(BaseModel):
     source: str = Field(default="youtube", min_length=1, max_length=50)
     source_thumbnail: str = Field(default="", max_length=1000)
     source_thumbnail_data_url: str = Field(default="", max_length=1000000)
-    title: str = Field(min_length=1, max_length=5000)
-    artist: str = Field(min_length=1, max_length=5000)
+    title: str = Field(min_length=1, max_length=200)
+    artist: str = Field(min_length=1, max_length=200)
     language: str | None = None
     is_off_vocal: bool = False
     video_has_lyrics: bool = False
@@ -179,8 +179,6 @@ class SongSuggestDownloadRequest(BaseModel):
     lyrics: str = Field(default="", max_length=20000)
     reserve_session_code: str | None = Field(default=None, min_length=6, max_length=6)
     reserved_for_nickname: str | None = Field(default=None, min_length=1, max_length=50)
-    already_enhanced: bool = False
-    is_likely_song: bool = True
 
 
 class SongSuggestDownloadResponse(BaseModel):
@@ -232,9 +230,6 @@ class SongSuggestIdentifyResponse(BaseModel):
     genre: str | None = None
     tags: list[str] | None = None
     lyrics: str | None = None
-    is_likely_song: bool = True
-    content_confidence: float = 0.0
-    content_notice: str | None = None
 
 
 class SongSuggestUpdateRequest(BaseModel):
@@ -242,8 +237,8 @@ class SongSuggestUpdateRequest(BaseModel):
     source_id: str = Field(min_length=1, max_length=50)
     source: str = Field(default="youtube", min_length=1, max_length=50)
     source_thumbnail: str = Field(default="", max_length=1000)
-    title: str = Field(min_length=1, max_length=5000)
-    artist: str = Field(min_length=1, max_length=5000)
+    title: str = Field(min_length=1, max_length=200)
+    artist: str = Field(min_length=1, max_length=200)
     language: str = Field(default="", max_length=20)
     is_off_vocal: bool = False
     video_has_lyrics: bool = False
@@ -268,8 +263,8 @@ class SongSuggestEnhanceRequest(BaseModel):
     source_id: str = Field(min_length=1, max_length=50)
     source: str = Field(default="youtube", min_length=1, max_length=50)
     source_thumbnail: str = Field(default="", max_length=1000)
-    title: str = Field(min_length=1, max_length=5000)
-    artist: str = Field(min_length=1, max_length=5000)
+    title: str = Field(min_length=1, max_length=200)
+    artist: str = Field(min_length=1, max_length=200)
     language: str = Field(default="", max_length=20)
     is_off_vocal: bool = False
     video_has_lyrics: bool = False
@@ -318,8 +313,8 @@ class SongbookItem(BaseModel):
 
 
 class SongAdminUpdateRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=5000)
-    artist: str = Field(min_length=1, max_length=5000)
+    title: str = Field(min_length=1, max_length=200)
+    artist: str = Field(min_length=1, max_length=200)
     language: str | None = Field(default=None, max_length=20)
     genre: str | None = Field(default=None, max_length=100)
     tags: list[str] = Field(default_factory=list)

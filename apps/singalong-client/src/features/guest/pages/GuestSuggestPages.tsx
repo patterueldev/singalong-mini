@@ -125,8 +125,10 @@ export function GuestSuggestUpdateRoute({
       reserveSessionCode={access.sessionCode}
       defaultReserveTarget={access.guestAuth.nickname}
       cancelPath="/guest/songbook"
+      backPath="/guest/songbook/suggest/search"
       downloadPath="/guest/home"
       downloadAndReservePath="/guest/home"
+      backButtonLabel="Back to Search"
       downloadButtonLabel="Download & Back to Home"
       downloadAndReserveButtonLabel="Download & Reserve"
       onDownload={() => {

@@ -1,8 +1,5 @@
 import asyncio
-import logging
 from pathlib import Path
-
-logger = logging.getLogger(__name__)
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.responses import FileResponse, RedirectResponse
@@ -206,7 +203,7 @@ async def on_startup():
             if "playback_is_playing" not in queue_columns:
                 conn.execute(text("ALTER TABLE song_queue ADD COLUMN playback_is_playing BOOLEAN"))
     if inspector.has_table("songs"):
-        songs_columns = {column["name"]: column for column in inspector.get_columns("songs")}
+        songs_columns = {column["name"] for column in inspector.get_columns("songs")}
         with engine.begin() as conn:
             if "trim_start_ms" not in songs_columns:
                 conn.execute(text("ALTER TABLE songs ADD COLUMN trim_start_ms INTEGER"))
@@ -216,37 +213,6 @@ async def on_startup():
                 conn.execute(text("ALTER TABLE songs ADD COLUMN was_trimmed BOOLEAN DEFAULT FALSE"))
             if "trimmed_at" not in songs_columns:
                 conn.execute(text("ALTER TABLE songs ADD COLUMN trimmed_at TIMESTAMP WITH TIME ZONE"))
-            if "enhancement_status" not in songs_columns:
-                conn.execute(text("ALTER TABLE songs ADD COLUMN enhancement_status VARCHAR(10)"))
-            # Migrate constrained VARCHAR columns to unbounded TEXT
-            for col_name in ("title", "artist"):
-                col_info = songs_columns.get(col_name)
-                if col_info and "VARCHAR" in str(col_info["type"]).upper():
-                    conn.execute(text(f"ALTER TABLE songs ALTER COLUMN {col_name} TYPE TEXT"))
-            # Bump language from VARCHAR(10) to VARCHAR(20)
-            lang_col = songs_columns.get("language")
-            if lang_col and "VARCHAR" in str(lang_col["type"]).upper():
-                conn.execute(text("ALTER TABLE songs ALTER COLUMN language TYPE VARCHAR(20)"))
-            # A background enhancement job can't be resumed across a process restart —
-            # reset anything left mid-flight so it doesn't look stuck forever.
-            conn.execute(
-                text("UPDATE songs SET enhancement_status = 'error' WHERE enhancement_status IN ('pending', 'running')")
-            )
-        # Migrate song_downloads constrained VARCHAR to TEXT (separate block so
-        # column dict is fresh from the inspector).
-        if inspector.has_table("song_downloads"):
-            downloads_columns = {column["name"]: column for column in inspector.get_columns("song_downloads")}
-            for col_name in ("title", "artist"):
-                col_info = downloads_columns.get(col_name)
-                if col_info and "VARCHAR" in str(col_info["type"]).upper():
-                    try:
-                        with engine.begin() as conn:
-                            conn.execute(text(f"ALTER TABLE song_downloads ALTER COLUMN {col_name} TYPE TEXT"))
-                    except Exception as exc:
-                        logger.warning(
-                            "Could not migrate song_downloads.%s to TEXT (will retry next startup): %s",
-                            col_name, exc,
-                        )
     seed_admin_user()
     ws_hub.bind_event_loop(asyncio.get_running_loop())
 
@@ -260,10 +226,7 @@ async def on_startup():
 
     media_dir = Path(settings.media_root_dir)
     initialize_downloader(media_dir, SessionLocal, settings.ytdlp_cookies_file)
-    try:
-        get_downloader().recover_pending_downloads()
-    except Exception as exc:
-        logger.warning("Could not recover pending downloads (will retry next startup): %s", exc)
+    get_downloader().recover_pending_downloads()
 
     # Start trim archive cleanup scheduler
     start_cleanup_scheduler()
