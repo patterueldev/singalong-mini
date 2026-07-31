@@ -1,5 +1,5 @@
 import { SUGGEST_KEYWORD_REGEX, YOUTUBE_URL_REGEX } from '../config/client'
-import type { SuggestDraft, SuggestIdentifyResponse } from '../types/client'
+import type { SuggestDraft, SuggestIdentifyResponse, SuggestResult, SuggestSearchResponse } from '../types/client'
 
 export function normalizeTagList(values: string[]): string[] {
   return Array.from(
@@ -33,6 +33,24 @@ export function buildInitialSuggestDraft(payload: SuggestIdentifyResponse): Sugg
   }
 }
 
+export function mapSuggestSearchItem(item: SuggestSearchResponse['results'][number]): SuggestResult {
+  return {
+    id: item.id,
+    title: item.title,
+    channelName: item.channel_name,
+    channelUrl: item.channel_url,
+    thumbnailUrl: item.thumbnail_url,
+    duration: item.duration,
+    description: item.description,
+    viewCount: item.view_count,
+    uploadedAt: item.uploaded_at,
+    existsInSongbook: item.exists_in_songbook,
+    existingSongId: item.existing_song_id,
+    sourceUrl: item.source_url,
+    youtubeId: item.youtube_id,
+  }
+}
+
 export function normalizeSuggestQuery(query: string): { effectiveQuery: string; appendedKaraoke: boolean } {
   const trimmed = query.trim()
   if (trimmed === '') {
@@ -59,8 +77,18 @@ export function parseYouTubeVideoId(input: string): string | null {
       return id !== '' ? id : null
     }
 
-    const id = url.searchParams.get('v') ?? ''
-    return id !== '' ? id : null
+    const segments = url.pathname.split('/').filter(Boolean)
+    if (segments[0] === 'watch') {
+      const id = url.searchParams.get('v') ?? ''
+      return id !== '' ? id : null
+    }
+
+    if (segments[0] === 'shorts' || segments[0] === 'live' || segments[0] === 'embed') {
+      const id = segments[1] ?? ''
+      return id !== '' ? id : null
+    }
+
+    return null
   } catch {
     return null
   }

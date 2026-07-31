@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { useCallback, useState } from 'react'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useGuestSession } from '../hooks/useGuestSession'
 import { useSuggestService } from '../../suggest/hooks/useSuggestService'
 import { useSuggestUpdateFlow } from '../../suggest/hooks/useSuggestUpdateFlow'
@@ -7,17 +7,11 @@ import { BlockingHud } from '../../suggest/components/BlockingHud'
 import { ThumbnailPanel } from '../../suggest/components/ThumbnailPanel'
 import { SongDetailsFields } from '../../suggest/components/SongDetailsFields'
 import { MoreDetailsPanel } from '../../suggest/components/MoreDetailsPanel'
-import {
-  clearSuggestDraft,
-  readSuggestDraft,
-  saveSuggestDraft,
-} from '../../../shared/storage/suggestStorage'
 import type { SuggestDraft } from '../../../shared/types/client'
 import { isValidSessionCode } from '../../../shared/lib/validation'
 
-const CANCEL_PATH = '/songs'
-const DOWNLOAD_PATH = '/home'
-const DOWNLOAD_AND_RESERVE_PATH = '/home'
+const BACK_PATH = '/songs'
+const RESERVE_PATH = '/home'
 
 function useGuestSuggestAccess() {
   const { guestAuth, sessionCode, hasGuestSession } = useGuestSession()
@@ -28,82 +22,47 @@ function useGuestSuggestAccess() {
 }
 
 type GuestSuggestUpdatePageProps = {
-  draft?: SuggestDraft | null
-  onDraftChange?: (draft: SuggestDraft | null) => void
-  onCancel?: () => void
+  draft: SuggestDraft
+  onDraftChange: (draft: SuggestDraft) => void
+  onDiscardDraft: () => void
 }
 
-export function GuestSuggestUpdatePage({
-  draft: propDraft,
-  onDraftChange: propOnDraftChange,
-  onCancel: propOnCancel,
-}: GuestSuggestUpdatePageProps = {}) {
+export function GuestSuggestUpdatePage({ draft, onDraftChange, onDiscardDraft }: GuestSuggestUpdatePageProps) {
   const access = useGuestSuggestAccess()
-  const [draft, setDraft] = useState<SuggestDraft | null>(() =>
-    propDraft !== undefined ? propDraft : readSuggestDraft(),
-  )
-
-  useEffect(() => {
-    if (draft === null) {
-      clearSuggestDraft()
-      return
-    }
-    saveSuggestDraft(draft)
-  }, [draft])
 
   if (access === null) {
     return <Navigate to="/join" replace />
   }
-  if (draft === null) {
-    return <Navigate to="/songs/suggest/search" replace />
-  }
-
-  const handleDraftChange = (newDraft: SuggestDraft | null) => {
-    if (propOnDraftChange) {
-      propOnDraftChange(newDraft)
-    } else {
-      setDraft(newDraft)
-    }
-  }
-
-  const handleCancel = () => {
-    if (propOnCancel) {
-      propOnCancel()
-    } else {
-      setDraft(null)
-    }
-  }
 
   return (
     <GuestSuggestUpdatePageContent
-      nickname={access.guestAuth.nickname}
       authToken={access.guestAuth.accessToken}
       sessionCode={access.sessionCode}
       draft={draft}
-      onDraftChange={handleDraftChange}
-      onCancel={handleCancel}
+      onDraftChange={onDraftChange}
+      onDiscardDraft={onDiscardDraft}
     />
   )
 }
 
 type GuestSuggestUpdatePageContentProps = {
-  nickname: string
   authToken: string
   sessionCode: string
   draft: SuggestDraft
-  onDraftChange: (draft: SuggestDraft | null) => void
-  onCancel: () => void
+  onDraftChange: (draft: SuggestDraft) => void
+  onDiscardDraft: () => void
 }
 
 function GuestSuggestUpdatePageContent({
-  nickname,
   authToken,
   sessionCode,
   draft,
   onDraftChange,
-  onCancel,
+  onDiscardDraft,
 }: GuestSuggestUpdatePageContentProps) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const backPath = (location.state as { returnTo?: string } | null)?.returnTo ?? BACK_PATH
   const { download: suggestDownload } = useSuggestService()
   const [errorMessage, setErrorMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -121,65 +80,49 @@ function GuestSuggestUpdatePageContent({
       if (!shouldLeave) {
         return
       }
-      clearSuggestDraft()
-      onCancel()
+      onDiscardDraft()
       onConfirmed()
     },
-    [onCancel],
+    [onDiscardDraft],
   )
 
   return (
     <main className="app-shell">
       <section className="card suggest-update-card">
         <div className="card-header">
-          <div>
-            <h1>Suggest · Update Details</h1>
-            <p className="subtitle">
-              Signed in as <strong>{nickname}</strong>
-            </p>
-          </div>
-          <div className="row-actions">
+          <div className="card-header-lead">
             <button
               type="button"
-              className="secondary"
+              className="secondary icon-button"
+              aria-label="Back to songbook"
               disabled={flow.isEnhancing || isSubmitting}
               onClick={() => {
                 confirmExitUpdate(() => {
-                  navigate(CANCEL_PATH)
+                  navigate(backPath)
                 })
               }}
             >
-              Cancel
+              <span className="material-symbols-outlined" aria-hidden="true">
+                arrow_back
+              </span>
             </button>
+            <h1>Song Details</h1>
           </div>
         </div>
         <form
           className="form top-gap"
           onSubmit={(event) => {
             event.preventDefault()
-            const submitter = (event.nativeEvent as SubmitEvent).submitter as
-              | HTMLButtonElement
-              | null
-            const action = submitter?.dataset.action
-            if (action !== 'download' && action !== 'download-reserve') {
-              return
-            }
             setErrorMessage('')
             setIsSubmitting(true)
-            const shouldReserve = action === 'download-reserve'
-            void suggestDownload(
-              draft,
-              authToken,
-              shouldReserve ? { reserveSessionCode: sessionCode } : undefined,
-            )
+            void suggestDownload(draft, authToken, { reserveSessionCode: sessionCode })
               .then(() => {
-                onDraftChange(null)
-                clearSuggestDraft()
+                onDiscardDraft()
                 setIsSubmitting(false)
-                navigate(shouldReserve ? DOWNLOAD_AND_RESERVE_PATH : DOWNLOAD_PATH)
+                navigate(RESERVE_PATH)
               })
               .catch((error: unknown) => {
-                const message = error instanceof Error ? error.message : 'Download failed'
+                const message = error instanceof Error ? error.message : 'Failed to reserve song'
                 setErrorMessage(message)
                 setIsSubmitting(false)
               })
@@ -238,17 +181,14 @@ function GuestSuggestUpdatePageContent({
           />
 
           <div className="row-actions top-gap">
-            <button type="submit" data-action="download" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving…' : 'Download & Back to Home'}
-            </button>
-            <button type="submit" data-action="download-reserve" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving…' : 'Download & Reserve'}
+            <button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Reserving…' : 'Reserve'}
             </button>
           </div>
           {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
         </form>
         {flow.isEnhancing || isSubmitting ? (
-          <BlockingHud message={flow.isEnhancing ? 'Enhancing song details...' : 'Saving song...'} />
+          <BlockingHud message={flow.isEnhancing ? 'Enhancing song details...' : 'Processing Song…'} />
         ) : null}
       </section>
     </main>

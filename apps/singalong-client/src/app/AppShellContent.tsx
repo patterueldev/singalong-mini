@@ -13,8 +13,7 @@ import { GuestPage } from '../features/guest/pages/GuestPage'
 import { GuestHomePage } from '../features/guest/pages/GuestHomePage'
 import { GuestDownloadsPage } from '../features/guest/pages/GuestDownloadsPage'
 import { GuestSongbookPage } from '../features/guest/pages/GuestSongbookPage'
-import { GuestSuggestSearchPage } from '../features/guest/pages/GuestSuggestSearchPage'
-import { GuestSuggestUpdatePage } from '../features/guest/pages/GuestSuggestUpdatePage'
+import { GuestSuggestDraftPage } from '../features/guest/pages/GuestSuggestDraftPage'
 import { PlayerPage } from '../features/player/pages/PlayerPage'
 import { SuggestLoginPage } from '../features/suggest/pages/SuggestLoginPage'
 import { SuggestSearchRoute } from '../features/suggest/pages/SuggestSearchRoute'
@@ -376,8 +375,7 @@ function AppShellContent() {
   const guestHomeElement = <GuestHomePage />
   const guestDownloadsElement = <GuestDownloadsPage />
   const guestSongbookElement = <GuestSongbookPage />
-  const guestSuggestSearchElement = <GuestSuggestSearchPage />
-  const guestSuggestUpdateElement = <GuestSuggestUpdatePage />
+  const guestSuggestDraftElement = <GuestSuggestDraftPage />
   const playerElement = <PlayerPage />
   const songbookLoginElement = hasPublicGuestAuth ? (
     <Navigate to="/songbook" replace />
@@ -581,8 +579,7 @@ function AppShellContent() {
       guestHomeElement={guestHomeElement}
       guestDownloadsElement={guestDownloadsElement}
       guestSongbookElement={guestSongbookElement}
-      guestSuggestSearchElement={guestSuggestSearchElement}
-      guestSuggestUpdateElement={guestSuggestUpdateElement}
+      guestSuggestDraftElement={guestSuggestDraftElement}
       playerElement={playerElement}
       songbookLoginElement={songbookLoginElement}
       songbookElement={songbookElement}
