@@ -81,7 +81,7 @@ export function MoreDetailsPanel({
           ))}
         </select>
       </label>
-      <section className="panel">
+      <section>
         <label>
           Genre
           <input
@@ -131,6 +131,7 @@ export function MoreDetailsPanel({
             Optional — leave blank to have it filled in automatically after downloading.
           </span>
         </label>
+        <hr className="detail-divider top-gap" />
         <div className="top-gap">
           <ChipField
             label="Tags"
@@ -152,22 +153,24 @@ export function MoreDetailsPanel({
         </div>
       </section>
 
-      <section className="panel">
-        <div className="panel-header">
+      <hr className="detail-divider" />
+
+      <section>
+        <div className="subsection-header">
           <h2>Lyrics</h2>
           <button type="button" className="secondary" onClick={onOpenLyricsSearch}>
             Search Lyrics on Google
           </button>
         </div>
-        <label className="top-gap">
-          Lyrics
+        <div className="top-gap lyrics-field">
           <textarea
+            aria-label="Lyrics"
             value={draft.lyrics}
             onChange={(event) => onUpdate({ lyrics: event.target.value })}
             rows={10}
             placeholder="Paste lyrics here..."
           />
-        </label>
+        </div>
       </section>
     </CollapsibleSection>
   )

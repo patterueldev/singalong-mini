@@ -45,16 +45,10 @@ export function SongDetailsFields({ draft, onUpdate }: SongDetailsFieldsProps) {
           </label>
         </div>
         <p className="subtitle">
-          Source URL:{' '}
+          Source:{' '}
           <a href={draft.source_url} target="_blank" rel="noreferrer">
             {draft.source_url}
           </a>
-        </p>
-        <p className="subtitle">
-          Source ID: <code>{draft.source_id}</code>
-        </p>
-        <p className="subtitle">
-          Source: <code>{draft.source}</code>
         </p>
       </div>
     </section>

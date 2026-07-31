@@ -1,21 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { adminService } from '../../admin/services/adminService'
 import { useGuestSession } from '../hooks/useGuestSession'
 import { guestReserveSong } from '../services/guestService'
 import { isValidSessionCode } from '../../../shared/lib/validation'
-import { buildInitialSuggestDraft, mapSuggestSearchItem } from '../../../shared/lib/suggest'
-import type { SongbookSong, SuggestDraft, SuggestResult } from '../../../shared/types/client'
+import { buildInitialSuggestDraft, mapSuggestSearchItem, parseYouTubeVideoId } from '../../../shared/lib/suggest'
+import type { SongbookSong, SuggestResult } from '../../../shared/types/client'
 import { SongDetailsModal } from '../../songbook/components/SongDetailsModal'
-import { GuestSuggestUpdatePage } from './GuestSuggestUpdatePage'
+import { SongbookListItem } from '../../songbook/components/SongbookListItem'
 import { useSuggestService } from '../../suggest/hooks/useSuggestService'
 import { SearchResultsList } from '../../suggest/components/SearchResultsList'
+import { SearchResultModal } from '../../suggest/components/SearchResultModal'
 import { BlockingHud } from '../../suggest/components/BlockingHud'
-import {
-  clearSuggestDraft,
-  readSuggestDraft,
-  saveSuggestDraft,
-} from '../../../shared/storage/suggestStorage'
+import { saveSuggestDraft } from '../../../shared/storage/suggestStorage'
+
+const SONGS_PATH = '/songs'
+const DRAFT_PATH = '/songs/draft'
 
 type GuestSongDetailModalProps = {
   songId: string
@@ -96,8 +96,9 @@ export function GuestSongbookPage() {
   const navigate = useNavigate()
   const { guestAuth, sessionCode, hasGuestSession } = useGuestSession()
   const { search: suggestSearch, identify: suggestIdentify, download: suggestDownload } = useSuggestService()
-  const [query, setQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [searchParams] = useSearchParams()
+  const [query, setQuery] = useState(() => searchParams.get('query') ?? '')
+  const [debouncedQuery, setDebouncedQuery] = useState(() => searchParams.get('query') ?? '')
   const [songs, setSongs] = useState<SongbookSong[]>([])
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
@@ -105,12 +106,12 @@ export function GuestSongbookPage() {
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [activeSongId, setActiveSongId] = useState<string | null>(null)
-  const [suggestDraft, setSuggestDraft] = useState<SuggestDraft | null>(() => readSuggestDraft())
   const [isYoutubeSearchActive, setIsYoutubeSearchActive] = useState(false)
   const [youtubeResults, setYoutubeResults] = useState<SuggestResult[]>([])
   const [isSearchingYoutube, setIsSearchingYoutube] = useState(false)
   const [youtubeAppendedKaraoke, setYoutubeAppendedKaraoke] = useState(false)
   const [isProcessingResult, setIsProcessingResult] = useState(false)
+  const [detailsResult, setDetailsResult] = useState<SuggestResult | null>(null)
   const latestYoutubeQueryRef = useRef('')
 
   useEffect(() => {
@@ -118,13 +119,21 @@ export function GuestSongbookPage() {
     return () => window.clearTimeout(timer)
   }, [query])
 
+  const songsPath = useMemo(() => {
+    const params = new URLSearchParams()
+    if (debouncedQuery !== '') {
+      params.set('query', debouncedQuery)
+    }
+    const search = params.toString()
+    return search === '' ? SONGS_PATH : `${SONGS_PATH}?${search}`
+  }, [debouncedQuery])
+
   useEffect(() => {
-    if (suggestDraft === null) {
-      clearSuggestDraft()
+    if (!hasGuestSession || !isValidSessionCode(sessionCode)) {
       return
     }
-    saveSuggestDraft(suggestDraft)
-  }, [suggestDraft])
+    navigate(songsPath, { replace: true })
+  }, [hasGuestSession, navigate, sessionCode, songsPath])
 
   useEffect(() => {
     setPage(1)
@@ -160,6 +169,37 @@ export function GuestSongbookPage() {
     [guestAuth, suggestSearch],
   )
 
+  const resolveYoutubeUrl = useCallback(
+    async (sourceUrl: string) => {
+      if (guestAuth === null) return
+      setIsYoutubeSearchActive(false)
+      setYoutubeResults([])
+      setYoutubeAppendedKaraoke(false)
+      setErrorMessage('')
+      try {
+        const response = await suggestSearch(sourceUrl, guestAuth.accessToken)
+        const [item] = response.results.map(mapSuggestSearchItem)
+        if (item === undefined) {
+          setSongs([])
+          setErrorMessage('Could not resolve that YouTube link.')
+          return
+        }
+        if (item.existingSongId !== null) {
+          const song = await adminService.fetchSongDetail(item.existingSongId, sessionCode)
+          setSongs([song])
+        } else {
+          setSongs([])
+          setIsYoutubeSearchActive(true)
+          setYoutubeResults([item])
+        }
+      } catch (error) {
+        setSongs([])
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to resolve that YouTube link')
+      }
+    },
+    [guestAuth, sessionCode, suggestSearch],
+  )
+
   useEffect(() => {
     if (!hasGuestSession || !isValidSessionCode(sessionCode)) {
       setSongs([])
@@ -172,6 +212,19 @@ export function GuestSongbookPage() {
     setErrorMessage('')
 
     const trimmed = debouncedQuery.trim()
+
+    if (parseYouTubeVideoId(trimmed) !== null) {
+      setPages(1)
+      void resolveYoutubeUrl(trimmed).finally(() => {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
     const request =
       trimmed === ''
         ? adminService.fetchSongbook(page, 20, sessionCode)
@@ -201,7 +254,7 @@ export function GuestSongbookPage() {
     return () => {
       cancelled = true
     }
-  }, [debouncedQuery, handleSearchYoutube, hasGuestSession, page, sessionCode])
+  }, [debouncedQuery, handleSearchYoutube, hasGuestSession, page, resolveYoutubeUrl, sessionCode])
 
   const activeSongbookCount = useMemo(() => songs.length, [songs])
   const trimmedQuery = debouncedQuery.trim()
@@ -229,7 +282,8 @@ export function GuestSongbookPage() {
       const response = await suggestIdentify(sourceUrl, guestAuth.accessToken)
       const draft = buildInitialSuggestDraft(response)
       if (draft.isLikelySong === false) {
-        setSuggestDraft(draft)
+        saveSuggestDraft(draft)
+        navigate(DRAFT_PATH, { state: { returnTo: songsPath } })
         return
       }
       await suggestDownload(draft, guestAuth.accessToken, { reserveSessionCode: sessionCode })
@@ -242,7 +296,22 @@ export function GuestSongbookPage() {
     }
   }
 
-  const handleSelectYoutubeResult = (result: SuggestResult) => {
+  const identifyAndEdit = async (sourceUrl: string) => {
+    if (guestAuth === null) return
+    setIsProcessingResult(true)
+    setErrorMessage('')
+    try {
+      const response = await suggestIdentify(sourceUrl, guestAuth.accessToken)
+      saveSuggestDraft(buildInitialSuggestDraft(response))
+      navigate(DRAFT_PATH, { state: { returnTo: songsPath } })
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to identify video')
+    } finally {
+      setIsProcessingResult(false)
+    }
+  }
+
+  const reserveYoutubeResult = (result: SuggestResult) => {
     if (result.existingSongId !== null) {
       void reserveExistingSong(result.existingSongId)
       return
@@ -286,54 +355,41 @@ export function GuestSongbookPage() {
             <p className="empty-state">Loading songbook…</p>
           ) : activeSongbookCount === 0 ? (
             trimmedQuery !== '' ? (
-              <p className="empty-state">"{trimmedQuery}" is not available in the songbook.</p>
+              <p className="empty-state">
+                {parseYouTubeVideoId(trimmedQuery) !== null
+                  ? 'This URL is not available in the songbook.'
+                  : `"${trimmedQuery}" is not available in the songbook.`}
+              </p>
             ) : (
               <p className="empty-state">No songs found.</p>
             )
           ) : (
             <div className="queue-list songbook-list guest-songbook-list">
               {songs.map((song) => (
-                <article
-                 key={song.id}
-                 className="queue-item songbook-item"
-                 role="button"
-                 tabIndex={0}
-                 onClick={() => setActiveSongId(song.id)}
-                 onKeyDown={(event) => {
-                   if (event.key === 'Enter' || event.key === ' ') {
-                     event.preventDefault()
-                     setActiveSongId(song.id)
-                   }
-                 }}
-                >
-                 {song.thumbnailUrl ? (
-                   <img className="songbook-thumbnail" src={song.thumbnailUrl} alt={song.title} loading="lazy" />
-                 ) : (
-                   <div className="songbook-thumbnail songbook-thumbnail--placeholder" />
-                 )}
-                 <div className="songbook-info">
-                   <div className="songbook-item-header">
-                     <strong>{song.title}</strong>
-                     {song.wasQueuedInSession ? (
-                       Math.max(song.queuedCountInSession, 1) === 1 ? (
-                         <span className="songbook-played-indicator one" aria-label="Played once">
-                           <span className="material-symbols-outlined" aria-hidden="true">
-                             check_circle
-                           </span>
-                         </span>
-                       ) : (
-                         <span className="songbook-played-indicator many" aria-label="Played multiple times">
-                           {Math.max(song.queuedCountInSession, 1)}
-                         </span>
-                       )
-                     ) : null}
-                   </div>
-                   <p className="session-meta">
-                     {song.artist}
-                     {song.duration ? ` · ${song.duration}` : ''}
-                   </p>
-                 </div>
-                </article>
+                <SongbookListItem
+                  key={song.id}
+                  song={song}
+                  onClick={() => setActiveSongId(song.id)}
+                  menu={{
+                    onReserve: () => void reserveExistingSong(song.id),
+                    onViewDetails: () => setActiveSongId(song.id),
+                  }}
+                  badge={
+                    song.wasQueuedInSession ? (
+                      Math.max(song.queuedCountInSession, 1) === 1 ? (
+                        <span className="songbook-played-indicator one" aria-label="Played once">
+                          <span className="material-symbols-outlined" aria-hidden="true">
+                            check_circle
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="songbook-played-indicator many" aria-label="Played multiple times">
+                          {Math.max(song.queuedCountInSession, 1)}
+                        </span>
+                      )
+                    ) : undefined
+                  }
+                />
               ))}
             </div>
           )}
@@ -352,7 +408,11 @@ export function GuestSongbookPage() {
             </div>
           ) : null}
 
-          {!isLoading && trimmedQuery !== '' && activeSongbookCount > 0 && !isYoutubeSearchActive ? (
+          {!isLoading &&
+          trimmedQuery !== '' &&
+          activeSongbookCount > 0 &&
+          !isYoutubeSearchActive &&
+          parseYouTubeVideoId(trimmedQuery) === null ? (
             <div className="row-actions top-gap">
               <button type="button" className="secondary" onClick={() => handleSearchYoutube(trimmedQuery)}>
                 Didn't find the song? Search YouTube
@@ -378,7 +438,13 @@ export function GuestSongbookPage() {
                 <SearchResultsList
                   results={youtubeResults}
                   isSearching={isSearchingYoutube}
-                  onSelectResult={handleSelectYoutubeResult}
+                  onSelectResult={reserveYoutubeResult}
+                  menu={(result) => ({
+                    onReserve: () => reserveYoutubeResult(result),
+                    onPreview: () => setDetailsResult(result),
+                    onEnhanceDetails:
+                      result.existingSongId === null ? () => void identifyAndEdit(result.sourceUrl) : undefined,
+                  })}
                 />
               </div>
               {!isSearchingYoutube && youtubeResults.length === 0 ? (
@@ -403,23 +469,28 @@ export function GuestSongbookPage() {
         />
       ) : null}
 
-      {suggestDraft !== null ? (
-        <div
-          className="modal-backdrop guest-songbook-suggest-backdrop"
-          role="presentation"
-          onClick={() => setSuggestDraft(null)}
-        >
-          <div role="presentation" onClick={(event) => event.stopPropagation()}>
-            <GuestSuggestUpdatePage
-              draft={suggestDraft}
-              onDraftChange={setSuggestDraft}
-              onCancel={() => setSuggestDraft(null)}
-            />
-          </div>
-        </div>
+      {detailsResult !== null ? (
+        <SearchResultModal
+          result={detailsResult}
+          onClose={() => setDetailsResult(null)}
+          onReserve={() => {
+            const result = detailsResult
+            setDetailsResult(null)
+            reserveYoutubeResult(result)
+          }}
+          identifyLabel="Enhance Details"
+          onIdentify={
+            detailsResult.existingSongId === null
+              ? (result) => {
+                  setDetailsResult(null)
+                  void identifyAndEdit(result.sourceUrl)
+                }
+              : undefined
+          }
+        />
       ) : null}
 
-      {isProcessingResult ? <BlockingHud message="Adding song…" /> : null}
+      {isProcessingResult ? <BlockingHud message="Processing Song…" /> : null}
     </main>
   )
 }

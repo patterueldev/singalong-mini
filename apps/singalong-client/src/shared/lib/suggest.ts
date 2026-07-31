@@ -77,8 +77,18 @@ export function parseYouTubeVideoId(input: string): string | null {
       return id !== '' ? id : null
     }
 
-    const id = url.searchParams.get('v') ?? ''
-    return id !== '' ? id : null
+    const segments = url.pathname.split('/').filter(Boolean)
+    if (segments[0] === 'watch') {
+      const id = url.searchParams.get('v') ?? ''
+      return id !== '' ? id : null
+    }
+
+    if (segments[0] === 'shorts' || segments[0] === 'live' || segments[0] === 'embed') {
+      const id = segments[1] ?? ''
+      return id !== '' ? id : null
+    }
+
+    return null
   } catch {
     return null
   }
