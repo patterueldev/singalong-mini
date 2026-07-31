@@ -5,6 +5,7 @@ import math
 import os
 import re
 import uuid
+from functools import partial
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from ..schemas import (
     SongAdminUpdateResponse,
     SongAdminValidationRequest,
     SongAdminValidationResponse,
+    SongDuplicateMatch,
     SongSuggestDownloadRequest,
     SongSuggestDownloadResponse,
     SongSuggestEnhanceRequest,
@@ -51,10 +53,12 @@ from ..schemas import (
 )
 from ..services.auth import get_current_user, require_admin_or_guest_user, require_admin_user
 from ..services.download_queue import list_active_download_items
+from ..services.duplicate_match import SongRef, find_duplicate_candidates, normalize_search_text
 from ..services.progress_tracker import ProgressEvent, get_progress_tracker
 from ..services.thumbnail_service import convert_base64_to_jpg, save_thumbnail
 from ..services.song_quality import assess_song_quality
 from ..services.ytdlp.naming import normalize_song_title
+from ..services.ytdlp.url_utils import extract_canonical_youtube_url, extract_single_video_info
 from ..services.songs_download import extract_youtube_video_id, run_song_download
 from ..services.sessions import get_active_session_by_code
 from ..services.songs import cleanup_expired_archives, fix_video_duration, restore_backup, trim_video
@@ -63,7 +67,6 @@ router = APIRouter(prefix="/api/songs", tags=["songs"])
 logger = logging.getLogger(__name__)
 SUGGEST_KEYWORD_REGEX = re.compile(r"\b(karaoke|instrumental|off[\s-]?vocal)\b|カラオケ", re.IGNORECASE)
 FILENAME_TOKEN_SANITIZER_REGEX = re.compile(r"[^a-zA-Z0-9_-]+")
-SEARCH_NORMALIZER_REGEX = re.compile(r"[^\w]+", re.UNICODE)
 
 
 def _format_duration(seconds: int | float | None) -> str:
@@ -92,6 +95,53 @@ def _pick_thumbnail_url(entry: dict[str, object]) -> str:
                 if isinstance(candidate_url, str) and candidate_url.startswith("http"):
                     return candidate_url
     return ""
+
+
+def _resolve_single_youtube_video(
+    youtube_id: str, original_query: str, db: Session
+) -> SongSuggestSearchResponse:
+    existing_song = db.query(Song).filter(Song.source_id == youtube_id).first()
+    if existing_song is not None:
+        item = SongSuggestSearchItem(
+            id=youtube_id,
+            title=existing_song.title,
+            thumbnail_url=_build_thumbnail_url(existing_song.thumbnail_file) or "",
+            duration=_format_duration(existing_song.duration),
+            channel_name=existing_song.artist,
+            exists_in_songbook=True,
+            existing_song_id=str(existing_song.id),
+            source_url=extract_canonical_youtube_url(original_query),
+            youtube_id=youtube_id,
+        )
+        return SongSuggestSearchResponse(effective_query=original_query, appended_karaoke=False, results=[item])
+
+    canonical_url = extract_canonical_youtube_url(original_query)
+    try:
+        info = extract_single_video_info(canonical_url)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Identify provider error: {exc}") from exc
+
+    channel_url = info.get("channel_url") or info.get("uploader_url") or ""
+    description = info.get("description") or ""
+    view_count = info.get("view_count")
+    uploaded_at = info.get("upload_date") or ""
+
+    item = SongSuggestSearchItem(
+        id=youtube_id,
+        title=info.get("title") or "Untitled",
+        thumbnail_url=_pick_thumbnail_url(info),
+        duration=_format_duration(info.get("duration")),
+        channel_name=info.get("channel") or info.get("uploader") or "Unknown Channel",
+        channel_url=channel_url if isinstance(channel_url, str) else "",
+        description=description if isinstance(description, str) else "",
+        view_count=view_count if isinstance(view_count, int) else None,
+        uploaded_at=uploaded_at if isinstance(uploaded_at, str) else "",
+        exists_in_songbook=False,
+        existing_song_id=None,
+        source_url=canonical_url,
+        youtube_id=youtube_id,
+    )
+    return SongSuggestSearchResponse(effective_query=original_query, appended_karaoke=False, results=[item])
 
 
 def _extract_distinct_genres(db: Session, query: str | None, limit: int) -> list[str]:
@@ -155,13 +205,6 @@ def _normalize_entries(values: list[str], lowercase: bool = False) -> list[str]:
 def _sanitize_filename_token(value: str) -> str:
     token = FILENAME_TOKEN_SANITIZER_REGEX.sub("_", value.strip()).strip("_")
     return token or "song"
-
-
-def _normalize_search_text(value: str | None) -> str:
-    if not isinstance(value, str):
-        return ""
-    normalized = SEARCH_NORMALIZER_REGEX.sub(" ", value.casefold()).strip()
-    return re.sub(r"\s+", " ", normalized)
 
 
 def _search_normalized_expression(column):
@@ -451,6 +494,12 @@ def suggest_song_search(
     if query == "":
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Query is required")
 
+    lowered_query = query.lower()
+    if "youtube.com" in lowered_query or "youtu.be" in lowered_query:
+        youtube_id = extract_youtube_video_id(query)
+        if youtube_id is not None:
+            return _resolve_single_youtube_video(youtube_id, query, db)
+
     appended_karaoke = SUGGEST_KEYWORD_REGEX.search(query) is None
     effective_query = query if not appended_karaoke else f"{query} karaoke"
     limit = payload.limit
@@ -471,11 +520,11 @@ def suggest_song_search(
     results: list[SongSuggestSearchItem] = []
     source_ids = [entry.get("id") or "" for entry in (info.get("entries") or [])[:limit]]
     lookup_source_ids = [source_id for source_id in source_ids if source_id != ""]
-    existing_source_ids = set()
+    existing_source_id_map: dict[str, str] = {}
     if lookup_source_ids:
-        existing_source_ids = {
-            source_id
-            for (source_id,) in db.query(Song.source_id)
+        existing_source_id_map = {
+            source_id: str(song_id)
+            for (source_id, song_id) in db.query(Song.source_id, Song.id)
             .filter(Song.source_id.in_(lookup_source_ids))
             .all()
             if isinstance(source_id, str) and source_id != ""
@@ -509,7 +558,8 @@ def suggest_song_search(
                 description=description if isinstance(description, str) else "",
                 view_count=view_count if isinstance(view_count, int) else None,
                 uploaded_at=uploaded_at if isinstance(uploaded_at, str) else "",
-                exists_in_songbook=video_id in existing_source_ids,
+                exists_in_songbook=video_id in existing_source_id_map,
+                existing_song_id=existing_source_id_map.get(video_id),
                 source_url=source_url,
                 youtube_id=video_id,
             )
@@ -522,23 +572,60 @@ def suggest_song_search(
     )
 
 
+async def _duplicate_matches_safe(
+    db: Session, *, title: str, artist: str, source_id: str
+) -> list[SongDuplicateMatch]:
+    """Fuzzy-match (title, artist) against the songbook, never raising.
+
+    Deliberately isolated from suggest_song_identify's own try/except: a
+    failure here must never cause identify to discard a good LLM result and
+    fall back to the baseline payload (see the call site below).
+    """
+    try:
+        candidate = SongRef(title=title, artist=artist, source_id=source_id)
+        loop = asyncio.get_running_loop()
+        matches = await loop.run_in_executor(
+            None, partial(find_duplicate_candidates, db, candidate, limit=5)
+        )
+        return [
+            SongDuplicateMatch(
+                song_id=match.ref.song_id or "",
+                title=match.ref.title,
+                artist=match.ref.artist,
+                status=match.ref.status or "",
+                is_archived=match.ref.archived,
+                source_id=match.ref.source_id,
+                source_url=match.ref.source_url,
+                thumbnail_url=_build_thumbnail_url(match.ref.thumbnail_file),
+                score=round(match.score.score, 3),
+                title_score=round(match.score.title_score, 3),
+                artist_score=round(match.score.artist_score, 3) if match.score.artist_score is not None else None,
+                confidence=match.score.tier,
+                reasons=list(match.score.reasons),
+            )
+            for match in matches
+        ]
+    except Exception:
+        logger.exception("[IDENTIFY] Duplicate matching failed; continuing without matches")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return []
+
+
 @router.post("/suggest/identify", response_model=SongSuggestIdentifyResponse)
 async def suggest_song_identify(
     payload: SongSuggestIdentifyRequest,
+    db: Session = Depends(get_db),
     _: User = Depends(_require_songbook_user),
 ):
     youtube_id = extract_youtube_video_id(payload.url.strip())
     if youtube_id is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid YouTube URL")
 
-    search_opts = {
-        "quiet": True,
-        "no_warnings": True,
-    }
-
     try:
-        with yt_dlp.YoutubeDL(search_opts) as ydl:
-            info = ydl.extract_info(payload.url.strip(), download=False)
+        info = extract_single_video_info(payload.url.strip())
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Identify provider error: {exc}") from exc
 
@@ -590,7 +677,7 @@ async def suggest_song_identify(
         if not isinstance(identified_payload, dict):
             raise ValueError("Identified payload is not a dictionary")
 
-        return SongSuggestIdentifyResponse(
+        result = SongSuggestIdentifyResponse(
             source_url=identified_payload.get("source_url", baseline_identify_result.source_url),
             source_id=identified_payload.get("source_id", baseline_identify_result.source_id),
             source=identified_payload.get("source", baseline_identify_result.source),
@@ -609,7 +696,12 @@ async def suggest_song_identify(
         )
     except Exception:
         logger.exception("[IDENTIFY] Identification failed, returning baseline identify payload")
-        return baseline_identify_result
+        result = baseline_identify_result
+
+    result.duplicate_matches = await _duplicate_matches_safe(
+        db, title=result.title, artist=result.artist, source_id=result.source_id
+    )
+    return result
 
 
 @router.post("/suggest/update", response_model=SongSuggestUpdateResponse)
@@ -1008,7 +1100,7 @@ def search_songs(
     base_query = db.query(Song).filter(Song.archived_at.is_(None))
     if not include_unpublished:
         base_query = base_query.filter(Song.status == "published")
-    keyword = _normalize_search_text(q)
+    keyword = normalize_search_text(q)
     if keyword:
         pattern = f"%{keyword}%"
         base_query = base_query.filter(

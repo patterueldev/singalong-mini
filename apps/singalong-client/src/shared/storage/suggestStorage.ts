@@ -95,7 +95,7 @@ export function readSuggestDraft(): SuggestDraft | null {
       typeof parsed.lyrics === 'string' &&
       typeof parsed.source_thumbnail_data_url === 'string'
     ) {
-      return {
+      const result: SuggestDraft = {
         source_url: parsed.source_url,
         source_id: parsed.source_id,
         source: parsed.source,
@@ -110,6 +110,28 @@ export function readSuggestDraft(): SuggestDraft | null {
         lyrics: parsed.lyrics,
         source_thumbnail_data_url: parsed.source_thumbnail_data_url,
       }
+
+      // Carry the identify-derived advisory fields through a reload too —
+      // these are set once on identify and never re-derived, so dropping
+      // them here silently erases the content warning / duplicate flags
+      // the moment a guest refreshes the draft page.
+      if (typeof parsed.isEnhanced === 'boolean') {
+        result.isEnhanced = parsed.isEnhanced
+      }
+      if (typeof parsed.isLikelySong === 'boolean') {
+        result.isLikelySong = parsed.isLikelySong
+      }
+      if (typeof parsed.contentConfidence === 'number') {
+        result.contentConfidence = parsed.contentConfidence
+      }
+      if (typeof parsed.contentNotice === 'string' || parsed.contentNotice === null) {
+        result.contentNotice = parsed.contentNotice
+      }
+      if (Array.isArray(parsed.possibleDuplicates)) {
+        result.possibleDuplicates = parsed.possibleDuplicates
+      }
+
+      return result
     }
 
     if (

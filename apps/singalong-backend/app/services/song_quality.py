@@ -48,7 +48,7 @@ def _flag(code: str, label: str, message: str, points: int, severity: str) -> di
     }
 
 
-def _is_placeholder(value: str | None, placeholders: set[str]) -> bool:
+def is_placeholder(value: str | None, placeholders: set[str]) -> bool:
     normalized = _normalize(value)
     return normalized in placeholders or normalized.startswith("unknown ")
 
@@ -165,7 +165,7 @@ def assess_song_quality(song: Song) -> tuple[int, list[dict[str, Any]]]:
             "high",
         )
 
-    if _is_placeholder(song.title, PLACEHOLDER_TITLES):
+    if is_placeholder(song.title, PLACEHOLDER_TITLES):
         add_flag(
             "placeholder-title",
             "Placeholder title",
@@ -174,7 +174,7 @@ def assess_song_quality(song: Song) -> tuple[int, list[dict[str, Any]]]:
             "medium",
         )
 
-    if _is_placeholder(song.artist, PLACEHOLDER_ARTISTS):
+    if is_placeholder(song.artist, PLACEHOLDER_ARTISTS):
         add_flag(
             "placeholder-artist",
             "Placeholder artist",

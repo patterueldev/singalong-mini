@@ -216,6 +216,7 @@ export type SuggestResult = {
   viewCount: number | null
   uploadedAt: string
   existsInSongbook: boolean | null
+  existingSongId: string | null
   sourceUrl: string
   youtubeId: string
 }
@@ -234,9 +235,26 @@ export type SuggestSearchResponse = {
     view_count: number | null
     uploaded_at: string
     exists_in_songbook: boolean | null
+    existing_song_id: string | null
     source_url: string
     youtube_id: string
   }>
+}
+
+export type SuggestDuplicateMatch = {
+  song_id: string
+  title: string
+  artist: string
+  status: string
+  is_archived: boolean
+  source_id: string | null
+  source_url: string | null
+  thumbnail_url: string | null
+  score: number
+  title_score: number
+  artist_score: number | null
+  confidence: 'exact' | 'high' | 'possible'
+  reasons: string[]
 }
 
 export type SuggestIdentifyResponse = {
@@ -255,6 +273,7 @@ export type SuggestIdentifyResponse = {
   is_likely_song: boolean
   content_confidence: number
   content_notice: string | null
+  duplicate_matches: SuggestDuplicateMatch[]
 }
 
 export type SuggestEnhanceResponse = {
@@ -286,6 +305,7 @@ export type SuggestDraft = {
   isLikelySong?: boolean
   contentConfidence?: number
   contentNotice?: string | null
+  possibleDuplicates?: SuggestDuplicateMatch[]
 }
 
 export type LanguageCode = 'en' | 'ja' | 'ko' | 'zh' | 'other'

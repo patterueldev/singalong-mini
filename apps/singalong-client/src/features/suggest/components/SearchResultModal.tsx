@@ -3,10 +3,18 @@ import type { SuggestResult } from '../../../shared/types/client'
 type SearchResultModalProps = {
   result: SuggestResult
   onClose: () => void
-  onIdentify: (result: SuggestResult) => void
+  onIdentify?: (result: SuggestResult) => void
+  identifyLabel?: string
+  onReserve?: () => void
 }
 
-export function SearchResultModal({ result, onClose, onIdentify }: SearchResultModalProps) {
+export function SearchResultModal({
+  result,
+  onClose,
+  onIdentify,
+  identifyLabel = 'Identify',
+  onReserve,
+}: SearchResultModalProps) {
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <div
@@ -85,13 +93,20 @@ export function SearchResultModal({ result, onClose, onIdentify }: SearchResultM
         </div>
 
         <div className="row-actions modal-actions">
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => onIdentify(result)}
-          >
-            Identify
-          </button>
+          {onReserve ? (
+            <button type="button" onClick={onReserve}>
+              Reserve
+            </button>
+          ) : null}
+          {onIdentify ? (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => onIdentify(result)}
+            >
+              {identifyLabel}
+            </button>
+          ) : null}
           <button
             type="button"
             className="youtube-button"

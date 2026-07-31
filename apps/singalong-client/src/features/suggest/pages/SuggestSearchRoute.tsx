@@ -1,4 +1,3 @@
-import { useNavigate } from 'react-router-dom'
 import { SuggestSearchPage } from './SuggestSearchPage'
 import type { SuggestDraft } from '../../../shared/types/client'
 
@@ -37,8 +36,6 @@ export function SuggestSearchRoute({
   closeActionLabel,
   showSignedIn,
 }: SuggestSearchRouteProps) {
-  const navigate = useNavigate()
-
   return (
     <SuggestSearchPage
       nickname={nickname}
@@ -56,11 +53,7 @@ export function SuggestSearchRoute({
       showCloseAction={showCloseAction}
       closeActionLabel={closeActionLabel}
       showSignedIn={showSignedIn}
-      singlePageUrlIdentify
       onIdentifyDraft={onIdentifyDraft}
-      onIdentify={(sourceUrl) => {
-        navigate(`${searchPath}?url=${encodeURIComponent(sourceUrl)}`)
-      }}
     />
   )
 }

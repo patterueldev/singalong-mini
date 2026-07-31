@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { adminService } from '../../admin/services/adminService'
 import { useGuestSession } from '../hooks/useGuestSession'
 import { guestReserveSong } from '../services/guestService'
 import { isValidSessionCode } from '../../../shared/lib/validation'
-import type { SongbookSong, SuggestDraft } from '../../../shared/types/client'
+import { buildInitialSuggestDraft, mapSuggestSearchItem, parseYouTubeVideoId } from '../../../shared/lib/suggest'
+import type { SongbookSong, SuggestDraft, SuggestResult } from '../../../shared/types/client'
 import { SongDetailsModal } from '../../songbook/components/SongDetailsModal'
-import { GuestSuggestSearchRoute, GuestSuggestUpdateRoute } from './GuestSuggestPages'
-import {
-  clearSuggestDraft,
-  readSuggestDraft,
-  saveSuggestDraft,
-} from '../../../shared/storage/suggestStorage'
+import { SongbookListItem } from '../../songbook/components/SongbookListItem'
+import { useSuggestService } from '../../suggest/hooks/useSuggestService'
+import { SearchResultsList } from '../../suggest/components/SearchResultsList'
+import { SearchResultModal } from '../../suggest/components/SearchResultModal'
+import { DuplicateWarningModal } from '../../suggest/components/DuplicateWarningModal'
+import { BlockingHud } from '../../suggest/components/BlockingHud'
+import { saveSuggestDraft } from '../../../shared/storage/suggestStorage'
+
+const SONGS_PATH = '/songs'
+const DRAFT_PATH = '/songs/draft'
 
 type GuestSongDetailModalProps = {
   songId: string
@@ -91,8 +96,10 @@ function GuestSongDetailModal({
 export function GuestSongbookPage() {
   const navigate = useNavigate()
   const { guestAuth, sessionCode, hasGuestSession } = useGuestSession()
-  const [query, setQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const { search: suggestSearch, identify: suggestIdentify, download: suggestDownload } = useSuggestService()
+  const [searchParams] = useSearchParams()
+  const [query, setQuery] = useState(() => searchParams.get('query') ?? '')
+  const [debouncedQuery, setDebouncedQuery] = useState(() => searchParams.get('query') ?? '')
   const [songs, setSongs] = useState<SongbookSong[]>([])
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
@@ -100,25 +107,100 @@ export function GuestSongbookPage() {
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [activeSongId, setActiveSongId] = useState<string | null>(null)
-  const [isSuggestModalOpen, setIsSuggestModalOpen] = useState(false)
-  const [suggestDraft, setSuggestDraft] = useState<SuggestDraft | null>(() => readSuggestDraft())
+  const [isYoutubeSearchActive, setIsYoutubeSearchActive] = useState(false)
+  const [youtubeResults, setYoutubeResults] = useState<SuggestResult[]>([])
+  const [isSearchingYoutube, setIsSearchingYoutube] = useState(false)
+  const [youtubeAppendedKaraoke, setYoutubeAppendedKaraoke] = useState(false)
+  const [isProcessingResult, setIsProcessingResult] = useState(false)
+  const [detailsResult, setDetailsResult] = useState<SuggestResult | null>(null)
+  const [pendingDuplicate, setPendingDuplicate] = useState<SuggestDraft | null>(null)
+  const latestYoutubeQueryRef = useRef('')
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300)
     return () => window.clearTimeout(timer)
   }, [query])
 
+  const songsPath = useMemo(() => {
+    const params = new URLSearchParams()
+    if (debouncedQuery !== '') {
+      params.set('query', debouncedQuery)
+    }
+    const search = params.toString()
+    return search === '' ? SONGS_PATH : `${SONGS_PATH}?${search}`
+  }, [debouncedQuery])
+
   useEffect(() => {
-    if (suggestDraft === null) {
-      clearSuggestDraft()
+    if (!hasGuestSession || !isValidSessionCode(sessionCode)) {
       return
     }
-    saveSuggestDraft(suggestDraft)
-  }, [suggestDraft])
+    navigate(songsPath, { replace: true })
+  }, [hasGuestSession, navigate, sessionCode, songsPath])
 
   useEffect(() => {
     setPage(1)
+    setIsYoutubeSearchActive(false)
+    setYoutubeResults([])
+    setYoutubeAppendedKaraoke(false)
   }, [debouncedQuery])
+
+  const handleSearchYoutube = useCallback(
+    (searchQuery: string) => {
+      if (searchQuery === '' || guestAuth === null) return
+      latestYoutubeQueryRef.current = searchQuery
+      setIsYoutubeSearchActive(true)
+      setIsSearchingYoutube(true)
+      setYoutubeAppendedKaraoke(false)
+      setErrorMessage('')
+      void suggestSearch(searchQuery, guestAuth.accessToken)
+        .then((response) => {
+          if (latestYoutubeQueryRef.current !== searchQuery) return
+          setYoutubeResults(response.results.map(mapSuggestSearchItem))
+          setYoutubeAppendedKaraoke(response.appended_karaoke)
+        })
+        .catch((error: unknown) => {
+          if (latestYoutubeQueryRef.current !== searchQuery) return
+          setYoutubeResults([])
+          setErrorMessage(error instanceof Error ? error.message : 'YouTube search failed')
+        })
+        .finally(() => {
+          if (latestYoutubeQueryRef.current !== searchQuery) return
+          setIsSearchingYoutube(false)
+        })
+    },
+    [guestAuth, suggestSearch],
+  )
+
+  const resolveYoutubeUrl = useCallback(
+    async (sourceUrl: string) => {
+      if (guestAuth === null) return
+      setIsYoutubeSearchActive(false)
+      setYoutubeResults([])
+      setYoutubeAppendedKaraoke(false)
+      setErrorMessage('')
+      try {
+        const response = await suggestSearch(sourceUrl, guestAuth.accessToken)
+        const [item] = response.results.map(mapSuggestSearchItem)
+        if (item === undefined) {
+          setSongs([])
+          setErrorMessage('Could not resolve that YouTube link.')
+          return
+        }
+        if (item.existingSongId !== null) {
+          const song = await adminService.fetchSongDetail(item.existingSongId, sessionCode)
+          setSongs([song])
+        } else {
+          setSongs([])
+          setIsYoutubeSearchActive(true)
+          setYoutubeResults([item])
+        }
+      } catch (error) {
+        setSongs([])
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to resolve that YouTube link')
+      }
+    },
+    [guestAuth, sessionCode, suggestSearch],
+  )
 
   useEffect(() => {
     if (!hasGuestSession || !isValidSessionCode(sessionCode)) {
@@ -132,6 +214,19 @@ export function GuestSongbookPage() {
     setErrorMessage('')
 
     const trimmed = debouncedQuery.trim()
+
+    if (parseYouTubeVideoId(trimmed) !== null) {
+      setPages(1)
+      void resolveYoutubeUrl(trimmed).finally(() => {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
     const request =
       trimmed === ''
         ? adminService.fetchSongbook(page, 20, sessionCode)
@@ -142,6 +237,9 @@ export function GuestSongbookPage() {
         if (cancelled) return
         setSongs(payload.items)
         setPages(payload.pages)
+        if (payload.items.length === 0 && trimmed !== '') {
+          handleSearchYoutube(trimmed)
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -158,13 +256,93 @@ export function GuestSongbookPage() {
     return () => {
       cancelled = true
     }
-  }, [debouncedQuery, hasGuestSession, page, sessionCode])
+  }, [debouncedQuery, handleSearchYoutube, hasGuestSession, page, resolveYoutubeUrl, sessionCode])
 
   const activeSongbookCount = useMemo(() => songs.length, [songs])
   const trimmedQuery = debouncedQuery.trim()
 
+  const reserveExistingSong = async (songId: string) => {
+    if (guestAuth === null || !isValidSessionCode(sessionCode)) return
+    setIsProcessingResult(true)
+    setErrorMessage('')
+    try {
+      await guestReserveSong(sessionCode, songId, guestAuth.accessToken)
+      setMessage('Song reserved.')
+      navigate('/home', { replace: true })
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to reserve song')
+    } finally {
+      setIsProcessingResult(false)
+    }
+  }
+
+  const finishReserveDownload = async (draft: SuggestDraft) => {
+    if (guestAuth === null || !isValidSessionCode(sessionCode)) return
+    setIsProcessingResult(true)
+    setErrorMessage('')
+    try {
+      await suggestDownload(draft, guestAuth.accessToken, { reserveSessionCode: sessionCode })
+      setMessage('Song added — it will appear in your queue once it finishes downloading.')
+      navigate('/home', { replace: true })
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to add song')
+    } finally {
+      setIsProcessingResult(false)
+    }
+  }
+
+  const identifyAndReserve = async (sourceUrl: string) => {
+    if (guestAuth === null || !isValidSessionCode(sessionCode)) return
+    setIsProcessingResult(true)
+    setErrorMessage('')
+    try {
+      const response = await suggestIdentify(sourceUrl, guestAuth.accessToken)
+      const draft = buildInitialSuggestDraft(response)
+      if (draft.isLikelySong === false) {
+        saveSuggestDraft(draft)
+        navigate(DRAFT_PATH, { state: { returnTo: songsPath } })
+        return
+      }
+      const blockingMatch = (draft.possibleDuplicates ?? []).some(
+        (match) => match.confidence === 'exact' || match.confidence === 'high',
+      )
+      if (blockingMatch) {
+        setPendingDuplicate(draft)
+        return
+      }
+      await finishReserveDownload(draft)
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to add song')
+    } finally {
+      setIsProcessingResult(false)
+    }
+  }
+
+  const identifyAndEdit = async (sourceUrl: string) => {
+    if (guestAuth === null) return
+    setIsProcessingResult(true)
+    setErrorMessage('')
+    try {
+      const response = await suggestIdentify(sourceUrl, guestAuth.accessToken)
+      saveSuggestDraft(buildInitialSuggestDraft(response))
+      navigate(DRAFT_PATH, { state: { returnTo: songsPath } })
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to identify video')
+    } finally {
+      setIsProcessingResult(false)
+    }
+  }
+
+  const reserveYoutubeResult = (result: SuggestResult) => {
+    if (result.existingSongId !== null) {
+      void reserveExistingSong(result.existingSongId)
+      return
+    }
+    void identifyAndReserve(result.sourceUrl)
+  }
+
   if (!hasGuestSession || !isValidSessionCode(sessionCode) || guestAuth === null) {
-    return <Navigate to="/guest/join" replace />
+    return <Navigate to="/join" replace />
   }
 
   return (
@@ -182,17 +360,8 @@ export function GuestSongbookPage() {
               <button
                 type="button"
                 className="icon-control-button"
-                aria-label="Suggest a song"
-                title="Suggest a song"
-                onClick={() => setIsSuggestModalOpen(true)}
-              >
-                <span className="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
-              </button>
-              <button
-                type="button"
-                className="icon-control-button"
                 aria-label="Close songbook"
-                onClick={() => navigate('/guest/home')}
+                onClick={() => navigate('/home')}
               >
                 <span className="material-symbols-outlined" aria-hidden="true">close</span>
               </button>
@@ -208,65 +377,41 @@ export function GuestSongbookPage() {
             <p className="empty-state">Loading songbook…</p>
           ) : activeSongbookCount === 0 ? (
             trimmedQuery !== '' ? (
-              <div>
-                <p className="empty-state">"{trimmedQuery}" is not available. Would you like to suggest?</p>
-                <div className="row-actions top-gap">
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => setIsSuggestModalOpen(true)}
-                  >
-                    Suggest
-                  </button>
-                </div>
-              </div>
+              <p className="empty-state">
+                {parseYouTubeVideoId(trimmedQuery) !== null
+                  ? 'This URL is not available in the songbook.'
+                  : `"${trimmedQuery}" is not available in the songbook.`}
+              </p>
             ) : (
               <p className="empty-state">No songs found.</p>
             )
           ) : (
             <div className="queue-list songbook-list guest-songbook-list">
               {songs.map((song) => (
-                <article
-                 key={song.id}
-                 className="queue-item songbook-item"
-                 role="button"
-                 tabIndex={0}
-                 onClick={() => setActiveSongId(song.id)}
-                 onKeyDown={(event) => {
-                   if (event.key === 'Enter' || event.key === ' ') {
-                     event.preventDefault()
-                     setActiveSongId(song.id)
-                   }
-                 }}
-                >
-                 {song.thumbnailUrl ? (
-                   <img className="songbook-thumbnail" src={song.thumbnailUrl} alt={song.title} loading="lazy" />
-                 ) : (
-                   <div className="songbook-thumbnail songbook-thumbnail--placeholder" />
-                 )}
-                 <div className="songbook-info">
-                   <div className="songbook-item-header">
-                     <strong>{song.title}</strong>
-                     {song.wasQueuedInSession ? (
-                       Math.max(song.queuedCountInSession, 1) === 1 ? (
-                         <span className="songbook-played-indicator one" aria-label="Played once">
-                           <span className="material-symbols-outlined" aria-hidden="true">
-                             check_circle
-                           </span>
-                         </span>
-                       ) : (
-                         <span className="songbook-played-indicator many" aria-label="Played multiple times">
-                           {Math.max(song.queuedCountInSession, 1)}
-                         </span>
-                       )
-                     ) : null}
-                   </div>
-                   <p className="session-meta">
-                     {song.artist}
-                     {song.duration ? ` · ${song.duration}` : ''}
-                   </p>
-                 </div>
-                </article>
+                <SongbookListItem
+                  key={song.id}
+                  song={song}
+                  onClick={() => setActiveSongId(song.id)}
+                  menu={{
+                    onReserve: () => void reserveExistingSong(song.id),
+                    onViewDetails: () => setActiveSongId(song.id),
+                  }}
+                  badge={
+                    song.wasQueuedInSession ? (
+                      Math.max(song.queuedCountInSession, 1) === 1 ? (
+                        <span className="songbook-played-indicator one" aria-label="Played once">
+                          <span className="material-symbols-outlined" aria-hidden="true">
+                            check_circle
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="songbook-played-indicator many" aria-label="Played multiple times">
+                          {Math.max(song.queuedCountInSession, 1)}
+                        </span>
+                      )
+                    ) : undefined
+                  }
+                />
               ))}
             </div>
           )}
@@ -284,6 +429,51 @@ export function GuestSongbookPage() {
               </button>
             </div>
           ) : null}
+
+          {!isLoading &&
+          trimmedQuery !== '' &&
+          activeSongbookCount > 0 &&
+          !isYoutubeSearchActive &&
+          parseYouTubeVideoId(trimmedQuery) === null ? (
+            <div className="row-actions top-gap">
+              <button type="button" className="secondary" onClick={() => handleSearchYoutube(trimmedQuery)}>
+                Didn't find the song? Search YouTube
+              </button>
+            </div>
+          ) : null}
+
+          {isYoutubeSearchActive ? (
+            <div className="top-gap">
+              <h2 className="section-subheading">YouTube results</h2>
+              {!isSearchingYoutube && youtubeAppendedKaraoke ? (
+                <div className="chip-suggestion-list top-gap">
+                  <button
+                    type="button"
+                    className="chip-suggestion"
+                    onClick={() => handleSearchYoutube(`${trimmedQuery} カラオケ`)}
+                  >
+                    Try "{trimmedQuery} カラオケ"
+                  </button>
+                </div>
+              ) : null}
+              <div className="queue-list top-gap">
+                <SearchResultsList
+                  results={youtubeResults}
+                  isSearching={isSearchingYoutube}
+                  onSelectResult={reserveYoutubeResult}
+                  menu={(result) => ({
+                    onReserve: () => reserveYoutubeResult(result),
+                    onPreview: () => setDetailsResult(result),
+                    onEnhanceDetails:
+                      result.existingSongId === null ? () => void identifyAndEdit(result.sourceUrl) : undefined,
+                  })}
+                />
+              </div>
+              {!isSearchingYoutube && youtubeResults.length === 0 ? (
+                <p className="empty-state">No YouTube results found.</p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -296,42 +486,50 @@ export function GuestSongbookPage() {
           onReserved={() => {
             setActiveSongId(null)
             setMessage('Song reserved.')
-            navigate('/guest/home', { replace: true })
+            navigate('/home', { replace: true })
           }}
         />
       ) : null}
 
-      {isSuggestModalOpen && suggestDraft === null ? (
-        <div className="modal-backdrop guest-songbook-suggest-backdrop" role="presentation" onClick={() => setIsSuggestModalOpen(false)}>
-          <div role="presentation" onClick={(event) => event.stopPropagation()}>
-            <GuestSuggestSearchRoute
-              onIdentifyDraft={setSuggestDraft}
-              onCancel={() => setIsSuggestModalOpen(false)}
-              initialKeyword={query.trim()}
-            />
-          </div>
-        </div>
+      {detailsResult !== null ? (
+        <SearchResultModal
+          result={detailsResult}
+          onClose={() => setDetailsResult(null)}
+          onReserve={() => {
+            const result = detailsResult
+            setDetailsResult(null)
+            reserveYoutubeResult(result)
+          }}
+          identifyLabel="Enhance Details"
+          onIdentify={
+            detailsResult.existingSongId === null
+              ? (result) => {
+                  setDetailsResult(null)
+                  void identifyAndEdit(result.sourceUrl)
+                }
+              : undefined
+          }
+        />
       ) : null}
 
-      {isSuggestModalOpen && suggestDraft !== null ? (
-        <div className="modal-backdrop guest-songbook-suggest-backdrop" role="presentation" onClick={() => setIsSuggestModalOpen(false)}>
-          <div role="presentation" onClick={(event) => event.stopPropagation()}>
-            <GuestSuggestUpdateRoute
-              draft={suggestDraft}
-              onDraftChange={(draft) => {
-                setSuggestDraft(draft)
-                if (draft === null) {
-                  setIsSuggestModalOpen(false)
-                }
-              }}
-              onCancel={() => {
-                setIsSuggestModalOpen(false)
-                setSuggestDraft(null)
-              }}
-            />
-          </div>
-        </div>
+      {pendingDuplicate !== null ? (
+        <DuplicateWarningModal
+          draft={pendingDuplicate}
+          matches={pendingDuplicate.possibleDuplicates ?? []}
+          onReserveExisting={(songId) => {
+            setPendingDuplicate(null)
+            void reserveExistingSong(songId)
+          }}
+          onAddAnyway={() => {
+            const draft = pendingDuplicate
+            setPendingDuplicate(null)
+            void finishReserveDownload(draft)
+          }}
+          onCancel={() => setPendingDuplicate(null)}
+        />
       ) : null}
+
+      {isProcessingResult ? <BlockingHud message="Processing Song…" /> : null}
     </main>
   )
 }

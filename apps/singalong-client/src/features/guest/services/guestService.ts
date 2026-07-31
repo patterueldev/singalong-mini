@@ -22,7 +22,7 @@ export function buildGuestJoinUrl(baseUrl: string, sessionCode: string | null): 
     return ''
   }
   const normalizedBase = baseUrl.replace(/\/$/, '')
-  return `${normalizedBase}/client/guest/join?sessionCode=${encodeURIComponent(sessionCode)}`
+  return `${normalizedBase}/join?sessionCode=${encodeURIComponent(sessionCode)}`
 }
 
 export async function loginWithNickname(nickname: string): Promise<GuestAuth> {

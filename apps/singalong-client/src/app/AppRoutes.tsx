@@ -2,15 +2,13 @@ import type { ReactNode } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 type AppRoutesProps = {
-  rootElement: ReactNode
   adminElement: ReactNode
   adminLoginElement: ReactNode
   guestJoinElement: ReactNode
   guestHomeElement: ReactNode
   guestDownloadsElement: ReactNode
   guestSongbookElement: ReactNode
-  guestSuggestSearchElement: ReactNode
-  guestSuggestUpdateElement: ReactNode
+  guestSuggestDraftElement: ReactNode
   playerElement: ReactNode
   songbookLoginElement: ReactNode
   songbookElement: ReactNode
@@ -27,15 +25,13 @@ type AppRoutesProps = {
 }
 
 export function AppRoutes({
-  rootElement,
   adminElement,
   adminLoginElement,
   guestJoinElement,
   guestHomeElement,
   guestDownloadsElement,
   guestSongbookElement,
-  guestSuggestSearchElement,
-  guestSuggestUpdateElement,
+  guestSuggestDraftElement,
   playerElement,
   songbookLoginElement,
   songbookElement,
@@ -52,19 +48,19 @@ export function AppRoutes({
 }: AppRoutesProps) {
   return (
     <Routes>
-      <Route path="/" element={rootElement} />
+      <Route path="/" element={guestJoinElement} />
+      <Route path="/join" element={guestJoinElement} />
+      <Route path="/login" element={guestJoinElement} />
+      <Route path="/home" element={guestHomeElement} />
+      <Route path="/downloads" element={guestDownloadsElement} />
+      <Route path="/songs" element={guestSongbookElement} />
+      <Route path="/songs/draft" element={guestSuggestDraftElement} />
+      <Route path="/songs/suggest/search" element={<Navigate to="/songs" replace />} />
+      <Route path="/songs/suggest/identify" element={<Navigate to="/songs" replace />} />
+      <Route path="/songs/suggest/update" element={<Navigate to="/songs" replace />} />
+      <Route path="/player" element={playerElement} />
       <Route path="/admin" element={adminElement} />
       <Route path="/admin/login" element={adminLoginElement} />
-      <Route path="/guest" element={guestJoinElement} />
-      <Route path="/guest/join" element={guestJoinElement} />
-      <Route path="/guest/login" element={guestJoinElement} />
-      <Route path="/guest/home" element={guestHomeElement} />
-      <Route path="/guest/downloads" element={guestDownloadsElement} />
-      <Route path="/guest/songbook" element={guestSongbookElement} />
-      <Route path="/guest/songbook/suggest/search" element={guestSuggestSearchElement} />
-      <Route path="/guest/songbook/suggest/identify" element={<Navigate to="/guest/songbook/suggest/search" replace />} />
-      <Route path="/guest/songbook/suggest/update" element={guestSuggestUpdateElement} />
-      <Route path="/player" element={playerElement} />
       <Route path="/songbook/login" element={songbookLoginElement} />
       <Route path="/songbook" element={songbookElement} />
       <Route path="/songbook/song/:id" element={songDetailElement} />
@@ -84,7 +80,7 @@ export function AppRoutes({
       <Route path="/admin/sessions/:sessionCode/songbook/suggest/search" element={adminSessionSuggestSearchElement} />
       <Route path="/admin/sessions/:sessionCode/songbook/suggest/update" element={adminSessionSuggestUpdateElement} />
       <Route path="/admin/sessions/:sessionCode/songbook/suggest/identify" element={adminSessionSuggestSearchElement} />
-      <Route path="*" element={<Navigate to="/guest" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

@@ -13,16 +13,15 @@ import { GuestPage } from '../features/guest/pages/GuestPage'
 import { GuestHomePage } from '../features/guest/pages/GuestHomePage'
 import { GuestDownloadsPage } from '../features/guest/pages/GuestDownloadsPage'
 import { GuestSongbookPage } from '../features/guest/pages/GuestSongbookPage'
-import {
-  GuestSuggestSearchRoute,
-  GuestSuggestUpdateRoute,
-} from '../features/guest/pages/GuestSuggestPages'
+import { GuestSuggestDraftPage } from '../features/guest/pages/GuestSuggestDraftPage'
 import { PlayerPage } from '../features/player/pages/PlayerPage'
 import { SuggestLoginPage } from '../features/suggest/pages/SuggestLoginPage'
 import { SuggestSearchRoute } from '../features/suggest/pages/SuggestSearchRoute'
 import { SuggestUpdatePage } from '../features/suggest/pages/SuggestUpdatePage'
 import { SongbookPage } from '../features/songbook/pages/SongbookPage'
 import { SongDetailPage } from '../features/songbook/pages/SongDetailPage'
+import { SongbookSuggestSearchPage } from '../features/songbook/pages/SongbookSuggestSearchPage'
+import { SongbookSuggestUpdatePage } from '../features/songbook/pages/SongbookSuggestUpdatePage'
 import {
   AdminSessionSuggestSearchRoute,
   AdminSessionSuggestUpdateRoute,
@@ -37,14 +36,16 @@ import {
 } from '../features/admin/services/adminService'
 import { guestLoginWithNickname } from '../features/guest/services/guestService'
 import { logoutUser } from '../features/shared/services/authService'
-import { apiJson, ApiError } from '../shared/api/httpClient'
+import { apiJson, ApiError, setOnAuthFailure } from '../shared/api/httpClient'
 import { clearStoredAuth, readStoredAuth, saveStoredAuth } from '../shared/storage/authStorage'
 import {
+  clearSuggestAuth,
   clearSuggestDraft,
   readSuggestDraft,
   saveSuggestDraft,
 } from '../shared/storage/suggestStorage'
 import {
+  clearGuestAuth,
   readGuestAuth,
   saveGuestAuth,
 } from '../shared/storage/guestStorage'
@@ -99,7 +100,32 @@ function AppShellContent() {
   }, [])
 
   useEffect(() => {
-    setPublicGuestAuth(readGuestAuth())
+    const storedGuestAuth = readGuestAuth()
+    if (storedGuestAuth === null) {
+      return
+    }
+
+    let cancelled = false
+
+    const validate = async () => {
+      try {
+        await fetchCurrentUser(storedGuestAuth.accessToken)
+        if (cancelled) return
+        setPublicGuestAuth(storedGuestAuth)
+      } catch {
+        clearGuestAuth()
+        clearSuggestAuth()
+        if (!cancelled) {
+          setPublicGuestAuth(null)
+        }
+      }
+    }
+
+    void validate()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -146,6 +172,21 @@ function AppShellContent() {
 
     return () => {
       cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    setOnAuthFailure(() => {
+      clearStoredAuth()
+      clearGuestAuth()
+      clearSuggestAuth()
+      setAuth(null)
+      setPublicGuestAuth(null)
+      setSessions([])
+    })
+
+    return () => {
+      setOnAuthFailure(null)
     }
   }, [])
 
@@ -315,8 +356,6 @@ function AppShellContent() {
   if (isHydratingAuth) {
     return <LoadingView />
   }
-
-  const rootElement = <Navigate to="/guest" replace />
   const adminElement = <Navigate to={auth === null ? '/admin/login' : '/admin/dashboard'} replace />
   const adminLoginElement =
     auth !== null ? (
@@ -336,8 +375,7 @@ function AppShellContent() {
   const guestHomeElement = <GuestHomePage />
   const guestDownloadsElement = <GuestDownloadsPage />
   const guestSongbookElement = <GuestSongbookPage />
-  const guestSuggestSearchElement = <GuestSuggestSearchRoute />
-  const guestSuggestUpdateElement = <GuestSuggestUpdateRoute />
+  const guestSuggestDraftElement = <GuestSuggestDraftPage />
   const playerElement = <PlayerPage />
   const songbookLoginElement = hasPublicGuestAuth ? (
     <Navigate to="/songbook" replace />
@@ -438,7 +476,7 @@ function AppShellContent() {
   const suggestSearchElement = !hasPublicGuestAuth ? (
     <Navigate to="/songbook/login" replace />
   ) : (
-    <SuggestSearchRoute
+    <SongbookSuggestSearchPage
       nickname={publicGuestAuth.nickname}
       authToken={publicGuestAuth.accessToken}
       onCancel={handleCancelSuggestion}
@@ -450,18 +488,13 @@ function AppShellContent() {
   ) : suggestDraft === null ? (
     <Navigate to="/songbook/suggest/search" replace />
   ) : (
-    <SuggestUpdatePage
+    <SongbookSuggestUpdatePage
       nickname={publicGuestAuth.nickname}
       authToken={publicGuestAuth.accessToken}
       draft={suggestDraft}
       onDraftChange={setSuggestDraft}
       onDownload={handleDownloadSuggestion}
       onCancel={handleCancelSuggestion}
-      showDownloadAndReserve
-      downloadButtonLabel="Download & Add Another"
-      downloadPath="/songbook/suggest/search"
-      downloadAndReservePath="/songbook"
-      downloadAndReserveButtonLabel="Download & Back to Songbook"
       onDownloadAndReserve={() => {
         setSongbookNotice(`${suggestDraft.title} is now downloading!`)
         setSuggestDraft(null)
@@ -540,15 +573,13 @@ function AppShellContent() {
 
   return (
     <AppRoutes
-      rootElement={rootElement}
       adminElement={adminElement}
       adminLoginElement={adminLoginElement}
       guestJoinElement={guestJoinElement}
       guestHomeElement={guestHomeElement}
       guestDownloadsElement={guestDownloadsElement}
       guestSongbookElement={guestSongbookElement}
-      guestSuggestSearchElement={guestSuggestSearchElement}
-      guestSuggestUpdateElement={guestSuggestUpdateElement}
+      guestSuggestDraftElement={guestSuggestDraftElement}
       playerElement={playerElement}
       songbookLoginElement={songbookLoginElement}
       songbookElement={songbookElement}
