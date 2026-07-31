@@ -55,6 +55,7 @@ from ..services.progress_tracker import ProgressEvent, get_progress_tracker
 from ..services.thumbnail_service import convert_base64_to_jpg, save_thumbnail
 from ..services.song_quality import assess_song_quality
 from ..services.ytdlp.naming import normalize_song_title
+from ..services.ytdlp.url_utils import extract_canonical_youtube_url, extract_single_video_info
 from ..services.songs_download import extract_youtube_video_id, run_song_download
 from ..services.sessions import get_active_session_by_code
 from ..services.songs import cleanup_expired_archives, fix_video_duration, restore_backup, trim_video
@@ -92,6 +93,53 @@ def _pick_thumbnail_url(entry: dict[str, object]) -> str:
                 if isinstance(candidate_url, str) and candidate_url.startswith("http"):
                     return candidate_url
     return ""
+
+
+def _resolve_single_youtube_video(
+    youtube_id: str, original_query: str, db: Session
+) -> SongSuggestSearchResponse:
+    existing_song = db.query(Song).filter(Song.source_id == youtube_id).first()
+    if existing_song is not None:
+        item = SongSuggestSearchItem(
+            id=youtube_id,
+            title=existing_song.title,
+            thumbnail_url=_build_thumbnail_url(existing_song.thumbnail_file) or "",
+            duration=_format_duration(existing_song.duration),
+            channel_name=existing_song.artist,
+            exists_in_songbook=True,
+            existing_song_id=str(existing_song.id),
+            source_url=extract_canonical_youtube_url(original_query),
+            youtube_id=youtube_id,
+        )
+        return SongSuggestSearchResponse(effective_query=original_query, appended_karaoke=False, results=[item])
+
+    canonical_url = extract_canonical_youtube_url(original_query)
+    try:
+        info = extract_single_video_info(canonical_url)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Identify provider error: {exc}") from exc
+
+    channel_url = info.get("channel_url") or info.get("uploader_url") or ""
+    description = info.get("description") or ""
+    view_count = info.get("view_count")
+    uploaded_at = info.get("upload_date") or ""
+
+    item = SongSuggestSearchItem(
+        id=youtube_id,
+        title=info.get("title") or "Untitled",
+        thumbnail_url=_pick_thumbnail_url(info),
+        duration=_format_duration(info.get("duration")),
+        channel_name=info.get("channel") or info.get("uploader") or "Unknown Channel",
+        channel_url=channel_url if isinstance(channel_url, str) else "",
+        description=description if isinstance(description, str) else "",
+        view_count=view_count if isinstance(view_count, int) else None,
+        uploaded_at=uploaded_at if isinstance(uploaded_at, str) else "",
+        exists_in_songbook=False,
+        existing_song_id=None,
+        source_url=canonical_url,
+        youtube_id=youtube_id,
+    )
+    return SongSuggestSearchResponse(effective_query=original_query, appended_karaoke=False, results=[item])
 
 
 def _extract_distinct_genres(db: Session, query: str | None, limit: int) -> list[str]:
@@ -451,6 +499,12 @@ def suggest_song_search(
     if query == "":
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Query is required")
 
+    lowered_query = query.lower()
+    if "youtube.com" in lowered_query or "youtu.be" in lowered_query:
+        youtube_id = extract_youtube_video_id(query)
+        if youtube_id is not None:
+            return _resolve_single_youtube_video(youtube_id, query, db)
+
     appended_karaoke = SUGGEST_KEYWORD_REGEX.search(query) is None
     effective_query = query if not appended_karaoke else f"{query} karaoke"
     limit = payload.limit
@@ -532,14 +586,8 @@ async def suggest_song_identify(
     if youtube_id is None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid YouTube URL")
 
-    search_opts = {
-        "quiet": True,
-        "no_warnings": True,
-    }
-
     try:
-        with yt_dlp.YoutubeDL(search_opts) as ydl:
-            info = ydl.extract_info(payload.url.strip(), download=False)
+        info = extract_single_video_info(payload.url.strip())
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Identify provider error: {exc}") from exc
 
