@@ -220,6 +220,21 @@ async def on_startup():
             conn.execute(
                 text("UPDATE songs SET enhancement_status = 'error' WHERE enhancement_status IN ('pending', 'running')")
             )
+            # Songbook list/search sort by lower(title), lower(artist) and filter on
+            # status + archived_at on every request; the plain btree indexes on the
+            # raw columns can't satisfy the lower()-wrapped ORDER BY.
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_songs_lower_title_artist "
+                    "ON songs (lower(title), lower(artist))"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_songs_status_active "
+                    "ON songs (status) WHERE archived_at IS NULL"
+                )
+            )
         # Migrate song_downloads constrained VARCHAR to TEXT (separate block so
         # column dict is fresh from the inspector).
         if inspector.has_table("song_downloads"):

@@ -6,6 +6,7 @@ import { guestReserveSong } from '../services/guestService'
 import { isValidSessionCode } from '../../../shared/lib/validation'
 import { buildInitialSuggestDraft, mapSuggestSearchItem, parseYouTubeVideoId } from '../../../shared/lib/suggest'
 import type { SongbookSong, SuggestDraft, SuggestResult } from '../../../shared/types/client'
+import { SkeletonList } from '../../songbook/components/SkeletonList'
 import { SongDetailsModal } from '../../songbook/components/SongDetailsModal'
 import { SongbookListItem } from '../../songbook/components/SongbookListItem'
 import { useSuggestService } from '../../suggest/hooks/useSuggestService'
@@ -382,7 +383,9 @@ export function GuestSongbookPage() {
 
         <div className="guest-scroll-content">
           {isLoading ? (
-            <p className="empty-state">Loading songbook…</p>
+            <div className="queue-list songbook-list guest-songbook-list">
+              <SkeletonList count={8} />
+            </div>
           ) : activeSongbookCount === 0 ? (
             trimmedQuery !== '' ? (
               <p className="empty-state">
