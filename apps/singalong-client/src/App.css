@@ -1619,6 +1619,32 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.duplicate-match-list {
+  display: grid;
+  gap: 8px;
+}
+
+.duplicate-match-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  min-width: 0;
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+}
+
+.duplicate-match-row .songbook-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.duplicate-match-status {
+  margin: 0;
+  color: var(--warning);
+  font-size: 0.85rem;
+}
+
 textarea {
   border: 1px solid var(--border-primary);
   border-radius: 8px;

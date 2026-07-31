@@ -220,6 +220,22 @@ class SongSuggestIdentifyRequest(BaseModel):
     url: str = Field(min_length=1, max_length=1000)
 
 
+class SongDuplicateMatch(BaseModel):
+    song_id: str
+    title: str
+    artist: str
+    status: str
+    is_archived: bool = False
+    source_id: str | None = None
+    source_url: str | None = None
+    thumbnail_url: str | None = None
+    score: float
+    title_score: float
+    artist_score: float | None = None
+    confidence: Literal["exact", "high", "possible"]
+    reasons: list[str] = Field(default_factory=list)
+
+
 class SongSuggestIdentifyResponse(BaseModel):
     source_url: str
     source_id: str
@@ -236,6 +252,7 @@ class SongSuggestIdentifyResponse(BaseModel):
     is_likely_song: bool = True
     content_confidence: float = 0.0
     content_notice: str | None = None
+    duplicate_matches: list[SongDuplicateMatch] = Field(default_factory=list)
 
 
 class SongSuggestUpdateRequest(BaseModel):
