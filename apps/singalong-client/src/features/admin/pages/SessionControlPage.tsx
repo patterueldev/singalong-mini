@@ -513,8 +513,8 @@ export function SessionControlPage({
     try {
       const response =
         songbookQuery.trim() === ''
-          ? await fetchSongbook(songbookPage, 10, undefined, activeSessionId)
-          : await searchSongbook(songbookQuery.trim(), songbookPage, 10, undefined, activeSessionId)
+          ? await fetchSongbook(songbookPage, 10, undefined, activeSessionId, true)
+          : await searchSongbook(songbookQuery.trim(), songbookPage, 10, undefined, activeSessionId, true)
       setSongbookItems(response.items)
       setSongbookPages(response.pages)
     } catch (error) {
