@@ -20,8 +20,7 @@ import { SuggestSearchRoute } from '../features/suggest/pages/SuggestSearchRoute
 import { SuggestUpdatePage } from '../features/suggest/pages/SuggestUpdatePage'
 import { SongbookPage } from '../features/songbook/pages/SongbookPage'
 import { SongDetailPage } from '../features/songbook/pages/SongDetailPage'
-import { SongbookSuggestSearchPage } from '../features/songbook/pages/SongbookSuggestSearchPage'
-import { SongbookSuggestUpdatePage } from '../features/songbook/pages/SongbookSuggestUpdatePage'
+import { SongbookSuggestDraftPage } from '../features/songbook/pages/SongbookSuggestDraftPage'
 import {
   AdminSessionSuggestSearchRoute,
   AdminSessionSuggestUpdateRoute,
@@ -344,11 +343,6 @@ function AppShellContent() {
     saveGuestAuth(guestAuthPayload)
   }, [])
 
-  const handleDownloadSuggestion = useCallback((title: string) => {
-    setSongbookNotice(`${title} is now downloading!`)
-    setSuggestDraft(null)
-  }, [])
-
   const handleCancelSuggestion = useCallback(() => {
     setSuggestDraft(null)
   }, [])
@@ -390,9 +384,22 @@ function AppShellContent() {
     publicGuestAuth === null ? (
       <Navigate to="/songbook/login" replace />
     ) : (
-      <SongbookPage notice={songbookNotice} guestNickname={publicGuestAuth.nickname} />
+      <SongbookPage
+        notice={songbookNotice}
+        guestNickname={publicGuestAuth.nickname}
+        authToken={publicGuestAuth.accessToken}
+      />
     )
   const songDetailElement = <SongDetailPage />
+  const songbookDraftElement =
+    publicGuestAuth === null ? (
+      <Navigate to="/songbook/login" replace />
+    ) : (
+      <SongbookSuggestDraftPage
+        authToken={publicGuestAuth.accessToken}
+        onDownloaded={(title) => setSongbookNotice(`${title} is now downloading!`)}
+      />
+    )
   const adminSongbookSuggestSearchElement =
     auth === null ? (
       <Navigate to="/admin/login" replace />
@@ -473,34 +480,6 @@ function AppShellContent() {
         </div>
       </>
     )
-  const suggestSearchElement = !hasPublicGuestAuth ? (
-    <Navigate to="/songbook/login" replace />
-  ) : (
-    <SongbookSuggestSearchPage
-      nickname={publicGuestAuth.nickname}
-      authToken={publicGuestAuth.accessToken}
-      onCancel={handleCancelSuggestion}
-      onIdentifyDraft={setSuggestDraft}
-    />
-  )
-  const suggestUpdateElement = !hasPublicGuestAuth ? (
-    <Navigate to="/songbook/login" replace />
-  ) : suggestDraft === null ? (
-    <Navigate to="/songbook/suggest/search" replace />
-  ) : (
-    <SongbookSuggestUpdatePage
-      nickname={publicGuestAuth.nickname}
-      authToken={publicGuestAuth.accessToken}
-      draft={suggestDraft}
-      onDraftChange={setSuggestDraft}
-      onDownload={handleDownloadSuggestion}
-      onCancel={handleCancelSuggestion}
-      onDownloadAndReserve={() => {
-        setSongbookNotice(`${suggestDraft.title} is now downloading!`)
-        setSuggestDraft(null)
-      }}
-    />
-  )
   const adminSessionsElement =
     auth === null ? (
       <Navigate to="/admin/login" replace />
@@ -584,8 +563,7 @@ function AppShellContent() {
       songbookLoginElement={songbookLoginElement}
       songbookElement={songbookElement}
       songDetailElement={songDetailElement}
-      suggestSearchElement={suggestSearchElement}
-      suggestUpdateElement={suggestUpdateElement}
+      songbookDraftElement={songbookDraftElement}
       adminSessionsElement={adminSessionsElement}
       adminSongbookElement={adminSongbookElement}
       adminSongbookSuggestSearchElement={adminSongbookSuggestSearchElement}

@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useSuggestService } from '../../suggest/hooks/useSuggestService'
 import { useSuggestUpdateFlow } from '../../suggest/hooks/useSuggestUpdateFlow'
 import { BlockingHud } from '../../suggest/components/BlockingHud'
@@ -7,33 +7,28 @@ import { ThumbnailPanel } from '../../suggest/components/ThumbnailPanel'
 import { SongDetailsFields } from '../../suggest/components/SongDetailsFields'
 import { MoreDetailsPanel } from '../../suggest/components/MoreDetailsPanel'
 import { DuplicateWarningBanner } from '../../suggest/components/DuplicateWarningBanner'
-import { clearSuggestDraft } from '../../../shared/storage/suggestStorage'
 import type { SuggestDraft } from '../../../shared/types/client'
 
-const CANCEL_PATH = '/songbook'
-const DOWNLOAD_PATH = '/songbook/suggest/search'
-const DOWNLOAD_AND_RESERVE_PATH = '/songbook'
+const BACK_PATH = '/songbook'
 
 type SongbookSuggestUpdatePageProps = {
-  nickname: string
   authToken: string
   draft: SuggestDraft
   onDraftChange: (draft: SuggestDraft) => void
-  onDownload: (title: string) => void
-  onDownloadAndReserve: (title: string) => void
-  onCancel: () => void
+  onDiscardDraft: () => void
+  onDownloaded: (title: string) => void
 }
 
 export function SongbookSuggestUpdatePage({
-  nickname,
   authToken,
   draft,
   onDraftChange,
-  onDownload,
-  onDownloadAndReserve,
-  onCancel,
+  onDiscardDraft,
+  onDownloaded,
 }: SongbookSuggestUpdatePageProps) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const backPath = (location.state as { returnTo?: string } | null)?.returnTo ?? BACK_PATH
   const { download: suggestDownload } = useSuggestService()
   const [errorMessage, setErrorMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -51,62 +46,49 @@ export function SongbookSuggestUpdatePage({
       if (!shouldLeave) {
         return
       }
-      clearSuggestDraft()
-      onCancel()
+      onDiscardDraft()
       onConfirmed()
     },
-    [onCancel],
+    [onDiscardDraft],
   )
 
   return (
     <main className="app-shell">
       <section className="card suggest-update-card">
         <div className="card-header">
-          <div>
-            <h1>Suggest · Update Details</h1>
-            <p className="subtitle">
-              Signed in as <strong>{nickname}</strong>
-            </p>
-          </div>
-          <div className="row-actions">
+          <div className="card-header-lead">
             <button
               type="button"
-              className="secondary"
+              className="secondary icon-button"
+              aria-label="Back to songbook"
               disabled={flow.isEnhancing || isSubmitting}
               onClick={() => {
                 confirmExitUpdate(() => {
-                  navigate(CANCEL_PATH)
+                  navigate(backPath)
                 })
               }}
             >
-              Cancel
+              <span className="material-symbols-outlined" aria-hidden="true">
+                arrow_back
+              </span>
             </button>
+            <h1>Song Details</h1>
           </div>
         </div>
         <form
           className="form top-gap"
           onSubmit={(event) => {
             event.preventDefault()
-            const submitter = (event.nativeEvent as SubmitEvent).submitter as
-              | HTMLButtonElement
-              | null
-            const action = submitter?.dataset.action
-            if (action !== 'download' && action !== 'download-reserve') {
-              return
-            }
             setErrorMessage('')
             setIsSubmitting(true)
-            const shouldReserve = action === 'download-reserve'
             void suggestDownload(draft, authToken, undefined)
               .then(() => {
-                if (shouldReserve) {
-                  onDownloadAndReserve(draft.title)
-                } else {
-                  onDownload(draft.title)
-                }
-                clearSuggestDraft()
+                onDiscardDraft()
+                onDownloaded(draft.title)
                 setIsSubmitting(false)
-                navigate(shouldReserve ? DOWNLOAD_AND_RESERVE_PATH : DOWNLOAD_PATH)
+                // A successful download always returns to the plain songbook —
+                // not backPath, which may still carry the search that's now stale.
+                navigate(BACK_PATH)
               })
               .catch((error: unknown) => {
                 const message = error instanceof Error ? error.message : 'Download failed'
@@ -175,11 +157,8 @@ export function SongbookSuggestUpdatePage({
           />
 
           <div className="row-actions top-gap">
-            <button type="submit" data-action="download" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving…' : 'Download & Add Another'}
-            </button>
-            <button type="submit" data-action="download-reserve" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving…' : 'Download & Back to Songbook'}
+            <button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Saving…' : 'Download'}
             </button>
           </div>
           {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
