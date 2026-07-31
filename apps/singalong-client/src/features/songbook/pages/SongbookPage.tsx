@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAdminService } from '../../admin/hooks/useAdminService'
-import { useGuestService } from '../../guest/hooks/useGuestService'
 import {
   mergeDownloadProgressItems,
   normalizeDownloadProgressItems,
@@ -20,7 +19,6 @@ export type SongbookPageProps = {
 export function SongbookPage({ notice, guestNickname }: SongbookPageProps) {
   const navigate = useNavigate()
   const { fetchSongbook, searchSongbook } = useAdminService()
-  const { retryDownload: retrySongDownload } = useGuestService()
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [songs, setSongs] = useState<SongbookSong[]>([])
@@ -30,7 +28,6 @@ export function SongbookPage({ notice, guestNickname }: SongbookPageProps) {
   const [isDownloadsModalOpen, setIsDownloadsModalOpen] = useState(false)
   const [downloadItems, setDownloadItems] = useState<DownloadProgressItem[]>([])
   const [downloadsSocketStatus, setDownloadsSocketStatus] = useState('Disconnected')
-  const [retryingSongIds, setRetryingSongIds] = useState<string[]>([])
   const downloadsSocketRef = useRef<WebSocket | null>(null)
   const downloadsReconnectTimerRef = useRef<number | null>(null)
   const shouldReconnectDownloadsRef = useRef(false)
@@ -155,29 +152,6 @@ export function SongbookPage({ notice, guestNickname }: SongbookPageProps) {
     navigate(`/songbook/song/${song.id}`)
   }
 
-  const handleRetryDownload = useCallback((songId: string) => {
-    setRetryingSongIds((current) => (current.includes(songId) ? current : [...current, songId]))
-    void retrySongDownload(songId)
-      .then(() => {
-        setDownloadItems((items) =>
-          items.map((item) =>
-            item.songId === songId
-              ? {
-                  ...item,
-                  status: 'pending',
-                  progressPct: null,
-                  progressMessage: 'Waiting in queue',
-                  errorMessage: null,
-                }
-              : item,
-          ),
-        )
-      })
-      .finally(() => {
-        setRetryingSongIds((current) => current.filter((entry) => entry !== songId))
-      })
-  }, [])
-
   const trimmedQuery = debouncedQuery.trim()
 
   return (
@@ -275,9 +249,7 @@ export function SongbookPage({ notice, guestNickname }: SongbookPageProps) {
         isOpen={isDownloadsModalOpen}
         status={downloadsSocketStatus}
         items={downloadItems}
-        retryingSongIds={retryingSongIds}
         onClose={() => setIsDownloadsModalOpen(false)}
-        onRetryDownload={handleRetryDownload}
       />
     </main>
   )

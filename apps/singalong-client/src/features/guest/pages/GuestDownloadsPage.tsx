@@ -5,7 +5,6 @@ import { buildWSUrl } from '../../../shared/api/ws'
 import { formatDownloadStatus } from '../../../shared/lib/format'
 import { normalizeDownloadProgressItems } from '../../shared/services/queueTransforms'
 import { useGuestSession } from '../hooks/useGuestSession'
-import { guestRetrySongDownload } from '../services/guestService'
 import { isValidSessionCode } from '../../../shared/lib/validation'
 import type { DownloadProgressItem, SongDownloadListResponse, WSIncoming } from '../../../shared/types/client'
 
@@ -14,7 +13,6 @@ export function GuestDownloadsPage() {
   const { guestAuth, sessionCode, hasGuestSession } = useGuestSession()
   const [items, setItems] = useState<DownloadProgressItem[]>([])
   const [status, setStatus] = useState('Disconnected')
-  const [retryingSongIds, setRetryingSongIds] = useState<string[]>([])
   const socketRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
@@ -87,15 +85,6 @@ export function GuestDownloadsPage() {
     return <Navigate to="/join" replace />
   }
 
-  const handleRetry = async (songId: string) => {
-    setRetryingSongIds((current) => (current.includes(songId) ? current : [...current, songId]))
-    try {
-      await guestRetrySongDownload(songId)
-    } finally {
-      setRetryingSongIds((current) => current.filter((entry) => entry !== songId))
-    }
-  }
-
   return (
     <main className="app-shell guest-fullscreen-shell">
       <section className="card guest-fullscreen-card guest-downloads-screen">
@@ -115,14 +104,15 @@ export function GuestDownloadsPage() {
           ) : (
             <div className="downloads-modal-list">
               {items.map((item) => {
-                const isRetrying = retryingSongIds.includes(item.songId)
                 const progressValue = item.progressPct !== null ? Math.max(0, Math.min(100, item.progressPct)) : 0
                 const statusText =
                   item.status === 'error'
                     ? item.errorMessage ?? 'Download failed'
-                    : item.status === 'pending'
-                      ? 'Waiting in queue'
-                      : 'Downloading video'
+                    : item.status === 'cancelled'
+                      ? 'Cancelled'
+                      : item.status === 'pending'
+                        ? 'Waiting in queue'
+                        : 'Downloading video'
 
                 return (
                   <article key={item.songId} className="downloads-progress-item">
@@ -154,18 +144,6 @@ export function GuestDownloadsPage() {
                         </span>
                       </div>
                       <p className="session-meta">{statusText}</p>
-                      {item.status === 'error' ? (
-                        <div className="downloads-actions">
-                          <button
-                            type="button"
-                            className="secondary small"
-                            onClick={() => void handleRetry(item.songId)}
-                            disabled={isRetrying}
-                          >
-                            {isRetrying ? 'Retrying…' : 'Retry'}
-                          </button>
-                        </div>
-                      ) : null}
                     </div>
                   </article>
                 )

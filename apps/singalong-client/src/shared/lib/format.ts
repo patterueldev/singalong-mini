@@ -75,5 +75,8 @@ export function formatDownloadStatus(status: DownloadProgressItem['status']): st
   if (status === 'downloading') {
     return 'Downloading'
   }
+  if (status === 'cancelled') {
+    return 'Cancelled'
+  }
   return 'Error'
 }

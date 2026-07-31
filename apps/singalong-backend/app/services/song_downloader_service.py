@@ -8,12 +8,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from threading import Lock
+from threading import Event, Lock
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DBSession
+from yt_dlp.utils import DownloadCancelled
 
 from ..models import Song, SongDownload, User
 from ..services.enhancement_service import get_enhancement_service
@@ -52,6 +53,8 @@ class SongDownloaderService:
         self.executor = ThreadPoolExecutor(max_workers=1)
         self._progress_lock = Lock()
         self._progress_state_by_song: dict[UUID, DownloadProgressState] = {}
+        self._cancel_lock = Lock()
+        self._cancel_events: dict[UUID, Event] = {}
 
     def queue_song_download(
         self,
@@ -92,6 +95,7 @@ class SongDownloaderService:
         finally:
             db.close()
 
+        self._reset_cancel_event(UUID(song_id))
         self.executor.submit(
             self._download_song_task,
             song_id=song_id,
@@ -102,6 +106,25 @@ class SongDownloaderService:
             source_thumbnail=source_thumbnail,
             source_thumbnail_data_url=source_thumbnail_data_url,
         )
+
+    def _reset_cancel_event(self, song_id: UUID) -> Event:
+        """Start a fresh (unset) cancel event for a song, discarding any prior one."""
+        with self._cancel_lock:
+            event = Event()
+            self._cancel_events[song_id] = event
+            return event
+
+    def _get_cancel_event(self, song_id: UUID) -> Event:
+        with self._cancel_lock:
+            event = self._cancel_events.get(song_id)
+            if event is None:
+                event = Event()
+                self._cancel_events[song_id] = event
+            return event
+
+    def request_stop(self, song_id: str) -> None:
+        """Signal the in-flight (or queued) download for this song to stop."""
+        self._get_cancel_event(UUID(song_id)).set()
 
     def recover_pending_downloads(self):
         db: DBSession = self.db_session_factory()
@@ -206,6 +229,11 @@ class SongDownloaderService:
         db: DBSession = self.db_session_factory()
         try:
             song_uuid = UUID(song_id)
+            cancel_event = self._get_cancel_event(song_uuid)
+            if cancel_event.is_set():
+                self._finalize_cancelled_download(db, song_uuid)
+                return
+
             self._update_download_record(
                 db,
                 song_uuid,
@@ -217,12 +245,15 @@ class SongDownloaderService:
             )
 
             def progress_hook(download_state: dict) -> None:
+                if cancel_event.is_set():
+                    raise DownloadCancelled()
                 self._handle_progress_hook(db, song_uuid, download_state)
 
             # Step 1: Download video with retries
             video_filename = None
             video_error = None
             artifact = None
+            was_cancelled = False
             for attempt in range(1, 4):
                 try:
                     print(
@@ -246,6 +277,16 @@ class SongDownloaderService:
                         flush=True,
                     )
                     break
+                except DownloadCancelled:
+                    print(
+                        f"[DOWNLOADER] Download cancelled by admin - song_id={song_id}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    was_cancelled = True
+                    if artifact and artifact.temp_dir and artifact.temp_dir.exists():
+                        shutil.rmtree(artifact.temp_dir, ignore_errors=True)
+                    break
                 except Exception as e:
                     video_error = str(e)
                     print(
@@ -263,7 +304,13 @@ class SongDownloaderService:
                             file=sys.stderr,
                             flush=True,
                         )
-                        time.sleep(wait_time)
+                        if cancel_event.wait(timeout=wait_time):
+                            was_cancelled = True
+                            break
+
+            if was_cancelled:
+                self._finalize_cancelled_download(db, song_uuid, artifact)
+                return
 
             if video_filename is None:
                 raise Exception(f"Video download failed after 3 attempts: {video_error}")
@@ -361,6 +408,8 @@ class SongDownloaderService:
                     current_step="error",
                     error_message=str(e),
                 )
+                with self._cancel_lock:
+                    self._cancel_events.pop(song_uuid, None)
                 print(
                     f"[DOWNLOADER] Song marked as error - song_id={song_id}",
                     file=sys.stderr,
@@ -449,9 +498,33 @@ class SongDownloaderService:
                 setattr(download, key, value)
         db.commit()
         status = patch.get("status")
-        if status in {"pending", "error"}:
+        if status in {"pending", "error", "cancelled"}:
             self._clear_progress_state(song_id)
         self._emit_downloads_updated(db)
+
+    def _finalize_cancelled_download(self, db: DBSession, song_id: UUID, artifact=None) -> None:
+        if artifact and artifact.temp_dir and artifact.temp_dir.exists():
+            shutil.rmtree(artifact.temp_dir, ignore_errors=True)
+
+        song = db.scalar(select(Song).where(Song.id == song_id))
+        if song is not None:
+            song.status = "error"
+            song.archived_at = datetime.utcnow()
+
+        self._update_download_record(
+            db,
+            song_id,
+            status="cancelled",
+            current_step="cancelled",
+            progress_message=None,
+            error_message="Cancelled by admin",
+            completed_at=datetime.utcnow(),
+        )
+
+        with self._cancel_lock:
+            self._cancel_events.pop(song_id, None)
+
+        print(f"[DOWNLOADER] Download cancelled by admin - song_id={song_id}", file=sys.stderr, flush=True)
 
     def _delete_download_record(self, db: DBSession, song_id: UUID) -> None:
         download = db.scalar(select(SongDownload).where(SongDownload.song_id == song_id))
@@ -459,6 +532,8 @@ class SongDownloaderService:
             return
         db.delete(download)
         self._clear_progress_state(song_id)
+        with self._cancel_lock:
+            self._cancel_events.pop(song_id, None)
 
     def _handle_progress_hook(self, db: DBSession, song_id: UUID, download_state: dict) -> None:
         status = download_state.get("status")

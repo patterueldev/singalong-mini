@@ -5,6 +5,7 @@ import type {
   SessionQueueListResponse,
   SessionRecord,
   SessionWorkspace,
+  SongDownloadRetryResponse,
   SongQualityFlag,
   SongbookListResponse,
   SongbookSong,
@@ -57,6 +58,8 @@ export interface AdminService {
   archiveSession: (sessionId: string, token: string) => Promise<SessionArchiveResponse>
   archiveSong: (songId: string, token: string) => Promise<{ message: string }>
   fetchActiveSession: () => Promise<SessionRecord | null>
+  retryDownload: (songId: string, token: string) => Promise<SongDownloadRetryResponse>
+  stopDownload: (songId: string, token: string) => Promise<SongDownloadRetryResponse>
 }
 
 function mapSong(raw: {
@@ -431,6 +434,14 @@ export async function fixDuration(songId: string, token: string): Promise<{
   )
 }
 
+export async function retryDownload(songId: string, token: string): Promise<SongDownloadRetryResponse> {
+  return apiJson<SongDownloadRetryResponse>(`/songs/downloads/${songId}/retry`, { method: 'POST' }, token)
+}
+
+export async function stopDownload(songId: string, token: string): Promise<SongDownloadRetryResponse> {
+  return apiJson<SongDownloadRetryResponse>(`/songs/downloads/${songId}/stop`, { method: 'POST' }, token)
+}
+
 export const adminService: AdminService = {
   fetchSongbook,
   searchSongbook,
@@ -454,4 +465,6 @@ export const adminService: AdminService = {
   getTrimProgress,
   restoreTrim,
   fixDuration,
+  retryDownload,
+  stopDownload,
 }

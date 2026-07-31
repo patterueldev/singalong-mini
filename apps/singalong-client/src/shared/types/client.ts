@@ -91,7 +91,7 @@ export type DownloadProgressItem = {
   duration: string | null
   addedByUsername: string | null
   sourceThumbnail: string | null
-  status: 'pending' | 'downloading' | 'error'
+  status: 'pending' | 'downloading' | 'error' | 'cancelled'
   progressPct: number | null
   progressMessage: string | null
   errorMessage: string | null
