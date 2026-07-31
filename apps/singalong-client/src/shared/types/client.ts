@@ -241,6 +241,22 @@ export type SuggestSearchResponse = {
   }>
 }
 
+export type SuggestDuplicateMatch = {
+  song_id: string
+  title: string
+  artist: string
+  status: string
+  is_archived: boolean
+  source_id: string | null
+  source_url: string | null
+  thumbnail_url: string | null
+  score: number
+  title_score: number
+  artist_score: number | null
+  confidence: 'exact' | 'high' | 'possible'
+  reasons: string[]
+}
+
 export type SuggestIdentifyResponse = {
   source_url: string
   source_id: string
@@ -257,6 +273,7 @@ export type SuggestIdentifyResponse = {
   is_likely_song: boolean
   content_confidence: number
   content_notice: string | null
+  duplicate_matches: SuggestDuplicateMatch[]
 }
 
 export type SuggestEnhanceResponse = {
@@ -288,6 +305,7 @@ export type SuggestDraft = {
   isLikelySong?: boolean
   contentConfidence?: number
   contentNotice?: string | null
+  possibleDuplicates?: SuggestDuplicateMatch[]
 }
 
 export type LanguageCode = 'en' | 'ja' | 'ko' | 'zh' | 'other'

@@ -26,6 +26,14 @@ export function useSuggestUpdateFlow({ draft, authToken, onDraftChange, onError 
     setContentWarningState({ sourceId: draft.source_id, dismissed: false })
   }
   const isContentWarningDismissed = contentWarningState.dismissed
+  const [duplicateWarningState, setDuplicateWarningState] = useState(() => ({
+    sourceId: draft.source_id,
+    dismissed: false,
+  }))
+  if (duplicateWarningState.sourceId !== draft.source_id) {
+    setDuplicateWarningState({ sourceId: draft.source_id, dismissed: false })
+  }
+  const isDuplicateWarningDismissed = duplicateWarningState.dismissed
   const [genreInput, setGenreInput] = useState(draft.genre)
   const [tagInput, setTagInput] = useState('')
   const [metadataSuggestions, setMetadataSuggestions] = useState<SuggestMetadataSuggestionsResponse>({
@@ -189,6 +197,10 @@ export function useSuggestUpdateFlow({ draft, authToken, onDraftChange, onError 
     setContentWarningState((current) => ({ ...current, dismissed: true }))
   }, [])
 
+  const dismissDuplicateWarning = useCallback(() => {
+    setDuplicateWarningState((current) => ({ ...current, dismissed: true }))
+  }, [])
+
   const handleEnhance = useCallback(async () => {
     setIsEnhancing(true)
     setEnhanceMessage('')
@@ -209,8 +221,10 @@ export function useSuggestUpdateFlow({ draft, authToken, onDraftChange, onError 
           isLikelySong: enhanced.is_likely_song,
           contentConfidence: enhanced.content_confidence,
           contentNotice: enhanced.content_notice,
+          possibleDuplicates: enhanced.duplicate_matches,
         })
         setContentWarningState((current) => ({ ...current, dismissed: false }))
+        setDuplicateWarningState((current) => ({ ...current, dismissed: false }))
         setIsDetailsOpen(true)
         setEnhanceMessage(response.status === 'degraded' ? '✓ Enhanced (partial)' : '✓ Enhanced successfully!')
         setTimeout(() => setEnhanceMessage(''), 3000)
@@ -242,6 +256,8 @@ export function useSuggestUpdateFlow({ draft, authToken, onDraftChange, onError 
     resetThumbnail,
     isContentWarningDismissed,
     dismissContentWarning,
+    isDuplicateWarningDismissed,
+    dismissDuplicateWarning,
     isEnhancing,
     enhanceMessage,
     handleEnhance,

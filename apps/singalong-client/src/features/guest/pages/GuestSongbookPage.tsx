@@ -5,12 +5,13 @@ import { useGuestSession } from '../hooks/useGuestSession'
 import { guestReserveSong } from '../services/guestService'
 import { isValidSessionCode } from '../../../shared/lib/validation'
 import { buildInitialSuggestDraft, mapSuggestSearchItem, parseYouTubeVideoId } from '../../../shared/lib/suggest'
-import type { SongbookSong, SuggestResult } from '../../../shared/types/client'
+import type { SongbookSong, SuggestDraft, SuggestResult } from '../../../shared/types/client'
 import { SongDetailsModal } from '../../songbook/components/SongDetailsModal'
 import { SongbookListItem } from '../../songbook/components/SongbookListItem'
 import { useSuggestService } from '../../suggest/hooks/useSuggestService'
 import { SearchResultsList } from '../../suggest/components/SearchResultsList'
 import { SearchResultModal } from '../../suggest/components/SearchResultModal'
+import { DuplicateWarningModal } from '../../suggest/components/DuplicateWarningModal'
 import { BlockingHud } from '../../suggest/components/BlockingHud'
 import { saveSuggestDraft } from '../../../shared/storage/suggestStorage'
 
@@ -112,6 +113,7 @@ export function GuestSongbookPage() {
   const [youtubeAppendedKaraoke, setYoutubeAppendedKaraoke] = useState(false)
   const [isProcessingResult, setIsProcessingResult] = useState(false)
   const [detailsResult, setDetailsResult] = useState<SuggestResult | null>(null)
+  const [pendingDuplicate, setPendingDuplicate] = useState<SuggestDraft | null>(null)
   const latestYoutubeQueryRef = useRef('')
 
   useEffect(() => {
@@ -274,6 +276,21 @@ export function GuestSongbookPage() {
     }
   }
 
+  const finishReserveDownload = async (draft: SuggestDraft) => {
+    if (guestAuth === null || !isValidSessionCode(sessionCode)) return
+    setIsProcessingResult(true)
+    setErrorMessage('')
+    try {
+      await suggestDownload(draft, guestAuth.accessToken, { reserveSessionCode: sessionCode })
+      setMessage('Song added — it will appear in your queue once it finishes downloading.')
+      navigate('/home', { replace: true })
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to add song')
+    } finally {
+      setIsProcessingResult(false)
+    }
+  }
+
   const identifyAndReserve = async (sourceUrl: string) => {
     if (guestAuth === null || !isValidSessionCode(sessionCode)) return
     setIsProcessingResult(true)
@@ -286,9 +303,14 @@ export function GuestSongbookPage() {
         navigate(DRAFT_PATH, { state: { returnTo: songsPath } })
         return
       }
-      await suggestDownload(draft, guestAuth.accessToken, { reserveSessionCode: sessionCode })
-      setMessage('Song added — it will appear in your queue once it finishes downloading.')
-      navigate('/home', { replace: true })
+      const blockingMatch = (draft.possibleDuplicates ?? []).some(
+        (match) => match.confidence === 'exact' || match.confidence === 'high',
+      )
+      if (blockingMatch) {
+        setPendingDuplicate(draft)
+        return
+      }
+      await finishReserveDownload(draft)
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to add song')
     } finally {
@@ -487,6 +509,23 @@ export function GuestSongbookPage() {
                 }
               : undefined
           }
+        />
+      ) : null}
+
+      {pendingDuplicate !== null ? (
+        <DuplicateWarningModal
+          draft={pendingDuplicate}
+          matches={pendingDuplicate.possibleDuplicates ?? []}
+          onReserveExisting={(songId) => {
+            setPendingDuplicate(null)
+            void reserveExistingSong(songId)
+          }}
+          onAddAnyway={() => {
+            const draft = pendingDuplicate
+            setPendingDuplicate(null)
+            void finishReserveDownload(draft)
+          }}
+          onCancel={() => setPendingDuplicate(null)}
         />
       ) : null}
 

@@ -6,6 +6,7 @@ import { BlockingHud } from '../components/BlockingHud'
 import { ThumbnailPanel } from '../components/ThumbnailPanel'
 import { SongDetailsFields } from '../components/SongDetailsFields'
 import { MoreDetailsPanel } from '../components/MoreDetailsPanel'
+import { DuplicateWarningBanner } from '../components/DuplicateWarningBanner'
 import { clearSuggestDraft } from '../../../shared/storage/suggestStorage'
 import type { SuggestDraft } from '../../../shared/types/client'
 
@@ -201,6 +202,13 @@ export function SuggestUpdatePage({
                 </span>
               </button>
             </div>
+          ) : null}
+
+          {!flow.isDuplicateWarningDismissed ? (
+            <DuplicateWarningBanner
+              matches={draft.possibleDuplicates ?? []}
+              onDismiss={flow.dismissDuplicateWarning}
+            />
           ) : null}
 
           <MoreDetailsPanel

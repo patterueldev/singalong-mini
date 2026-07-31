@@ -6,6 +6,7 @@ import { BlockingHud } from '../../suggest/components/BlockingHud'
 import { ThumbnailPanel } from '../../suggest/components/ThumbnailPanel'
 import { SongDetailsFields } from '../../suggest/components/SongDetailsFields'
 import { MoreDetailsPanel } from '../../suggest/components/MoreDetailsPanel'
+import { DuplicateWarningBanner } from '../../suggest/components/DuplicateWarningBanner'
 import { clearSuggestDraft } from '../../../shared/storage/suggestStorage'
 import type { SuggestDraft } from '../../../shared/types/client'
 
@@ -146,6 +147,13 @@ export function SongbookSuggestUpdatePage({
                 </span>
               </button>
             </div>
+          ) : null}
+
+          {!flow.isDuplicateWarningDismissed ? (
+            <DuplicateWarningBanner
+              matches={draft.possibleDuplicates ?? []}
+              onDismiss={flow.dismissDuplicateWarning}
+            />
           ) : null}
 
           <MoreDetailsPanel

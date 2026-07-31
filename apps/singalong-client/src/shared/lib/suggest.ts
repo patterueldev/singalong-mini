@@ -30,6 +30,7 @@ export function buildInitialSuggestDraft(payload: SuggestIdentifyResponse): Sugg
     isLikelySong: payload.is_likely_song,
     contentConfidence: payload.content_confidence,
     contentNotice: payload.content_notice,
+    possibleDuplicates: payload.duplicate_matches,
   }
 }
 
