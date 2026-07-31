@@ -154,17 +154,6 @@ def assess_song_quality(song: Song) -> tuple[int, list[dict[str, Any]]]:
             "high",
         )
 
-    content_check = metadata.get("content_check")
-    if isinstance(content_check, dict) and content_check.get("is_likely_song") is False:
-        reason = content_check.get("reason")
-        add_flag(
-            "not-likely-song",
-            "Possibly not a real song",
-            reason if isinstance(reason, str) and reason.strip() != "" else "Content classifier flagged this as unlikely to be music.",
-            25,
-            "high",
-        )
-
     if _is_placeholder(song.title, PLACEHOLDER_TITLES):
         add_flag(
             "placeholder-title",

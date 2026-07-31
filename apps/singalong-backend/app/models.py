@@ -10,7 +10,6 @@ from .db import Base
 USER_ROLES = ("admin", "guest", "player")
 SONG_STATUSES = ("draft", "downloading", "published", "archived", "error")
 SONG_DOWNLOAD_STATUSES = ("pending", "downloading", "error")
-SONG_ENHANCEMENT_STATUSES = ("pending", "running", "done", "error")
 SONG_QUEUE_STATUSES = ("playing", "pending", "finished", "skipped")
 TRIM_HISTORY_STATUSES = ("pending", "completed", "failed", "restored")
 
@@ -65,10 +64,10 @@ class Song(Base):
     __tablename__ = "songs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    title: Mapped[str] = mapped_column(Text, nullable=False, index=True)
-    artist: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    artist: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     duration: Mapped[int | None] = mapped_column(nullable=True)
-    language: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    language: Mapped[str | None] = mapped_column(String(10), nullable=True)
     is_off_vocal: Mapped[bool] = mapped_column(default=False, server_default="false")
     has_lyrics: Mapped[bool] = mapped_column(default=False, server_default="false")
     video_file: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -95,10 +94,6 @@ class Song(Base):
     trim_end_ms: Mapped[int | None] = mapped_column(nullable=True)
     was_trimmed: Mapped[bool] = mapped_column(default=False, server_default="false")
     trimmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Tracks a background full-enhancement job kicked off by /suggest/download when the
-    # client downloads/reserves without having tapped the manual Enhance button first.
-    # Null means no background job was ever queued for this song.
-    enhancement_status: Mapped[str | None] = mapped_column(String(10), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -125,8 +120,8 @@ class SongDownload(Base):
     )
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    artist: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    artist: Mapped[str] = mapped_column(String(200), nullable=False)
     source_thumbnail: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_thumbnail_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(

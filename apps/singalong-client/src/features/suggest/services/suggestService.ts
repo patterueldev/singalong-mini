@@ -10,7 +10,7 @@ import type {
 
 export interface SuggestService {
   search: (query: string, token: string) => Promise<SuggestSearchResponse>
-  identify: (url: string, token: string) => Promise<SuggestIdentifyResponse>
+  identify: (url: string, token: string, enhance?: boolean) => Promise<SuggestIdentifyResponse>
   download: (
     draft: SuggestDraft,
     token: string,
@@ -36,9 +36,15 @@ export function search(query: string, token: string): Promise<SuggestSearchRespo
   )
 }
 
-export function identify(url: string, token: string): Promise<SuggestIdentifyResponse> {
+export function identify(url: string, token: string, enhance: boolean = false): Promise<SuggestIdentifyResponse> {
+  const queryParams = new URLSearchParams()
+  if (enhance) {
+    queryParams.append('enhance', 'true')
+  }
+  const queryString = queryParams.toString()
+  const endpoint = `/songs/suggest/identify${queryString ? `?${queryString}` : ''}`
   return apiJson<SuggestIdentifyResponse>(
-    '/songs/suggest/identify',
+    endpoint,
     {
       method: 'POST',
       body: JSON.stringify({ url }),
@@ -75,8 +81,6 @@ export function download(
         lyrics: draft.lyrics,
         reserve_session_code: options?.reserveSessionCode ?? null,
         reserved_for_nickname: options?.reservedForNickname?.trim() || null,
-        already_enhanced: draft.isEnhanced ?? false,
-        is_likely_song: draft.isLikelySong ?? true,
       }),
     },
     token,

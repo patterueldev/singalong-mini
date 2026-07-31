@@ -16,7 +16,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DBSession
 
 from ..models import Song, SongDownload, User
-from ..services.enhancement_service import get_enhancement_service
 from ..services.session_queue import (
     SessionQueueNotFoundError,
     SessionQueueValidationError,
@@ -28,8 +27,6 @@ from ..services.thumbnail_service import convert_base64_to_jpg, download_thumbna
 from ..services.download_queue import list_active_download_items
 from ..services.ws import ws_hub
 from ..services.ytdlp.song_downloader import YtDlpSongDownloader
-
-ENHANCEMENT_JOIN_TIMEOUT_SECONDS = 45
 
 
 @dataclass
@@ -305,16 +302,6 @@ class SongDownloaderService:
             # Step 3: Update Song record on success
             stmt = select(Song).where(Song.id == song_uuid)
             song = db.execute(stmt).scalar_one()
-
-            if song.enhancement_status in ("pending", "running"):
-                print(
-                    f"[DOWNLOADER] Waiting up to {ENHANCEMENT_JOIN_TIMEOUT_SECONDS}s for background "
-                    f"enhancement before publishing - song_id={song_id}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                get_enhancement_service().wait_for(song_id, timeout=ENHANCEMENT_JOIN_TIMEOUT_SECONDS)
-                db.refresh(song)
 
             song.video_file = video_filename
             song.thumbnail_file = thumbnail_filename

@@ -107,6 +107,7 @@ export function AdminSessionSuggestUpdateRoute({
     return <Navigate to={`/admin/sessions/${sessionCode}/songbook/suggest/search`} replace />
   }
 
+  const backPath = `/admin/sessions/${sessionCode}/songbook/suggest/search`
   const sessionHomePath = `/admin/sessions/${sessionCode}`
 
   return (
@@ -122,8 +123,10 @@ export function AdminSessionSuggestUpdateRoute({
       defaultReserveTarget={auth.user.username}
       allowCustomReserveTarget
       cancelPath={sessionHomePath}
+      backPath={backPath}
       downloadPath={sessionHomePath}
       downloadAndReservePath={sessionHomePath}
+      backButtonLabel="Back to Search"
       downloadButtonLabel="Download & Back to Home"
       downloadAndReserveButtonLabel="Download & Reserve"
       onDownload={() => {
