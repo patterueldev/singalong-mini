@@ -1,12 +1,13 @@
 services:
   db:
     image: postgres:16-alpine
+    container_name: singalong-dev-db
     environment:
       POSTGRES_DB: singalong
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     volumes:
-      - ../../data/singalong-db:/var/lib/postgresql/data
+      - ./data/singalong-db:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d singalong"]
       interval: 5s
@@ -17,21 +18,26 @@ services:
     build:
       context: ../../apps/singalong-backend
       dockerfile: ../../infrastructure/development/Backend.dockerfile
-    container_name: singalong-backend
+    container_name: singalong-dev-backend
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/singalong
       APP_ENV: development
-      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:5190
       SINGALONG_ADMIN_USERNAME: ${SINGALONG_ADMIN_USERNAME:-admin}
       SINGALONG_ADMIN_PASSWORD: ${SINGALONG_ADMIN_PASSWORD:-password}
       JWT_SECRET_KEY: ${SINGALONG_JWT_SECRET_KEY:-singalong-dev-jwt-secret-key-longer-than-32-bytes-required}
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${SINGALONG_JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-43200}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      AI_PROVIDER: ${AI_PROVIDER:-deepseek}
+      BRAVE_API_KEY: ${BRAVE_API_KEY}
+      ENABLE_LYRICS_WEB_SEARCH: ${ENABLE_LYRICS_WEB_SEARCH:-true}
+      ENABLE_METADATA_WEB_SEARCH: ${ENABLE_METADATA_WEB_SEARCH:-true}
     ports:
-      - "8000:8000"
+      - "8069:8000"
     volumes:
       - ../../apps/singalong-backend:/app
-      - ../../data/singalong-backend:/data
+      - ./data/singalong-backend:/data
     depends_on:
       db:
         condition: service_healthy
@@ -41,12 +47,12 @@ services:
     build:
       context: ../../apps/singalong-client
       dockerfile: ../../infrastructure/development/Client.dockerfile
-    container_name: singalong-client
+    container_name: singalong-dev-client
     environment:
-      VITE_API_BASE_URL: http://localhost:8000
+      VITE_API_BASE_URL: http://localhost:8069
       VITE_BASE_PATH: /client/
     ports:
-      - "5173:5173"
+      - "5190:5173"
     volumes:
       - ../../apps/singalong-client:/app
       - /app/node_modules

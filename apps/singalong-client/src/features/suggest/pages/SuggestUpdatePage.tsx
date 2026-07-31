@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useSuggestService } from '../hooks/useSuggestService'
 import { ChipField } from '../components/ChipField'
 import { BlockingHud } from '../components/BlockingHud'
+import { CollapsibleSection } from '../components/CollapsibleSection'
 import { LANGUAGE_OPTIONS } from '../../../shared/config/client'
 import { readFileAsDataUrl } from '../../../shared/lib/files'
 import { normalizeLanguageCodeForUi } from '../../../shared/lib/format'
@@ -25,10 +26,8 @@ type SuggestUpdatePageProps = {
   onDownload: (title: string) => void
   onCancel: () => void
   cancelPath?: string
-  backPath?: string
   downloadPath?: string
   downloadAndReservePath?: string
-  backButtonLabel?: string
   downloadButtonLabel?: string
   downloadAndReserveButtonLabel?: string
   showDownloadAndReserve?: boolean
@@ -48,10 +47,8 @@ export function SuggestUpdatePage({
   onDownload,
   onCancel,
   cancelPath = '/songbook',
-  backPath = '/songbook/suggest/search',
   downloadPath = '/songbook',
   downloadAndReservePath = '/songbook',
-  backButtonLabel = 'Back',
   downloadButtonLabel = 'Download',
   downloadAndReserveButtonLabel = 'Download & Reserve',
   showDownloadAndReserve = false,
@@ -73,6 +70,15 @@ export function SuggestUpdatePage({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [enhanceMessage, setEnhanceMessage] = useState('')
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+  const [contentWarningState, setContentWarningState] = useState(() => ({
+    sourceId: draft.source_id,
+    dismissed: false,
+  }))
+  if (contentWarningState.sourceId !== draft.source_id) {
+    setContentWarningState({ sourceId: draft.source_id, dismissed: false })
+  }
+  const isContentWarningDismissed = contentWarningState.dismissed
   const [genreInput, setGenreInput] = useState(draft.genre)
   const [tagInput, setTagInput] = useState('')
   const [metadataSuggestions, setMetadataSuggestions] = useState<SuggestMetadataSuggestionsResponse>({
@@ -251,7 +257,14 @@ export function SuggestUpdatePage({
           video_has_lyrics: enhanced.video_has_lyrics,
           genre: enhanced.genre || '',
           tags: enhanced.tags || [],
+          lyrics: enhanced.lyrics || '',
+          isEnhanced: true,
+          isLikelySong: enhanced.is_likely_song,
+          contentConfidence: enhanced.content_confidence,
+          contentNotice: enhanced.content_notice,
         })
+        setContentWarningState((current) => ({ ...current, dismissed: false }))
+        setIsDetailsOpen(true)
         setEnhanceMessage(response.status === 'degraded' ? '✓ Enhanced (partial)' : '✓ Enhanced successfully!')
         setTimeout(() => setEnhanceMessage(''), 3000)
       } else {
@@ -304,30 +317,6 @@ export function SuggestUpdatePage({
               Cancel
             </button>
           </div>
-        </div>
-        <div className="row-actions top-gap">
-          <button
-            type="button"
-            className="youtube-button"
-            disabled={isEnhancing || isSubmitting}
-            onClick={previewOnYoutube}
-          >
-            Preview on Youtube
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            disabled={isEnhancing || isSubmitting}
-            onClick={handleEnhance}
-            title={isEnhancing ? 'Enhancing...' : 'Use AI to enhance song metadata'}
-          >
-            {isEnhancing ? 'Enhancing...' : 'Enhance'} <span aria-hidden="true">✦</span>
-          </button>
-          {enhanceMessage && (
-            <span className="enhance-message" style={{ color: enhanceMessage.startsWith('Error') ? '#d32f2f' : '#4caf50' }}>
-              {enhanceMessage}
-            </span>
-          )}
         </div>
         <form
           className="form top-gap"
@@ -524,19 +513,6 @@ export function SuggestUpdatePage({
                   required
                 />
               </label>
-              <label>
-                Language
-                <select
-                  value={normalizeLanguageCodeForUi(draft.language) || 'other'}
-                  onChange={(event) => updateDraft({ language: event.target.value })}
-                >
-                  {LANGUAGE_OPTIONS.map((option) => (
-                    <option key={option.code} value={option.code}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <div className="checkbox-grid">
                 <label className="checkbox-field">
                   <input
@@ -570,7 +546,69 @@ export function SuggestUpdatePage({
             </div>
           </section>
 
-          <section className="panel full-span">
+        </div>
+
+        {draft.isLikelySong === false && !isContentWarningDismissed ? (
+          <div className="warning-banner top-gap" role="alert">
+            <span>
+              This doesn't look like a karaoke song — double-check before downloading.
+              {draft.contentNotice ? ` ${draft.contentNotice}` : ''}
+            </span>
+            <button
+              type="button"
+              className="warning-banner-dismiss"
+              aria-label="Dismiss warning"
+              onClick={() => setContentWarningState((current) => ({ ...current, dismissed: true }))}
+            >
+              <span className="material-symbols-outlined" aria-hidden="true">
+                close
+              </span>
+            </button>
+          </div>
+        ) : null}
+
+        <CollapsibleSection title="More details" isOpen={isDetailsOpen} onToggle={() => setIsDetailsOpen((open) => !open)}>
+          <div className="row-actions">
+            <button
+              type="button"
+              className="youtube-button"
+              disabled={isEnhancing || isSubmitting}
+              onClick={previewOnYoutube}
+            >
+              Preview on Youtube
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={isEnhancing || isSubmitting}
+              onClick={handleEnhance}
+              title={isEnhancing ? 'Enhancing...' : 'Use AI to enhance song metadata'}
+            >
+              {isEnhancing ? 'Enhancing...' : 'Enhance'} <span aria-hidden="true">✦</span>
+            </button>
+            {enhanceMessage && (
+              <span
+                className="enhance-message"
+                style={{ color: enhanceMessage.startsWith('Error') ? '#d32f2f' : '#4caf50' }}
+              >
+                {enhanceMessage}
+              </span>
+            )}
+          </div>
+          <label>
+            Language
+            <select
+              value={normalizeLanguageCodeForUi(draft.language) || 'other'}
+              onChange={(event) => updateDraft({ language: event.target.value })}
+            >
+              {LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <section className="panel">
             <label>
               Genre
               <input
@@ -587,7 +625,6 @@ export function SuggestUpdatePage({
                   }
                 }}
                 placeholder="Pop, ballad, rock..."
-                required
               />
               {metadataSuggestions.genres.length > 0 ? (
                 <datalist id="genre-suggestions">
@@ -617,7 +654,9 @@ export function SuggestUpdatePage({
                     ))}
                 </div>
               ) : null}
-              <span className="field-help">Add at least one genre.</span>
+              <span className="field-help">
+                Optional — leave blank to have it filled in automatically after downloading.
+              </span>
             </label>
             <div className="top-gap">
               <ChipField
@@ -640,7 +679,7 @@ export function SuggestUpdatePage({
             </div>
           </section>
 
-          <section className="panel full-span">
+          <section className="panel">
             <div className="panel-header">
               <h2>Lyrics</h2>
               <button type="button" className="secondary" onClick={openLyricsSearch}>
@@ -657,7 +696,7 @@ export function SuggestUpdatePage({
               />
             </label>
           </section>
-        </div>
+        </CollapsibleSection>
         {showDownloadAndReserve && (normalizedReserveTargetOptions.length > 0 || allowCustomReserveTarget) ? (
           <div className="form top-gap">
             <label>
@@ -692,7 +731,7 @@ export function SuggestUpdatePage({
           <button
             type="submit"
             data-action="download"
-            disabled={isSubmitting || draft.genre.trim() === '' || isEnhancing}
+            disabled={isSubmitting}
           >
             {isSubmitting ? 'Saving…' : downloadButtonLabel}
           </button>
@@ -702,8 +741,6 @@ export function SuggestUpdatePage({
               data-action="download-reserve"
               disabled={
                 isSubmitting ||
-                draft.genre.trim() === '' ||
-                isEnhancing ||
                 (allowCustomReserveTarget &&
                   reserveTargetChoice === '__custom__' &&
                   customReserveTarget.trim() === '')
@@ -711,21 +748,6 @@ export function SuggestUpdatePage({
             >
               {isSubmitting ? 'Saving…' : downloadAndReserveButtonLabel}
             </button>
-          ) : null}
-          <button
-            type="button"
-            className="secondary"
-            disabled={isEnhancing || isSubmitting}
-            onClick={() => {
-              confirmExitUpdate(() => {
-                navigate(backPath)
-              })
-            }}
-          >
-            {backButtonLabel}
-          </button>
-          {draft.genre.trim() === '' ? (
-            <p className="subtitle">Add at least one genre before downloading.</p>
           ) : null}
         </div>
         {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}

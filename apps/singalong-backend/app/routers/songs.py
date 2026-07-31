@@ -14,9 +14,10 @@ from sqlalchemy import func, or_, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from ..agents.identifier import IdentifierAgent
 from ..agents.orchestrator import OrchestratorAgent
 from ..config import settings
-from ..db import get_db
+from ..db import SessionLocal, get_db
 from ..models import Session as KaraokeSession, Song, SongDownload, SongQueue, SongTrimHistory, User
 from ..schemas import (
     FixDurationResponse,
@@ -200,7 +201,7 @@ def _require_songbook_user(user: User = Depends(get_current_user)) -> User:
     response_model=SongSuggestDownloadResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def suggest_song_download(
+async def suggest_song_download(
     payload: SongSuggestDownloadRequest,
     db: Session = Depends(get_db),
     user: User = Depends(require_admin_or_guest_user),
@@ -210,6 +211,7 @@ def suggest_song_download(
     from uuid import uuid4
 
     from ..models import Song
+    from ..services.enhancement_service import get_enhancement_service
     from ..services.song_downloader_service import get_downloader
 
     print(f"[ENDPOINT] /suggest/download - title={payload.title}", flush=True)
@@ -315,6 +317,59 @@ def suggest_song_download(
             source_thumbnail=payload.source_thumbnail,
             source_thumbnail_data_url=payload.source_thumbnail_data_url or None,
         )
+
+        # If the client hasn't already run the full Enhance step, kick it off in the
+        # background now — it races the video download; the download worker joins on
+        # it (with a timeout) right before publishing so the saved song ends up
+        # already-enhanced without the user ever having to wait for it. Skip this
+        # entirely when the content was flagged as unlikely to be a real song — no
+        # point running the full multi-agent pipeline (genre/tags/lyrics research)
+        # on content that probably isn't music; the manual Enhance button is still
+        # available if the submitter wants to run it anyway.
+        if not payload.already_enhanced and payload.is_likely_song:
+            youtube_title = payload.title
+            youtube_description = ""
+            try:
+                with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+                    info = ydl.extract_info(payload.source_url, download=False)
+                youtube_title = info.get("title") or payload.title
+                youtube_description = info.get("description") or ""
+            except Exception as exc:
+                print(f"[ENDPOINT] Failed to fetch fresh YouTube metadata for background enhance: {exc}", flush=True)
+
+            enhancement_payload = {
+                "source_url": payload.source_url,
+                "source_id": payload.source_id,
+                "source": payload.source,
+                "source_thumbnail": payload.source_thumbnail,
+                "title": youtube_title,
+                "artist": payload.artist,
+                "language": payload.language or None,
+                "is_off_vocal": payload.is_off_vocal,
+                "video_has_lyrics": payload.video_has_lyrics,
+                "genre": payload.genre[0] if payload.genre else None,
+                "tags": payload.tags or None,
+                "lyrics": payload.lyrics or None,
+                "_youtube_description": youtube_description,
+            }
+            existing_genres = _extract_distinct_genres(db, None, 500)
+            existing_tags = _extract_distinct_tags(db, None, 800)
+            get_enhancement_service().enqueue(
+                session_factory=SessionLocal,
+                song_id=str(song.id),
+                payload=enhancement_payload,
+                existing_genres=existing_genres,
+                existing_tags=existing_tags,
+            )
+        elif not payload.already_enhanced:
+            print(
+                f"[ENDPOINT] Skipping background enhance for song_id={song.id} — content flagged as unlikely to be a song",
+                flush=True,
+            )
+            logger.info(
+                "[ENDPOINT] Skipping background enhance for song_id=%s — content flagged as unlikely to be a song",
+                song.id,
+            )
 
         return SongSuggestDownloadResponse(
             status="accepted",
@@ -470,7 +525,6 @@ def suggest_song_search(
 @router.post("/suggest/identify", response_model=SongSuggestIdentifyResponse)
 async def suggest_song_identify(
     payload: SongSuggestIdentifyRequest,
-    enhance: bool = False,
     _: User = Depends(_require_songbook_user),
 ):
     youtube_id = extract_youtube_video_id(payload.url.strip())
@@ -490,6 +544,8 @@ async def suggest_song_identify(
 
     title = info.get("title") or f"YouTube Video {youtube_id}"
     description = info.get("description") or ""
+    duration = info.get("duration")
+    categories = info.get("categories")
     thumbnail_url = _pick_thumbnail_url(info)
 
     # Build initial response (enhance=false behavior and fallback on enhancement errors)
@@ -506,14 +562,14 @@ async def suggest_song_identify(
         genre=None,
         tags=None,
         lyrics=None,
+        is_likely_song=True,
+        content_confidence=0.0,
+        content_notice=None,
     )
 
-    if not enhance:
-        return baseline_identify_result
-
     try:
-        orchestrator = OrchestratorAgent()
-        enhancement_payload = {
+        identifier = IdentifierAgent()
+        identify_payload = {
             "source_url": baseline_identify_result.source_url,
             "source_id": baseline_identify_result.source_id,
             "source": baseline_identify_result.source,
@@ -527,27 +583,32 @@ async def suggest_song_identify(
             "tags": baseline_identify_result.tags,
             "lyrics": baseline_identify_result.lyrics,
             "_youtube_description": description,
+            "_youtube_duration": duration,
+            "_youtube_categories": categories,
         }
-        enhanced_payload = await orchestrator.enhance(enhancement_payload)
-        if not isinstance(enhanced_payload, dict):
-            raise ValueError("Enhanced payload is not a dictionary")
+        identified_payload = await identifier.identify(identify_payload)
+        if not isinstance(identified_payload, dict):
+            raise ValueError("Identified payload is not a dictionary")
 
         return SongSuggestIdentifyResponse(
-            source_url=enhanced_payload.get("source_url", baseline_identify_result.source_url),
-            source_id=enhanced_payload.get("source_id", baseline_identify_result.source_id),
-            source=enhanced_payload.get("source", baseline_identify_result.source),
-            source_thumbnail=enhanced_payload.get("source_thumbnail", baseline_identify_result.source_thumbnail),
-            title=enhanced_payload.get("title", baseline_identify_result.title),
-            artist=enhanced_payload.get("artist", baseline_identify_result.artist),
-            language=enhanced_payload.get("language"),
-            is_off_vocal=enhanced_payload.get("is_off_vocal", False),
-            video_has_lyrics=enhanced_payload.get("video_has_lyrics", False),
-            genre=enhanced_payload.get("genre"),
-            tags=enhanced_payload.get("tags"),
-            lyrics=enhanced_payload.get("lyrics"),
+            source_url=identified_payload.get("source_url", baseline_identify_result.source_url),
+            source_id=identified_payload.get("source_id", baseline_identify_result.source_id),
+            source=identified_payload.get("source", baseline_identify_result.source),
+            source_thumbnail=identified_payload.get("source_thumbnail", baseline_identify_result.source_thumbnail),
+            title=identified_payload.get("title", baseline_identify_result.title),
+            artist=identified_payload.get("artist", baseline_identify_result.artist),
+            language=identified_payload.get("language"),
+            is_off_vocal=identified_payload.get("is_off_vocal", False),
+            video_has_lyrics=identified_payload.get("video_has_lyrics", False),
+            genre=identified_payload.get("genre"),
+            tags=identified_payload.get("tags"),
+            lyrics=identified_payload.get("lyrics"),
+            is_likely_song=identified_payload.get("is_likely_song", True),
+            content_confidence=identified_payload.get("content_confidence", 0.0),
+            content_notice=identified_payload.get("content_notice"),
         )
     except Exception:
-        logger.exception("[IDENTIFY] Enhancement failed, returning baseline identify payload")
+        logger.exception("[IDENTIFY] Identification failed, returning baseline identify payload")
         return baseline_identify_result
 
 
@@ -582,6 +643,7 @@ def suggest_song_update(payload: SongSuggestUpdateRequest, _: User = Depends(_re
 async def suggest_song_enhance(
     payload: SongSuggestEnhanceRequest,
     _: User = Depends(_require_songbook_user),
+    db: Session = Depends(get_db),
 ):
     """
     Enhance song metadata using multiple AI agents.
@@ -600,16 +662,28 @@ async def suggest_song_enhance(
     print(f"[ENHANCE] Starting enhancement request - source_id={payload.source_id} title={payload.title} artist={payload.artist}", file=sys.stderr, flush=True)
     logger.info("[ENHANCE] Starting enhancement request - source_id=%s title=%s artist=%s", payload.source_id, payload.title, payload.artist)
     
-    # Validate OpenAI API key is available
-    if not os.getenv("OPENAI_API_KEY"):
-        print("[ENHANCE] OPENAI_API_KEY not configured", file=sys.stderr, flush=True)
-        logger.warning("[ENHANCE] OPENAI_API_KEY not configured")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OPENAI_API_KEY is not configured",
-        )
-    print("[ENHANCE] OPENAI_API_KEY is available", file=sys.stderr, flush=True)
-    logger.info("[ENHANCE] OPENAI_API_KEY is available")
+    # Validate AI API key is available for the configured provider
+    provider = settings.ai_provider
+    if provider == "openai":
+        if not settings.openai_api_key:
+            print("[ENHANCE] OPENAI_API_KEY not configured", file=sys.stderr, flush=True)
+            logger.warning("[ENHANCE] OPENAI_API_KEY not configured")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OPENAI_API_KEY is not configured",
+            )
+    elif provider == "deepseek":
+        if not settings.deepseek_api_key:
+            print("[ENHANCE] DEEPSEEK_API_KEY not configured", file=sys.stderr, flush=True)
+            logger.warning("[ENHANCE] DEEPSEEK_API_KEY not configured")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="DEEPSEEK_API_KEY is not configured",
+            )
+    else:
+        logger.warning("[ENHANCE] Unknown AI provider: %s", provider)
+    print(f"[ENHANCE] AI provider={provider} key is available", file=sys.stderr, flush=True)
+    logger.info("[ENHANCE] AI provider=%s key is available", provider)
 
     try:
         # Create orchestrator and prepare payload for enhancement
@@ -617,13 +691,31 @@ async def suggest_song_enhance(
         print("[ENHANCE] OrchestratorAgent initialized", file=sys.stderr, flush=True)
         logger.info("[ENHANCE] OrchestratorAgent initialized")
 
+        # Re-fetch the real YouTube title/description so extraction agents see the
+        # original noisy title, not whatever the client's current form state holds
+        # (which may already be a previously-cleaned or manually-edited title).
+        youtube_title = payload.title
+        youtube_description = ""
+        youtube_duration = None
+        youtube_categories = None
+        try:
+            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+                info = ydl.extract_info(payload.source_url, download=False)
+            youtube_title = info.get("title") or payload.title
+            youtube_description = info.get("description") or ""
+            youtube_duration = info.get("duration")
+            youtube_categories = info.get("categories")
+        except Exception as exc:
+            print(f"[ENHANCE] Failed to fetch fresh YouTube metadata: {exc}", file=sys.stderr, flush=True)
+            logger.warning("[ENHANCE] Failed to fetch fresh YouTube metadata, using submitted title: %s", exc)
+
         # Convert request to dict for processing
         enhancement_payload = {
             "source_url": payload.source_url,
             "source_id": payload.source_id,
             "source": payload.source,
             "source_thumbnail": payload.source_thumbnail,
-            "title": payload.title,
+            "title": youtube_title,
             "artist": payload.artist,
             "language": payload.language or None,
             "is_off_vocal": payload.is_off_vocal,
@@ -631,14 +723,20 @@ async def suggest_song_enhance(
             "genre": payload.genre[0] if payload.genre else None,
             "tags": payload.tags or None,
             "lyrics": payload.lyrics or None,
+            "_youtube_description": youtube_description,
+            "_youtube_duration": youtube_duration,
+            "_youtube_categories": youtube_categories,
         }
         print(f"[ENHANCE] Prepared enhancement_payload: source_id={enhancement_payload['source_id']} title={enhancement_payload['title']}", file=sys.stderr, flush=True)
         logger.info("[ENHANCE] Prepared enhancement_payload: source_id=%s title=%s", enhancement_payload["source_id"], enhancement_payload["title"])
 
         # Run enhancement orchestration
+        existing_genres = _extract_distinct_genres(db, None, 500)
+        existing_tags = _extract_distinct_tags(db, None, 800)
+
         print("[ENHANCE] Calling orchestrator.enhance()", file=sys.stderr, flush=True)
         logger.info("[ENHANCE] Calling orchestrator.enhance()")
-        enhanced_payload = await orchestrator.enhance(enhancement_payload)
+        enhanced_payload = await orchestrator.enhance(enhancement_payload, existing_genres, existing_tags)
         print(f"[ENHANCE] orchestrator.enhance() completed - title={enhanced_payload.get('title')} artist={enhanced_payload.get('artist')}", file=sys.stderr, flush=True)
         logger.info("[ENHANCE] orchestrator.enhance() completed - title=%s artist=%s", enhanced_payload.get("title"), enhanced_payload.get("artist"))
 
@@ -656,6 +754,9 @@ async def suggest_song_enhance(
             genre=enhanced_payload.get("genre"),
             tags=enhanced_payload.get("tags"),
             lyrics=enhanced_payload.get("lyrics"),
+            is_likely_song=enhanced_payload.get("is_likely_song", True),
+            content_confidence=enhanced_payload.get("content_confidence", 0.0),
+            content_notice=enhanced_payload.get("content_notice"),
         )
 
         logger.info(

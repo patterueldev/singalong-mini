@@ -17,6 +17,24 @@ class Settings(BaseSettings):
     ytdlp_cookies_file: str = "/data/cookies.txt"
     singalong_base_url: str = "http://localhost:9000"
 
+    ai_provider: str = "deepseek"
+    openai_api_key: str = ""
+    deepseek_api_key: str = ""
+
+    ai_title_guesser_model: str = ""
+    ai_off_vocal_detector_model: str = ""
+    ai_content_classifier_model: str = ""
+    ai_title_researcher_model: str = ""
+    ai_artist_researcher_model: str = ""
+    ai_genre_classifier_model: str = ""
+    ai_tags_suggester_model: str = ""
+    ai_language_identifier_model: str = ""
+    ai_lyrics_researcher_model: str = ""
+
+    brave_api_key: str = ""
+    enable_lyrics_web_search: bool = True
+    enable_metadata_web_search: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 

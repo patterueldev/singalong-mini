@@ -26,6 +26,10 @@ export function buildInitialSuggestDraft(payload: SuggestIdentifyResponse): Sugg
     tags: normalizeTagList(payload.tags ?? []),
     lyrics: payload.lyrics ?? '',
     source_thumbnail_data_url: '',
+    isEnhanced: false,
+    isLikelySong: payload.is_likely_song,
+    contentConfidence: payload.content_confidence,
+    contentNotice: payload.content_notice,
   }
 }
 
