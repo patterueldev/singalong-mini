@@ -5,6 +5,7 @@ import { SkeletonList } from '../../songbook/components/SkeletonList'
 import type { SuggestResult } from '../../../shared/types/client'
 
 type SearchResultRowMenu = {
+  primaryLabel?: string
   onReserve: () => void
   onPreview: () => void
   onEnhanceDetails?: () => void
@@ -70,7 +71,7 @@ function SearchResultMenuRow({ result, menu }: { result: SuggestResult; menu: (r
           avoidCollisions
         >
           <DropdownMenu.Item className="context-menu-item" onSelect={actions.onReserve}>
-            Reserve
+            {actions.primaryLabel ?? 'Reserve'}
           </DropdownMenu.Item>
           <DropdownMenu.Item className="context-menu-item" onSelect={actions.onPreview}>
             Preview

@@ -6,6 +6,7 @@ type SearchResultModalProps = {
   onIdentify?: (result: SuggestResult) => void
   identifyLabel?: string
   onReserve?: () => void
+  reserveLabel?: string
 }
 
 export function SearchResultModal({
@@ -14,6 +15,7 @@ export function SearchResultModal({
   onIdentify,
   identifyLabel = 'Identify',
   onReserve,
+  reserveLabel = 'Reserve',
 }: SearchResultModalProps) {
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
@@ -95,7 +97,7 @@ export function SearchResultModal({
         <div className="row-actions modal-actions">
           {onReserve ? (
             <button type="button" onClick={onReserve}>
-              Reserve
+              {reserveLabel}
             </button>
           ) : null}
           {onIdentify ? (

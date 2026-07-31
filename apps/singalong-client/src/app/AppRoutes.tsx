@@ -13,8 +13,7 @@ type AppRoutesProps = {
   songbookLoginElement: ReactNode
   songbookElement: ReactNode
   songDetailElement: ReactNode
-  suggestSearchElement: ReactNode
-  suggestUpdateElement: ReactNode
+  songbookDraftElement: ReactNode
   adminSessionsElement: ReactNode
   adminSessionControlElement: ReactNode
   adminSongbookElement: ReactNode
@@ -36,8 +35,7 @@ export function AppRoutes({
   songbookLoginElement,
   songbookElement,
   songDetailElement,
-  suggestSearchElement,
-  suggestUpdateElement,
+  songbookDraftElement,
   adminSessionsElement,
   adminSessionControlElement,
   adminSongbookElement,
@@ -64,10 +62,11 @@ export function AppRoutes({
       <Route path="/songbook/login" element={songbookLoginElement} />
       <Route path="/songbook" element={songbookElement} />
       <Route path="/songbook/song/:id" element={songDetailElement} />
+      <Route path="/songbook/draft" element={songbookDraftElement} />
       <Route path="/songbook/suggest/login" element={songbookLoginElement} />
-      <Route path="/songbook/suggest/search" element={suggestSearchElement} />
-      <Route path="/songbook/suggest/identify" element={<Navigate to="/songbook/suggest/search" replace />} />
-      <Route path="/songbook/suggest/update" element={suggestUpdateElement} />
+      <Route path="/songbook/suggest/search" element={<Navigate to="/songbook" replace />} />
+      <Route path="/songbook/suggest/identify" element={<Navigate to="/songbook" replace />} />
+      <Route path="/songbook/suggest/update" element={<Navigate to="/songbook" replace />} />
       <Route path="/admin/dashboard" element={adminSessionsElement} />
       <Route path="/admin/sessions" element={<Navigate to="/admin/dashboard" replace />} />
       <Route path="/admin/songbook" element={adminSongbookElement} />
