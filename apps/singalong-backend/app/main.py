@@ -248,7 +248,10 @@ async def on_startup():
 
     media_dir = Path(settings.media_root_dir)
     initialize_downloader(media_dir, SessionLocal, settings.ytdlp_cookies_file)
-    get_downloader().recover_pending_downloads()
+    try:
+        get_downloader().recover_pending_downloads()
+    except Exception as exc:
+        logger.warning("Could not recover pending downloads (will retry next startup): %s", exc)
 
     # Start trim archive cleanup scheduler
     start_cleanup_scheduler()
