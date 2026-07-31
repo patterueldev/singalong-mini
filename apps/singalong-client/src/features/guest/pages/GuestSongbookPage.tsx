@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { adminService } from '../../admin/services/adminService'
 import { useGuestSession } from '../hooks/useGuestSession'
 import { guestReserveSong } from '../services/guestService'
 import { isValidSessionCode } from '../../../shared/lib/validation'
-import type { SongbookSong, SuggestDraft } from '../../../shared/types/client'
+import { buildInitialSuggestDraft, mapSuggestSearchItem } from '../../../shared/lib/suggest'
+import type { SongbookSong, SuggestDraft, SuggestResult } from '../../../shared/types/client'
 import { SongDetailsModal } from '../../songbook/components/SongDetailsModal'
-import { GuestSuggestSearchPage } from './GuestSuggestSearchPage'
 import { GuestSuggestUpdatePage } from './GuestSuggestUpdatePage'
+import { useSuggestService } from '../../suggest/hooks/useSuggestService'
+import { SearchResultsList } from '../../suggest/components/SearchResultsList'
+import { BlockingHud } from '../../suggest/components/BlockingHud'
 import {
   clearSuggestDraft,
   readSuggestDraft,
@@ -92,6 +95,7 @@ function GuestSongDetailModal({
 export function GuestSongbookPage() {
   const navigate = useNavigate()
   const { guestAuth, sessionCode, hasGuestSession } = useGuestSession()
+  const { search: suggestSearch, identify: suggestIdentify, download: suggestDownload } = useSuggestService()
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [songs, setSongs] = useState<SongbookSong[]>([])
@@ -101,8 +105,13 @@ export function GuestSongbookPage() {
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [activeSongId, setActiveSongId] = useState<string | null>(null)
-  const [isSuggestModalOpen, setIsSuggestModalOpen] = useState(false)
   const [suggestDraft, setSuggestDraft] = useState<SuggestDraft | null>(() => readSuggestDraft())
+  const [isYoutubeSearchActive, setIsYoutubeSearchActive] = useState(false)
+  const [youtubeResults, setYoutubeResults] = useState<SuggestResult[]>([])
+  const [isSearchingYoutube, setIsSearchingYoutube] = useState(false)
+  const [youtubeAppendedKaraoke, setYoutubeAppendedKaraoke] = useState(false)
+  const [isProcessingResult, setIsProcessingResult] = useState(false)
+  const latestYoutubeQueryRef = useRef('')
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300)
@@ -119,7 +128,37 @@ export function GuestSongbookPage() {
 
   useEffect(() => {
     setPage(1)
+    setIsYoutubeSearchActive(false)
+    setYoutubeResults([])
+    setYoutubeAppendedKaraoke(false)
   }, [debouncedQuery])
+
+  const handleSearchYoutube = useCallback(
+    (searchQuery: string) => {
+      if (searchQuery === '' || guestAuth === null) return
+      latestYoutubeQueryRef.current = searchQuery
+      setIsYoutubeSearchActive(true)
+      setIsSearchingYoutube(true)
+      setYoutubeAppendedKaraoke(false)
+      setErrorMessage('')
+      void suggestSearch(searchQuery, guestAuth.accessToken)
+        .then((response) => {
+          if (latestYoutubeQueryRef.current !== searchQuery) return
+          setYoutubeResults(response.results.map(mapSuggestSearchItem))
+          setYoutubeAppendedKaraoke(response.appended_karaoke)
+        })
+        .catch((error: unknown) => {
+          if (latestYoutubeQueryRef.current !== searchQuery) return
+          setYoutubeResults([])
+          setErrorMessage(error instanceof Error ? error.message : 'YouTube search failed')
+        })
+        .finally(() => {
+          if (latestYoutubeQueryRef.current !== searchQuery) return
+          setIsSearchingYoutube(false)
+        })
+    },
+    [guestAuth, suggestSearch],
+  )
 
   useEffect(() => {
     if (!hasGuestSession || !isValidSessionCode(sessionCode)) {
@@ -143,6 +182,9 @@ export function GuestSongbookPage() {
         if (cancelled) return
         setSongs(payload.items)
         setPages(payload.pages)
+        if (payload.items.length === 0 && trimmed !== '') {
+          handleSearchYoutube(trimmed)
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -159,10 +201,54 @@ export function GuestSongbookPage() {
     return () => {
       cancelled = true
     }
-  }, [debouncedQuery, hasGuestSession, page, sessionCode])
+  }, [debouncedQuery, handleSearchYoutube, hasGuestSession, page, sessionCode])
 
   const activeSongbookCount = useMemo(() => songs.length, [songs])
   const trimmedQuery = debouncedQuery.trim()
+
+  const reserveExistingSong = async (songId: string) => {
+    if (guestAuth === null || !isValidSessionCode(sessionCode)) return
+    setIsProcessingResult(true)
+    setErrorMessage('')
+    try {
+      await guestReserveSong(sessionCode, songId, guestAuth.accessToken)
+      setMessage('Song reserved.')
+      navigate('/home', { replace: true })
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to reserve song')
+    } finally {
+      setIsProcessingResult(false)
+    }
+  }
+
+  const identifyAndReserve = async (sourceUrl: string) => {
+    if (guestAuth === null || !isValidSessionCode(sessionCode)) return
+    setIsProcessingResult(true)
+    setErrorMessage('')
+    try {
+      const response = await suggestIdentify(sourceUrl, guestAuth.accessToken)
+      const draft = buildInitialSuggestDraft(response)
+      if (draft.isLikelySong === false) {
+        setSuggestDraft(draft)
+        return
+      }
+      await suggestDownload(draft, guestAuth.accessToken, { reserveSessionCode: sessionCode })
+      setMessage('Song added — it will appear in your queue once it finishes downloading.')
+      navigate('/home', { replace: true })
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to add song')
+    } finally {
+      setIsProcessingResult(false)
+    }
+  }
+
+  const handleSelectYoutubeResult = (result: SuggestResult) => {
+    if (result.existingSongId !== null) {
+      void reserveExistingSong(result.existingSongId)
+      return
+    }
+    void identifyAndReserve(result.sourceUrl)
+  }
 
   if (!hasGuestSession || !isValidSessionCode(sessionCode) || guestAuth === null) {
     return <Navigate to="/join" replace />
@@ -183,15 +269,6 @@ export function GuestSongbookPage() {
               <button
                 type="button"
                 className="icon-control-button"
-                aria-label="Suggest a song"
-                title="Suggest a song"
-                onClick={() => setIsSuggestModalOpen(true)}
-              >
-                <span className="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
-              </button>
-              <button
-                type="button"
-                className="icon-control-button"
                 aria-label="Close songbook"
                 onClick={() => navigate('/home')}
               >
@@ -209,18 +286,7 @@ export function GuestSongbookPage() {
             <p className="empty-state">Loading songbook…</p>
           ) : activeSongbookCount === 0 ? (
             trimmedQuery !== '' ? (
-              <div>
-                <p className="empty-state">"{trimmedQuery}" is not available. Would you like to suggest?</p>
-                <div className="row-actions top-gap">
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => setIsSuggestModalOpen(true)}
-                  >
-                    Suggest
-                  </button>
-                </div>
-              </div>
+              <p className="empty-state">"{trimmedQuery}" is not available in the songbook.</p>
             ) : (
               <p className="empty-state">No songs found.</p>
             )
@@ -285,6 +351,41 @@ export function GuestSongbookPage() {
               </button>
             </div>
           ) : null}
+
+          {!isLoading && trimmedQuery !== '' && activeSongbookCount > 0 && !isYoutubeSearchActive ? (
+            <div className="row-actions top-gap">
+              <button type="button" className="secondary" onClick={() => handleSearchYoutube(trimmedQuery)}>
+                Didn't find the song? Search YouTube
+              </button>
+            </div>
+          ) : null}
+
+          {isYoutubeSearchActive ? (
+            <div className="top-gap">
+              <h2 className="section-subheading">YouTube results</h2>
+              {!isSearchingYoutube && youtubeAppendedKaraoke ? (
+                <div className="chip-suggestion-list top-gap">
+                  <button
+                    type="button"
+                    className="chip-suggestion"
+                    onClick={() => handleSearchYoutube(`${trimmedQuery} カラオケ`)}
+                  >
+                    Try "{trimmedQuery} カラオケ"
+                  </button>
+                </div>
+              ) : null}
+              <div className="queue-list top-gap">
+                <SearchResultsList
+                  results={youtubeResults}
+                  isSearching={isSearchingYoutube}
+                  onSelectResult={handleSelectYoutubeResult}
+                />
+              </div>
+              {!isSearchingYoutube && youtubeResults.length === 0 ? (
+                <p className="empty-state">No YouTube results found.</p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -302,37 +403,23 @@ export function GuestSongbookPage() {
         />
       ) : null}
 
-      {isSuggestModalOpen && suggestDraft === null ? (
-        <div className="modal-backdrop guest-songbook-suggest-backdrop" role="presentation" onClick={() => setIsSuggestModalOpen(false)}>
+      {suggestDraft !== null ? (
+        <div
+          className="modal-backdrop guest-songbook-suggest-backdrop"
+          role="presentation"
+          onClick={() => setSuggestDraft(null)}
+        >
           <div role="presentation" onClick={(event) => event.stopPropagation()}>
-            <GuestSuggestSearchPage
-              onIdentifyDraft={setSuggestDraft}
-              onCancel={() => setIsSuggestModalOpen(false)}
-              initialKeyword={query.trim()}
+            <GuestSuggestUpdatePage
+              draft={suggestDraft}
+              onDraftChange={setSuggestDraft}
+              onCancel={() => setSuggestDraft(null)}
             />
           </div>
         </div>
       ) : null}
 
-      {isSuggestModalOpen && suggestDraft !== null ? (
-        <div className="modal-backdrop guest-songbook-suggest-backdrop" role="presentation" onClick={() => setIsSuggestModalOpen(false)}>
-          <div role="presentation" onClick={(event) => event.stopPropagation()}>
-            <GuestSuggestUpdatePage
-              draft={suggestDraft}
-              onDraftChange={(draft) => {
-                setSuggestDraft(draft)
-                if (draft === null) {
-                  setIsSuggestModalOpen(false)
-                }
-              }}
-              onCancel={() => {
-                setIsSuggestModalOpen(false)
-                setSuggestDraft(null)
-              }}
-            />
-          </div>
-        </div>
-      ) : null}
+      {isProcessingResult ? <BlockingHud message="Adding song…" /> : null}
     </main>
   )
 }

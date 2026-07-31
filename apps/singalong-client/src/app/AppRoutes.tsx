@@ -8,8 +8,6 @@ type AppRoutesProps = {
   guestHomeElement: ReactNode
   guestDownloadsElement: ReactNode
   guestSongbookElement: ReactNode
-  guestSuggestSearchElement: ReactNode
-  guestSuggestUpdateElement: ReactNode
   playerElement: ReactNode
   songbookLoginElement: ReactNode
   songbookElement: ReactNode
@@ -32,8 +30,6 @@ export function AppRoutes({
   guestHomeElement,
   guestDownloadsElement,
   guestSongbookElement,
-  guestSuggestSearchElement,
-  guestSuggestUpdateElement,
   playerElement,
   songbookLoginElement,
   songbookElement,
@@ -56,9 +52,9 @@ export function AppRoutes({
       <Route path="/home" element={guestHomeElement} />
       <Route path="/downloads" element={guestDownloadsElement} />
       <Route path="/songs" element={guestSongbookElement} />
-      <Route path="/songs/suggest/search" element={guestSuggestSearchElement} />
-      <Route path="/songs/suggest/identify" element={<Navigate to="/songs/suggest/search" replace />} />
-      <Route path="/songs/suggest/update" element={guestSuggestUpdateElement} />
+      <Route path="/songs/suggest/search" element={<Navigate to="/songs" replace />} />
+      <Route path="/songs/suggest/identify" element={<Navigate to="/songs" replace />} />
+      <Route path="/songs/suggest/update" element={<Navigate to="/songs" replace />} />
       <Route path="/player" element={playerElement} />
       <Route path="/admin" element={adminElement} />
       <Route path="/admin/login" element={adminLoginElement} />

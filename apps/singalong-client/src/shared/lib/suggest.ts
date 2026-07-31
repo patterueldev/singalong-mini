@@ -1,5 +1,5 @@
 import { SUGGEST_KEYWORD_REGEX, YOUTUBE_URL_REGEX } from '../config/client'
-import type { SuggestDraft, SuggestIdentifyResponse } from '../types/client'
+import type { SuggestDraft, SuggestIdentifyResponse, SuggestResult, SuggestSearchResponse } from '../types/client'
 
 export function normalizeTagList(values: string[]): string[] {
   return Array.from(
@@ -30,6 +30,24 @@ export function buildInitialSuggestDraft(payload: SuggestIdentifyResponse): Sugg
     isLikelySong: payload.is_likely_song,
     contentConfidence: payload.content_confidence,
     contentNotice: payload.content_notice,
+  }
+}
+
+export function mapSuggestSearchItem(item: SuggestSearchResponse['results'][number]): SuggestResult {
+  return {
+    id: item.id,
+    title: item.title,
+    channelName: item.channel_name,
+    channelUrl: item.channel_url,
+    thumbnailUrl: item.thumbnail_url,
+    duration: item.duration,
+    description: item.description,
+    viewCount: item.view_count,
+    uploadedAt: item.uploaded_at,
+    existsInSongbook: item.exists_in_songbook,
+    existingSongId: item.existing_song_id,
+    sourceUrl: item.source_url,
+    youtubeId: item.youtube_id,
   }
 }
 

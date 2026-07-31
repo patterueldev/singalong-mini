@@ -471,11 +471,11 @@ def suggest_song_search(
     results: list[SongSuggestSearchItem] = []
     source_ids = [entry.get("id") or "" for entry in (info.get("entries") or [])[:limit]]
     lookup_source_ids = [source_id for source_id in source_ids if source_id != ""]
-    existing_source_ids = set()
+    existing_source_id_map: dict[str, str] = {}
     if lookup_source_ids:
-        existing_source_ids = {
-            source_id
-            for (source_id,) in db.query(Song.source_id)
+        existing_source_id_map = {
+            source_id: str(song_id)
+            for (source_id, song_id) in db.query(Song.source_id, Song.id)
             .filter(Song.source_id.in_(lookup_source_ids))
             .all()
             if isinstance(source_id, str) and source_id != ""
@@ -509,7 +509,8 @@ def suggest_song_search(
                 description=description if isinstance(description, str) else "",
                 view_count=view_count if isinstance(view_count, int) else None,
                 uploaded_at=uploaded_at if isinstance(uploaded_at, str) else "",
-                exists_in_songbook=video_id in existing_source_ids,
+                exists_in_songbook=video_id in existing_source_id_map,
+                existing_song_id=existing_source_id_map.get(video_id),
                 source_url=source_url,
                 youtube_id=video_id,
             )

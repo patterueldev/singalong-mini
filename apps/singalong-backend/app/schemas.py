@@ -205,6 +205,7 @@ class SongSuggestSearchItem(BaseModel):
     view_count: int | None = None
     uploaded_at: str = ""
     exists_in_songbook: bool = False
+    existing_song_id: str | None = None
     source_url: str
     youtube_id: str
 

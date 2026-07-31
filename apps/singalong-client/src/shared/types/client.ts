@@ -216,6 +216,7 @@ export type SuggestResult = {
   viewCount: number | null
   uploadedAt: string
   existsInSongbook: boolean | null
+  existingSongId: string | null
   sourceUrl: string
   youtubeId: string
 }
@@ -234,6 +235,7 @@ export type SuggestSearchResponse = {
     view_count: number | null
     uploaded_at: string
     exists_in_songbook: boolean | null
+    existing_song_id: string | null
     source_url: string
     youtube_id: string
   }>

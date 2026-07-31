@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSuggestService } from './useSuggestService'
-import { buildInitialSuggestDraft, normalizeSuggestQuery, parseYouTubeVideoId } from '../../../shared/lib/suggest'
+import {
+  buildInitialSuggestDraft,
+  mapSuggestSearchItem,
+  normalizeSuggestQuery,
+  parseYouTubeVideoId,
+} from '../../../shared/lib/suggest'
 import type { SuggestDraft, SuggestResult } from '../../../shared/types/client'
 
 export type UseSuggestSearchFlowOptions = {
@@ -38,22 +43,7 @@ export function useSuggestSearchFlow({ authToken, initialQuery = '', onIdentifie
         .then((response) => {
           setEffectiveQuery(response.effective_query)
           setQueryInfo(response.appended_karaoke ? 'Backend appended "karaoke" to the query.' : '')
-          setResults(
-            response.results.map((item) => ({
-              id: item.id,
-              title: item.title,
-              channelName: item.channel_name,
-              channelUrl: item.channel_url,
-              thumbnailUrl: item.thumbnail_url,
-              duration: item.duration,
-              description: item.description,
-              viewCount: item.view_count,
-              uploadedAt: item.uploaded_at,
-              existsInSongbook: item.exists_in_songbook,
-              sourceUrl: item.source_url,
-              youtubeId: item.youtube_id,
-            })),
-          )
+          setResults(response.results.map(mapSuggestSearchItem))
         })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : 'Search failed'

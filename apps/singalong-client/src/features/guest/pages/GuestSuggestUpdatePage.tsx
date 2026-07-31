@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useGuestSession } from '../hooks/useGuestSession'
 import { useSuggestService } from '../../suggest/hooks/useSuggestService'
@@ -7,11 +7,6 @@ import { BlockingHud } from '../../suggest/components/BlockingHud'
 import { ThumbnailPanel } from '../../suggest/components/ThumbnailPanel'
 import { SongDetailsFields } from '../../suggest/components/SongDetailsFields'
 import { MoreDetailsPanel } from '../../suggest/components/MoreDetailsPanel'
-import {
-  clearSuggestDraft,
-  readSuggestDraft,
-  saveSuggestDraft,
-} from '../../../shared/storage/suggestStorage'
 import type { SuggestDraft } from '../../../shared/types/client'
 import { isValidSessionCode } from '../../../shared/lib/validation'
 
@@ -28,50 +23,16 @@ function useGuestSuggestAccess() {
 }
 
 type GuestSuggestUpdatePageProps = {
-  draft?: SuggestDraft | null
-  onDraftChange?: (draft: SuggestDraft | null) => void
-  onCancel?: () => void
+  draft: SuggestDraft
+  onDraftChange: (draft: SuggestDraft | null) => void
+  onCancel: () => void
 }
 
-export function GuestSuggestUpdatePage({
-  draft: propDraft,
-  onDraftChange: propOnDraftChange,
-  onCancel: propOnCancel,
-}: GuestSuggestUpdatePageProps = {}) {
+export function GuestSuggestUpdatePage({ draft, onDraftChange, onCancel }: GuestSuggestUpdatePageProps) {
   const access = useGuestSuggestAccess()
-  const [draft, setDraft] = useState<SuggestDraft | null>(() =>
-    propDraft !== undefined ? propDraft : readSuggestDraft(),
-  )
-
-  useEffect(() => {
-    if (draft === null) {
-      clearSuggestDraft()
-      return
-    }
-    saveSuggestDraft(draft)
-  }, [draft])
 
   if (access === null) {
     return <Navigate to="/join" replace />
-  }
-  if (draft === null) {
-    return <Navigate to="/songs/suggest/search" replace />
-  }
-
-  const handleDraftChange = (newDraft: SuggestDraft | null) => {
-    if (propOnDraftChange) {
-      propOnDraftChange(newDraft)
-    } else {
-      setDraft(newDraft)
-    }
-  }
-
-  const handleCancel = () => {
-    if (propOnCancel) {
-      propOnCancel()
-    } else {
-      setDraft(null)
-    }
   }
 
   return (
@@ -80,8 +41,8 @@ export function GuestSuggestUpdatePage({
       authToken={access.guestAuth.accessToken}
       sessionCode={access.sessionCode}
       draft={draft}
-      onDraftChange={handleDraftChange}
-      onCancel={handleCancel}
+      onDraftChange={onDraftChange}
+      onCancel={onCancel}
     />
   )
 }
@@ -121,7 +82,6 @@ function GuestSuggestUpdatePageContent({
       if (!shouldLeave) {
         return
       }
-      clearSuggestDraft()
       onCancel()
       onConfirmed()
     },
@@ -174,7 +134,6 @@ function GuestSuggestUpdatePageContent({
             )
               .then(() => {
                 onDraftChange(null)
-                clearSuggestDraft()
                 setIsSubmitting(false)
                 navigate(shouldReserve ? DOWNLOAD_AND_RESERVE_PATH : DOWNLOAD_PATH)
               })
