@@ -16,8 +16,8 @@ import type {
 import { normalizeSessionQueueItems } from '../../shared/services/queueTransforms'
 
 export interface AdminService {
-  fetchSongbook: (page?: number, limit?: number, sessionCode?: string, sessionId?: string) => Promise<SongbookListResponse>
-  searchSongbook: (q: string, page?: number, limit?: number, sessionCode?: string, sessionId?: string) => Promise<SongbookListResponse>
+  fetchSongbook: (page?: number, limit?: number, sessionCode?: string, sessionId?: string, includeUnpublished?: boolean) => Promise<SongbookListResponse>
+  searchSongbook: (q: string, page?: number, limit?: number, sessionCode?: string, sessionId?: string, includeUnpublished?: boolean) => Promise<SongbookListResponse>
   fetchSongDetail: (id: string, sessionCode?: string, sessionId?: string) => Promise<SongbookSong>
   fetchSessionQueue: (sessionCode: string, token: string) => Promise<ReturnType<typeof normalizeSessionQueueItems>>
   fetchSessionWorkspace: (sessionCode: string, token: string) => Promise<SessionWorkspace>
@@ -100,9 +100,12 @@ export async function fetchSongbook(
   limit: number = 20,
   sessionCode?: string,
   sessionId?: string,
+  includeUnpublished: boolean = false,
 ): Promise<SongbookListResponse> {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) })
-  params.set('include_unpublished', 'true')
+  if (includeUnpublished) {
+    params.set('include_unpublished', 'true')
+  }
   if (typeof sessionId === 'string' && sessionId !== '') {
     params.set('sessionId', sessionId)
   }
@@ -134,9 +137,12 @@ export async function searchSongbook(
   limit: number = 20,
   sessionCode?: string,
   sessionId?: string,
+  includeUnpublished: boolean = false,
 ): Promise<SongbookListResponse> {
   const params = new URLSearchParams({ q, page: String(page), limit: String(limit) })
-  params.set('include_unpublished', 'true')
+  if (includeUnpublished) {
+    params.set('include_unpublished', 'true')
+  }
   if (typeof sessionId === 'string' && sessionId !== '') {
     params.set('sessionId', sessionId)
   }

@@ -500,8 +500,8 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
     try {
       const payload =
         query.trim() === ''
-          ? await fetchSongbook(page, pageSize)
-          : await searchSongbook(query.trim(), page, pageSize)
+          ? await fetchSongbook(page, pageSize, undefined, undefined, true)
+          : await searchSongbook(query.trim(), page, pageSize, undefined, undefined, true)
       setSongs(payload.items)
       setPages(payload.pages)
       setTotal(payload.total)
