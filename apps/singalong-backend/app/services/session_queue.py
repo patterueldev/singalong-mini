@@ -344,6 +344,7 @@ def advance_playing_queue_item(
     session_code: str,
     *,
     completion_status: str,
+    expected_current_item_id: str | None = None,
 ) -> list[SessionQueueItem]:
     if completion_status not in {"finished", "skipped"}:
         raise SessionQueueValidationError("Unsupported completion status")
@@ -355,6 +356,10 @@ def advance_playing_queue_item(
         return list_session_queue_items(db, session_code)
 
     current = next((entry for entry in active_rows if entry.status == "playing"), active_rows[0])
+    if expected_current_item_id is not None and str(current.id) != expected_current_item_id:
+        # Stale/duplicate completion signal for an item that's already been advanced past — no-op.
+        db.rollback()
+        return list_session_queue_items(db, session_code)
     current.status = completion_status
     current.played_at = datetime.now(timezone.utc)
     current.playback_is_playing = False
