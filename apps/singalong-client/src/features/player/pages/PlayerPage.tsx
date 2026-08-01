@@ -36,6 +36,8 @@ export function PlayerPage() {
   const [videoDurationSeconds, setVideoDurationSeconds] = useState(0)
   const [playerVolumePct, setPlayerVolumePct] = useState(100)
   const [isPlayerMuted, setIsPlayerMuted] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(true)
+  const [isVolumePopoverOpen, setIsVolumePopoverOpen] = useState(false)
   const [marqueeDistancePx, setMarqueeDistancePx] = useState(0)
   const [marqueeOffsetPx, setMarqueeOffsetPx] = useState(0)
   const [transitionMessage, setTransitionMessage] = useState('')
@@ -53,10 +55,14 @@ export function PlayerPage() {
   const playerContainerRef = useRef<HTMLElement | null>(null)
   const queueViewportRef = useRef<HTMLDivElement | null>(null)
   const queueTrackRef = useRef<HTMLDivElement | null>(null)
+  const volumeControlRef = useRef<HTMLDivElement | null>(null)
   const resumePositionRef = useRef<number | null>(null)
   const resumeIsPlayingRef = useRef<boolean>(true)
   const lastNonZeroVolumeRef = useRef(100)
   const previousQueueItemIdRef = useRef<string | null>(null)
+  const currentQueueItemIdRef = useRef<string | null>(null)
+  const pendingEndedItemIdRef = useRef<string | null>(null)
+  const endedWatchdogTimerRef = useRef<number | null>(null)
   const activeSessionCode = activeSession?.session_code ?? null
 
   const pendingQueueItems = useMemo(
@@ -131,6 +137,22 @@ export function PlayerPage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!isVolumePopoverOpen) {
+      return
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      const container = volumeControlRef.current
+      if (container !== null && event.target instanceof Node && !container.contains(event.target)) {
+        setIsVolumePopoverOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+    }
+  }, [isVolumePopoverOpen])
+
   const applyPlayerVolume = useCallback((pct: number) => {
     const clamped = Math.max(0, Math.min(100, Math.round(pct)))
     setPlayerVolumePct(clamped)
@@ -149,6 +171,110 @@ export function PlayerPage() {
     }
     setIsPlayerMuted(clamped === 0)
   }, [])
+
+  const sendPlayerCommand = useCallback((type: string, payload: Record<string, unknown> = {}) => {
+    const socket = socketRef.current
+    if (socket === null || socket.readyState !== WebSocket.OPEN) {
+      return
+    }
+    socket.send(JSON.stringify({ type, payload }))
+  }, [])
+
+  const togglePlayPause = useCallback(() => {
+    const video = videoRef.current
+    if (video === null) {
+      return
+    }
+    if (video.paused) {
+      void video.play().catch(() => undefined)
+      resumeIsPlayingRef.current = true
+      setIsPlaying(true)
+      sendPlayerCommand('playback.play')
+    } else {
+      video.pause()
+      resumeIsPlayingRef.current = false
+      setIsPlaying(false)
+      sendPlayerCommand('playback.pause')
+    }
+  }, [sendPlayerCommand])
+
+  const skipLocally = useCallback(() => {
+    resumeIsPlayingRef.current = false
+    resumePositionRef.current = 0
+    stopMainVideoImmediately()
+    sendPlayerCommand('playback.skip')
+  }, [sendPlayerCommand, stopMainVideoImmediately])
+
+  const seekLocally = useCallback(
+    (nextPosition: number) => {
+      const video = videoRef.current
+      if (video === null) {
+        return
+      }
+      const bounded = Math.max(0, nextPosition)
+      video.currentTime = bounded
+      setVideoPositionSeconds(bounded)
+      sendPlayerCommand('playback.seek', { position_seconds: bounded })
+    },
+    [sendPlayerCommand],
+  )
+
+  const toggleMuteLocally = useCallback(() => {
+    if (isPlayerMuted) {
+      applyPlayerVolume(lastNonZeroVolumeRef.current)
+      sendPlayerCommand('playback.volume', { volume_pct: lastNonZeroVolumeRef.current })
+    } else {
+      applyPlayerVolume(0)
+      sendPlayerCommand('playback.volume', { volume_pct: 0 })
+    }
+  }, [applyPlayerVolume, isPlayerMuted, sendPlayerCommand])
+
+  const setVolumeLocally = useCallback(
+    (pct: number) => {
+      applyPlayerVolume(pct)
+      sendPlayerCommand('playback.volume', { volume_pct: pct })
+    },
+    [applyPlayerVolume, sendPlayerCommand],
+  )
+
+  const clearEndedWatchdog = useCallback(() => {
+    if (endedWatchdogTimerRef.current !== null) {
+      window.clearTimeout(endedWatchdogTimerRef.current)
+      endedWatchdogTimerRef.current = null
+    }
+  }, [])
+
+  const sendPlaybackEndedRef = useRef<(itemId: string | null) => void>(() => undefined)
+
+  // Sends the playback.ended intent for the given queue item and arms a watchdog that
+  // retries once if no queue.updated confirmation arrives in time. Safe to call more than
+  // once for the same item: the backend no-ops a completion signal for an item that has
+  // already been advanced past, so a dropped-send retry or a watchdog retry can't double-skip.
+  const sendPlaybackEnded = useCallback(
+    (itemId: string | null) => {
+      const socket = socketRef.current
+      if (socket === null || socket.readyState !== WebSocket.OPEN) {
+        return
+      }
+      socket.send(JSON.stringify({ type: 'playback.ended', payload: { queue_item_id: itemId } }))
+      clearEndedWatchdog()
+      endedWatchdogTimerRef.current = window.setTimeout(() => {
+        endedWatchdogTimerRef.current = null
+        if (pendingEndedItemIdRef.current !== null) {
+          sendPlaybackEndedRef.current(pendingEndedItemIdRef.current)
+        }
+      }, 5000)
+    },
+    [clearEndedWatchdog],
+  )
+
+  useEffect(() => {
+    sendPlaybackEndedRef.current = sendPlaybackEnded
+  }, [sendPlaybackEnded])
+
+  useEffect(() => {
+    currentQueueItemIdRef.current = currentQueueItem?.id ?? null
+  }, [currentQueueItem])
 
   useEffect(() => {
     let cancelled = false
@@ -352,6 +478,9 @@ export function PlayerPage() {
         void fetchSessionQueue(activeSessionCode, playerToken)
           .then((items) => setQueueItems(items))
           .catch(() => undefined)
+        if (pendingEndedItemIdRef.current !== null) {
+          sendPlaybackEnded(pendingEndedItemIdRef.current)
+        }
       }
 
       socket.onclose = () => {
@@ -375,8 +504,20 @@ export function PlayerPage() {
         }
 
         if (incoming.type === 'queue.updated') {
+          pendingEndedItemIdRef.current = null
+          clearEndedWatchdog()
           const queueItemsPayload = Array.isArray(incoming.payload.items) ? incoming.payload.items : []
           setQueueItems(normalizeSessionQueueItems(queueItemsPayload))
+          return
+        }
+
+        if (incoming.type === 'error') {
+          const message = typeof incoming.payload.message === 'string' ? incoming.payload.message : 'Unknown error'
+          console.error('[player ws] server error:', message)
+          setSocketStatus(`Error: ${message}`)
+          if (pendingEndedItemIdRef.current !== null) {
+            sendPlaybackEnded(pendingEndedItemIdRef.current)
+          }
           return
         }
 
@@ -387,12 +528,14 @@ export function PlayerPage() {
 
         if (incoming.type === 'playback.play') {
           resumeIsPlayingRef.current = true
+          setIsPlaying(true)
           void video.play().catch(() => undefined)
           return
         }
 
         if (incoming.type === 'playback.pause') {
           resumeIsPlayingRef.current = false
+          setIsPlaying(false)
           video.pause()
           return
         }
@@ -409,6 +552,7 @@ export function PlayerPage() {
         if (incoming.type === 'playback.skip') {
           resumeIsPlayingRef.current = false
           resumePositionRef.current = 0
+          setIsPlaying(false)
           stopMainVideoImmediately()
           return
         }
@@ -423,6 +567,8 @@ export function PlayerPage() {
         }
 
         if (incoming.type === 'session.ended') {
+          pendingEndedItemIdRef.current = null
+          clearEndedWatchdog()
           setActiveSession(null)
           setQueueItems([])
           setCurrentSong(null)
@@ -435,9 +581,19 @@ export function PlayerPage() {
     return () => {
       shouldReconnectRef.current = false
       clearReconnectTimer()
+      clearEndedWatchdog()
       closeSocket()
     }
-  }, [activeSessionCode, applyPlayerVolume, fetchSessionQueue, hostAllowed, playerToken, stopMainVideoImmediately])
+  }, [
+    activeSessionCode,
+    applyPlayerVolume,
+    clearEndedWatchdog,
+    fetchSessionQueue,
+    hostAllowed,
+    playerToken,
+    sendPlaybackEnded,
+    stopMainVideoImmediately,
+  ])
 
   useEffect(() => {
     if (showMainVideo) {
@@ -473,16 +629,9 @@ export function PlayerPage() {
     }, 1000)
 
     const handleEnded = () => {
-      const currentSocket = socketRef.current
-      if (currentSocket === null || currentSocket.readyState !== WebSocket.OPEN) {
-        return
-      }
-      currentSocket.send(
-        JSON.stringify({
-          type: 'playback.ended',
-          payload: {},
-        }),
-      )
+      const itemId = currentQueueItemIdRef.current
+      pendingEndedItemIdRef.current = itemId
+      sendPlaybackEnded(itemId)
     }
 
     video.addEventListener('ended', handleEnded)
@@ -490,7 +639,7 @@ export function PlayerPage() {
       window.clearInterval(interval)
       video.removeEventListener('ended', handleEnded)
     }
-  }, [activeSessionCode, songSrc])
+  }, [activeSessionCode, sendPlaybackEnded, songSrc])
 
   // Play the song only when both the song URL is known AND the transition has finished
   // (showMainVideo = true). When either condition is false, the video src is '' so the
@@ -512,8 +661,10 @@ export function PlayerPage() {
       }
       if (resumeIsPlayingRef.current) {
         void video.play().catch(() => undefined)
+        setIsPlaying(true)
       } else {
         video.pause()
+        setIsPlaying(false)
       }
     }
 
@@ -789,21 +940,57 @@ export function PlayerPage() {
         <section className="player-overlay player-overlay-seek">
           <div className="player-passive-seek-row">
             <input
-              className="player-passive-seek"
+              className="player-passive-seek player-interactive-seek"
               type="range"
               min={0}
-              max={100}
-              value={progressPct}
+              max={Math.max(0, Math.round(videoDurationSeconds))}
+              step={1}
+              value={Math.round(videoPositionSeconds)}
               style={{ '--range-progress': `${progressPct}%` } as CSSProperties}
-              disabled
-              readOnly
-              aria-label="Playback progress"
+              onChange={(event) => {
+                const nextPosition = Number(event.target.value)
+                const video = videoRef.current
+                if (video !== null) {
+                  video.currentTime = nextPosition
+                }
+                setVideoPositionSeconds(nextPosition)
+              }}
+              onMouseUp={(event) => seekLocally(Number((event.target as HTMLInputElement).value))}
+              onTouchEnd={(event) => seekLocally(Number((event.target as HTMLInputElement).value))}
+              aria-label="Seek playback"
             />
             <span className="player-remaining-duration">
               -{formatDurationClock(Math.max(0, videoDurationSeconds - videoPositionSeconds))}
             </span>
           </div>
         </section>
+      ) : null}
+
+      {showMainVideo ? (
+        <div className="player-controls-cluster">
+          <button
+            type="button"
+            className="player-control-button"
+            onClick={togglePlayPause}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+            title={isPlaying ? 'Pause' : 'Play'}
+          >
+            <span className="material-symbols-outlined" aria-hidden="true">
+              {isPlaying ? 'pause' : 'play_arrow'}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="player-control-button"
+            onClick={skipLocally}
+            aria-label="Skip song"
+            title="Skip song"
+          >
+            <span className="material-symbols-outlined" aria-hidden="true">
+              skip_next
+            </span>
+          </button>
+        </div>
       ) : null}
 
       {isSongTransitioning && transitionMessage !== '' ? (
@@ -832,17 +1019,53 @@ export function PlayerPage() {
         </article>
       </section>
 
-      <p className="player-socket-status" aria-label="Player status">
-        <span className="material-symbols-outlined" aria-hidden="true">
-          {isPlayerMuted ? 'volume_off' : 'volume_up'}
-        </span>{' '}
-        {isPlayerMuted ? 0 : playerVolumePct}% <span className="player-status-bullet">•</span>{' '}
+      <div className="player-socket-status" aria-label="Player status">
+        <div className="player-volume-control" ref={volumeControlRef}>
+          {isVolumePopoverOpen ? (
+            <div className="player-volume-popover">
+              <input
+                type="range"
+                className="player-volume-slider-vertical"
+                min={0}
+                max={100}
+                value={isPlayerMuted ? 0 : playerVolumePct}
+                onChange={(event) => setVolumeLocally(Number(event.target.value))}
+                aria-label="Volume"
+                aria-orientation="vertical"
+              />
+              <button
+                type="button"
+                className="player-control-button player-volume-mute-button"
+                onClick={toggleMuteLocally}
+                aria-label={isPlayerMuted ? 'Unmute' : 'Mute'}
+                title={isPlayerMuted ? 'Unmute' : 'Mute'}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true">
+                  {isPlayerMuted ? 'volume_off' : 'volume_up'}
+                </span>
+              </button>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="player-volume-trigger"
+            onClick={() => setIsVolumePopoverOpen((prev) => !prev)}
+            aria-label={`Volume ${isPlayerMuted ? 'muted' : `${playerVolumePct}%`}, tap to adjust`}
+            aria-expanded={isVolumePopoverOpen}
+          >
+            <span className="material-symbols-outlined" aria-hidden="true">
+              {isPlayerMuted ? 'volume_off' : 'volume_up'}
+            </span>
+            {isPlayerMuted ? 0 : playerVolumePct}%
+          </button>
+        </div>
+        <span className="player-status-bullet">•</span>
         <span
           className={`player-connection-dot ${isSocketConnected ? 'connected' : 'disconnected'}`}
           aria-label={isSocketConnected ? 'WebSocket connected' : 'WebSocket disconnected'}
           title={socketStatus}
         />
-      </p>
+      </div>
       <button
         type="button"
         className="player-fullscreen-toggle"

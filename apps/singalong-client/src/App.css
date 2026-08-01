@@ -1188,6 +1188,7 @@ button:disabled {
   border: 1px solid var(--border-primary);
   border-radius: 12px;
   background: var(--surface-panel);
+  touch-action: pan-y;
   color: var(--text-primary);
   text-align: left;
   appearance: none;
@@ -1891,6 +1892,7 @@ textarea:focus-visible {
   width: 100%;
   cursor: pointer;
   transition: background 0.15s ease-in-out;
+  touch-action: pan-y;
 }
 
 .songbook-item:hover {
@@ -3183,6 +3185,12 @@ button.small {
   padding: 0;
 }
 
+.player-interactive-seek {
+  opacity: 0.85;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
 .player-remaining-duration {
   color: rgba(255, 255, 255, 0.75);
   font-size: 0.78rem;
@@ -3197,9 +3205,68 @@ button.small {
   font-size: 0.76rem;
   z-index: 5;
   opacity: 0.3;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.player-socket-status:hover,
+.player-socket-status:focus-within,
+.player-socket-status:has(.player-volume-popover) {
+  opacity: 1;
+}
+
+.player-volume-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.player-volume-trigger {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  padding: 2px;
+  cursor: pointer;
+}
+
+.player-volume-popover {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 10px;
+  padding: 12px 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.player-volume-slider-vertical {
+  appearance: none;
+  width: 90px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  margin: 40px 0;
+}
+
+.player-volume-mute-button {
+  width: 32px;
+  height: 32px;
 }
 
 .player-fullscreen-toggle {
@@ -3216,6 +3283,36 @@ button.small {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.player-controls-cluster {
+  position: absolute;
+  right: 12px;
+  top: 60px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.player-control-button {
+  appearance: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(0, 0, 0, 0.32);
+  color: rgba(255, 255, 255, 0.9);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.player-control-button:hover,
+.player-control-button:focus-visible {
+  background: rgba(0, 0, 0, 0.48);
 }
 
 .player-status-bullet {
