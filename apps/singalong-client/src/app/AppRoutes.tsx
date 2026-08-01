@@ -17,6 +17,7 @@ type AppRoutesProps = {
   adminSessionsElement: ReactNode
   adminSessionControlElement: ReactNode
   adminSongbookElement: ReactNode
+  adminDuplicateAuditElement: ReactNode
   adminSongbookSuggestSearchElement: ReactNode
   adminSongbookSuggestUpdateElement: ReactNode
   adminSessionSuggestSearchElement: ReactNode
@@ -39,6 +40,7 @@ export function AppRoutes({
   adminSessionsElement,
   adminSessionControlElement,
   adminSongbookElement,
+  adminDuplicateAuditElement,
   adminSongbookSuggestSearchElement,
   adminSongbookSuggestUpdateElement,
   adminSessionSuggestSearchElement,
@@ -70,6 +72,7 @@ export function AppRoutes({
       <Route path="/admin/dashboard" element={adminSessionsElement} />
       <Route path="/admin/sessions" element={<Navigate to="/admin/dashboard" replace />} />
       <Route path="/admin/songbook" element={adminSongbookElement} />
+      <Route path="/admin/songbook/duplicates" element={adminDuplicateAuditElement} />
       <Route path="/admin/songbook/suggest" element={<Navigate to="/admin/songbook/suggest/search" replace />} />
       <Route path="/admin/songbook/suggest/login" element={<Navigate to="/admin/songbook/suggest/search" replace />} />
       <Route path="/admin/songbook/suggest/search" element={adminSongbookSuggestSearchElement} />

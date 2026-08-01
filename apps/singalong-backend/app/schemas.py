@@ -333,6 +333,7 @@ class SongbookItem(BaseModel):
     quality_score: int = 0
     quality_flags: list[SongQualityFlag] = Field(default_factory=list)
     validated_by_admin: bool = False
+    enhancement_status: str | None = None
 
 
 class SongAdminUpdateRequest(BaseModel):
@@ -363,6 +364,60 @@ class SongAdminValidationResponse(BaseModel):
 
 class SongArchiveResponse(BaseModel):
     message: str
+
+
+class SongDuplicateGroupMember(BaseModel):
+    song_id: str
+    title: str
+    artist: str
+    status: str
+    is_archived: bool = False
+    source_id: str | None = None
+    source_url: str | None = None
+    thumbnail_url: str | None = None
+    added_at: datetime | None = None
+
+
+class SongDuplicateGroupEdge(BaseModel):
+    song_id_a: str
+    song_id_b: str
+    score: float
+    title_score: float
+    artist_score: float | None = None
+    confidence: Literal["exact", "high", "possible"]
+    reasons: list[str] = Field(default_factory=list)
+
+
+class SongDuplicateGroup(BaseModel):
+    group_id: str
+    tier: Literal["exact", "high", "possible"]
+    members: list[SongDuplicateGroupMember]
+    edges: list[SongDuplicateGroupEdge]
+
+
+class SongDuplicateAuditResponse(BaseModel):
+    groups: list[SongDuplicateGroup]
+    total_songs_scanned: int
+    generated_at: datetime
+
+
+class SongDuplicatePairRequest(BaseModel):
+    song_id_a: str
+    song_id_b: str
+
+
+class SongDuplicateDismissResponse(BaseModel):
+    message: str
+
+
+class SongDuplicateMergeRequest(BaseModel):
+    keep_song_id: str
+    remove_song_id: str
+
+
+class SongDuplicateMergeResponse(BaseModel):
+    message: str
+    repointed_queue_rows: int
 
 
 class SongbookListResponse(BaseModel):
@@ -448,6 +503,12 @@ class FixDurationResponse(BaseModel):
     new_duration: str
     status: str
     message: str
+
+
+class EnhanceSongResponse(BaseModel):
+    status: str
+    message: str
+    song_id: str
 
 
 class TrimProgressEvent(BaseModel):

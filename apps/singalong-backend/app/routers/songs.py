@@ -19,8 +19,9 @@ from ..agents.identifier import IdentifierAgent
 from ..agents.orchestrator import OrchestratorAgent
 from ..config import settings
 from ..db import SessionLocal, get_db
-from ..models import Session as KaraokeSession, Song, SongDownload, SongQueue, SongTrimHistory, User
+from ..models import Session as KaraokeSession, Song, SongDownload, SongDuplicateDismissal, SongQueue, SongTrimHistory, User
 from ..schemas import (
+    EnhanceSongResponse,
     FixDurationResponse,
     SongDownloadListResponse,
     SongbookItem,
@@ -30,7 +31,15 @@ from ..schemas import (
     SongAdminUpdateResponse,
     SongAdminValidationRequest,
     SongAdminValidationResponse,
+    SongDuplicateAuditResponse,
+    SongDuplicateDismissResponse,
+    SongDuplicateGroup,
+    SongDuplicateGroupEdge,
+    SongDuplicateGroupMember,
     SongDuplicateMatch,
+    SongDuplicateMergeRequest,
+    SongDuplicateMergeResponse,
+    SongDuplicatePairRequest,
     SongSuggestDownloadRequest,
     SongSuggestDownloadResponse,
     SongSuggestEnhanceRequest,
@@ -53,7 +62,8 @@ from ..schemas import (
 )
 from ..services.auth import get_current_user, require_admin_or_guest_user, require_admin_user
 from ..services.download_queue import list_active_download_items
-from ..services.duplicate_match import SongRef, find_duplicate_candidates, normalize_search_text
+from ..services.duplicate_audit import canonical_pair, find_duplicate_groups
+from ..services.duplicate_match import SongRef, find_duplicate_candidates, load_match_refs, normalize_search_text
 from ..services.progress_tracker import ProgressEvent, get_progress_tracker
 from ..services.thumbnail_service import convert_base64_to_jpg, save_thumbnail
 from ..services.song_quality import assess_song_quality
@@ -1049,6 +1059,7 @@ def _song_to_item(
         quality_score=quality_score,
         quality_flags=quality_flags,
         validated_by_admin=_song_validation_state(song),
+        enhancement_status=song.enhancement_status,
     )
 
 
@@ -1346,6 +1357,180 @@ def archive_song(
     return SongArchiveResponse(message="Song archived")
 
 
+def _load_dismissed_pairs(db: Session) -> frozenset[tuple[str, str]]:
+    rows = db.query(SongDuplicateDismissal.song_id_low, SongDuplicateDismissal.song_id_high).all()
+    return frozenset((str(low), str(high)) for low, high in rows)
+
+
+def _upsert_duplicate_dismissal(db: Session, *, song_id_a: uuid.UUID, song_id_b: uuid.UUID, dismissed_by: uuid.UUID, reason: str) -> None:
+    low, high = (uuid.UUID(value) for value in canonical_pair(str(song_id_a), str(song_id_b)))
+    existing = (
+        db.query(SongDuplicateDismissal)
+        .filter(SongDuplicateDismissal.song_id_low == low, SongDuplicateDismissal.song_id_high == high)
+        .first()
+    )
+    if existing is None:
+        db.add(
+            SongDuplicateDismissal(
+                song_id_low=low, song_id_high=high, dismissed_by=dismissed_by, reason=reason
+            )
+        )
+    else:
+        existing.reason = reason
+
+
+@router.get("/duplicates/audit", response_model=SongDuplicateAuditResponse)
+async def get_duplicate_audit(
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(require_admin_user),
+):
+    """Whole-songbook fuzzy duplicate sweep for the admin audit UI (issue #56).
+
+    Reuses duplicate_match.load_match_refs + duplicate_audit.find_duplicate_groups
+    unchanged; this endpoint only shapes the result for the admin UI.
+    """
+    dismissed_pairs = _load_dismissed_pairs(db)
+    loop = asyncio.get_running_loop()
+    refs = await loop.run_in_executor(None, partial(load_match_refs, db))
+    groups = await loop.run_in_executor(
+        None, partial(find_duplicate_groups, refs, dismissed_pairs=dismissed_pairs)
+    )
+
+    ref_by_id = {ref.song_id: ref for ref in refs if ref.song_id is not None}
+    all_song_ids = {uuid.UUID(sid) for group in groups for sid in group.song_ids}
+    created_at_by_id: dict[uuid.UUID, datetime] = {}
+    if all_song_ids:
+        created_at_by_id = {
+            row.id: row.created_at
+            for row in db.query(Song.id, Song.created_at).filter(Song.id.in_(all_song_ids)).all()
+        }
+
+    def _member(song_id: str) -> SongDuplicateGroupMember:
+        ref = ref_by_id[song_id]
+        return SongDuplicateGroupMember(
+            song_id=song_id,
+            title=ref.title,
+            artist=ref.artist,
+            status=ref.status or "",
+            is_archived=ref.archived,
+            source_id=ref.source_id,
+            source_url=ref.source_url,
+            thumbnail_url=_build_thumbnail_url(ref.thumbnail_file),
+            added_at=created_at_by_id.get(uuid.UUID(song_id)),
+        )
+
+    return SongDuplicateAuditResponse(
+        groups=[
+            SongDuplicateGroup(
+                group_id=group.group_id,
+                tier=group.tier,
+                members=[_member(sid) for sid in group.song_ids],
+                edges=[
+                    SongDuplicateGroupEdge(
+                        song_id_a=edge.song_id_a,
+                        song_id_b=edge.song_id_b,
+                        score=round(edge.score.score, 3),
+                        title_score=round(edge.score.title_score, 3),
+                        artist_score=round(edge.score.artist_score, 3) if edge.score.artist_score is not None else None,
+                        confidence=edge.score.tier,
+                        reasons=list(edge.score.reasons),
+                    )
+                    for edge in group.edges
+                ],
+            )
+            for group in groups
+        ],
+        total_songs_scanned=len(refs),
+        generated_at=datetime.now(timezone.utc),
+    )
+
+
+@router.post("/duplicates/dismiss", response_model=SongDuplicateDismissResponse)
+def dismiss_duplicate_pair(
+    payload: SongDuplicatePairRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    try:
+        id_a = uuid.UUID(payload.song_id_a)
+        id_b = uuid.UUID(payload.song_id_b)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+    if id_a == id_b:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Cannot dismiss a song against itself")
+
+    _upsert_duplicate_dismissal(db, song_id_a=id_a, song_id_b=id_b, dismissed_by=current_user.id, reason="dismissed")
+    db.commit()
+    return SongDuplicateDismissResponse(message="Pairing dismissed")
+
+
+@router.post("/duplicates/merge", response_model=SongDuplicateMergeResponse)
+def merge_duplicate_pair(
+    payload: SongDuplicateMergeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    """Keep one song, archive the other, and re-point queue history so it
+    survives the merge (issue #56's "merge semantics" question).
+
+    Queue rows are only repointed after the same active-session guard
+    archive_song already enforces passes below: song_queue is joined LIVE
+    to songs on every read, so repointing a playing/pending row would swap
+    the video out from under a live performance. finished/skipped rows (in
+    any session) and rows in already-archived sessions are always safe to
+    repoint and are what preserves per-song participant stats.
+    """
+    try:
+        keep_id = uuid.UUID(payload.keep_song_id)
+        remove_id = uuid.UUID(payload.remove_song_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+    if keep_id == remove_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Cannot merge a song into itself")
+
+    keep_song = db.query(Song).filter(Song.id == keep_id).first()
+    remove_song = db.query(Song).filter(Song.id == remove_id).first()
+    if keep_song is None or remove_song is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    active_session_codes = [
+        code
+        for (code,) in (
+            db.query(KaraokeSession.session_code)
+            .join(SongQueue, SongQueue.session_id == KaraokeSession.id)
+            .filter(
+                SongQueue.song_id == remove_id,
+                SongQueue.status.in_(("playing", "pending")),
+                KaraokeSession.archived_at.is_(None),
+            )
+            .distinct()
+            .all()
+        )
+        if isinstance(code, str) and code.strip() != ""
+    ]
+    if len(active_session_codes) > 0:
+        session_list = ", ".join(active_session_codes)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot merge while the song is queued in active session(s): {session_list}",
+        )
+
+    repointed = (
+        db.query(SongQueue)
+        .filter(SongQueue.song_id == remove_id)
+        .update({SongQueue.song_id: keep_id}, synchronize_session=False)
+    )
+
+    remove_song.archived_at = datetime.now(timezone.utc)
+    remove_song.status = "archived"
+    remove_song.last_modified_by = current_user.id
+
+    _upsert_duplicate_dismissal(db, song_id_a=keep_id, song_id_b=remove_id, dismissed_by=current_user.id, reason="merged")
+
+    db.commit()
+    return SongDuplicateMergeResponse(message="Songs merged", repointed_queue_rows=repointed)
+
+
 @router.post("/{song_id}/trim", response_model=TrimSongResponse, status_code=status.HTTP_200_OK)
 def trim_song(
     song_id: uuid.UUID,
@@ -1511,6 +1696,156 @@ def fix_duration(
         status=result["status"],
         message=result["message"],
     )
+
+
+@router.post("/{song_id}/enhance", response_model=SongSuggestEnhanceResponse)
+async def enhance_song(
+    song_id: uuid.UUID,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Re-run the AI enhancement pipeline against a song already in the songbook and
+    return the proposed fields for review.
+
+    Requires admin authentication. Runs synchronously and does NOT write to the
+    song row — the admin reviews the result in the edit modal and applies it via
+    the normal save flow (PATCH /songs/{song_id}).
+    """
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    provider = settings.ai_provider
+    if provider == "openai" and not settings.openai_api_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OPENAI_API_KEY is not configured")
+    if provider == "deepseek" and not settings.deepseek_api_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="DEEPSEEK_API_KEY is not configured")
+
+    youtube_title = song.title
+    youtube_description = ""
+    if song.source_url:
+        try:
+            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+                info = ydl.extract_info(song.source_url, download=False)
+            youtube_title = info.get("title") or song.title
+            youtube_description = info.get("description") or ""
+        except Exception as exc:
+            logger.warning("[ENHANCE_SONG] Failed to fetch fresh YouTube metadata for song_id=%s: %s", song_id, exc)
+
+    enhancement_payload = {
+        "source_url": song.source_url,
+        "source_id": song.source_id,
+        "source": song.source,
+        "source_thumbnail": _build_thumbnail_url(song.thumbnail_file),
+        "title": youtube_title,
+        "artist": song.artist,
+        "language": song.language or None,
+        "is_off_vocal": song.is_off_vocal,
+        "video_has_lyrics": song.has_lyrics,
+        "genre": song.genre,
+        "tags": _parse_tags(song.tags) or None,
+        "lyrics": song.lyrics or None,
+        "_youtube_description": youtube_description,
+    }
+    existing_genres = _extract_distinct_genres(db, None, 500)
+    existing_tags = _extract_distinct_tags(db, None, 800)
+
+    try:
+        enhanced_payload = await OrchestratorAgent().enhance(enhancement_payload, existing_genres, existing_tags)
+        enhanced_response = SongSuggestIdentifyResponse(
+            source_url=enhanced_payload.get("source_url") or song.source_url or "",
+            source_id=enhanced_payload.get("source_id") or song.source_id or "",
+            source=enhanced_payload.get("source") or song.source,
+            source_thumbnail=enhanced_payload.get("source_thumbnail") or "",
+            title=enhanced_payload.get("title", song.title),
+            artist=enhanced_payload.get("artist", song.artist),
+            language=enhanced_payload.get("language"),
+            is_off_vocal=enhanced_payload.get("is_off_vocal", song.is_off_vocal),
+            video_has_lyrics=enhanced_payload.get("video_has_lyrics", song.has_lyrics),
+            genre=enhanced_payload.get("genre"),
+            tags=enhanced_payload.get("tags"),
+            lyrics=enhanced_payload.get("lyrics"),
+            is_likely_song=enhanced_payload.get("is_likely_song", True),
+            content_confidence=enhanced_payload.get("content_confidence", 0.0),
+            content_notice=enhanced_payload.get("content_notice"),
+        )
+        return SongSuggestEnhanceResponse(
+            status="success",
+            message="Song metadata enhanced successfully",
+            enhanced=enhanced_response,
+        )
+    except Exception as exc:
+        logger.exception("[ENHANCE_SONG] enhancement failed for song_id=%s: %s", song_id, exc)
+        return SongSuggestEnhanceResponse(
+            status="degraded",
+            message="Enhancement partially failed, returned original values",
+            enhanced=SongSuggestIdentifyResponse(
+                source_url=song.source_url or "",
+                source_id=song.source_id or "",
+                source=song.source,
+                source_thumbnail=_build_thumbnail_url(song.thumbnail_file) or "",
+                title=song.title,
+                artist=song.artist,
+                language=song.language,
+                is_off_vocal=song.is_off_vocal,
+                video_has_lyrics=song.has_lyrics,
+                genre=song.genre,
+                tags=_parse_tags(song.tags),
+                lyrics=song.lyrics,
+            ),
+        )
+
+
+@router.post("/{song_id}/enhance/queue", response_model=EnhanceSongResponse)
+async def queue_song_enhancement(
+    song_id: uuid.UUID,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Queue a background AI-enhancement job for a song already in the songbook,
+    writing results directly onto the song row when it finishes.
+
+    Requires admin authentication. Rejects if enhancement is already running for
+    this song. Intended for bulk/list-level re-enhancement (no per-song review
+    step) — see the synchronous POST /{song_id}/enhance for the reviewed flow
+    used by the song edit modal.
+    """
+    from ..services.enhancement_service import get_enhancement_service
+
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    if song.enhancement_status == "running":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Enhancement already in progress")
+
+    enhancement_payload = {
+        "source_url": song.source_url,
+        "source_id": song.source_id,
+        "source": song.source,
+        "source_thumbnail": _build_thumbnail_url(song.thumbnail_file),
+        "title": song.title,
+        "artist": song.artist,
+        "language": song.language or None,
+        "is_off_vocal": song.is_off_vocal,
+        "video_has_lyrics": song.has_lyrics,
+        "genre": song.genre,
+        "tags": _parse_tags(song.tags) or None,
+        "lyrics": song.lyrics or None,
+    }
+    existing_genres = _extract_distinct_genres(db, None, 500)
+    existing_tags = _extract_distinct_tags(db, None, 800)
+    get_enhancement_service().enqueue(
+        session_factory=SessionLocal,
+        song_id=str(song.id),
+        payload=enhancement_payload,
+        existing_genres=existing_genres,
+        existing_tags=existing_tags,
+    )
+
+    return EnhanceSongResponse(status="accepted", message="Enhancement queued", song_id=str(song.id))
 
 
 @router.get("/{song_id}/trim-progress/{operation_id}", response_model=TrimProgressEvent)

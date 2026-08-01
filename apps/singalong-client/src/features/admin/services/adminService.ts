@@ -6,9 +6,11 @@ import type {
   SessionRecord,
   SessionWorkspace,
   SongDownloadRetryResponse,
+  SongDuplicateAuditResponse,
   SongQualityFlag,
   SongbookListResponse,
   SongbookSong,
+  SuggestIdentifyResponse,
   TrimHistoryItem,
   TrimResponse,
   RestoreResponse,
@@ -45,6 +47,8 @@ export interface AdminService {
   getTrimProgress: (songId: string, monitorId: string, token: string) => Promise<{ operation_id: string; status: string; progress_percent: number; message: string; error: string | null }>
   restoreTrim: (songId: string, token: string, historyId: string) => Promise<RestoreResponse>
   fixDuration: (songId: string, token: string) => Promise<{ song_id: string; old_duration: string; new_duration: string; status: string; message: string }>
+  enhanceSong: (songId: string, token: string) => Promise<{ status: string; message: string; enhanced: SuggestIdentifyResponse }>
+  queueSongEnhancement: (songId: string, token: string) => Promise<{ status: string; message: string; song_id: string }>
   reserveSessionQueueSong: (
     sessionCode: string,
     songId: string,
@@ -60,6 +64,9 @@ export interface AdminService {
   fetchActiveSession: () => Promise<SessionRecord | null>
   retryDownload: (songId: string, token: string) => Promise<SongDownloadRetryResponse>
   stopDownload: (songId: string, token: string) => Promise<SongDownloadRetryResponse>
+  fetchDuplicateAudit: (token: string) => Promise<SongDuplicateAuditResponse>
+  dismissDuplicatePair: (songIdA: string, songIdB: string, token: string) => Promise<{ message: string }>
+  mergeDuplicatePair: (keepSongId: string, removeSongId: string, token: string) => Promise<{ message: string; repointed_queue_rows: number }>
 }
 
 function mapSong(raw: {
@@ -71,6 +78,7 @@ function mapSong(raw: {
   queued_count_in_session?: number; was_queued_in_session?: boolean
   quality_score?: number; quality_flags?: SongQualityFlag[]
   validated_by_admin?: boolean
+  enhancement_status?: string | null
 }): SongbookSong {
   return {
     id: raw.id,
@@ -95,6 +103,7 @@ function mapSong(raw: {
     qualityScore: typeof raw.quality_score === 'number' ? raw.quality_score : 0,
     qualityFlags: Array.isArray(raw.quality_flags) ? raw.quality_flags : [],
     validatedByAdmin: raw.validated_by_admin === true,
+    enhancementStatus: raw.enhancement_status ?? null,
   }
 }
 
@@ -124,6 +133,7 @@ export async function fetchSongbook(
       is_off_vocal?: boolean; video_has_lyrics?: boolean
       queued_count_in_session?: number; was_queued_in_session?: boolean
       quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
+      enhancement_status?: string | null
     }>
     total: number; page: number; pages: number
   }>(`/songs?${params.toString()}`)
@@ -161,6 +171,7 @@ export async function searchSongbook(
       is_off_vocal?: boolean; video_has_lyrics?: boolean
       queued_count_in_session?: number; was_queued_in_session?: boolean
       quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
+      enhancement_status?: string | null
     }>
     total: number; page: number; pages: number
   }>(`/songs/search?${params.toString()}`)
@@ -188,6 +199,7 @@ export async function fetchSongDetail(id: string, sessionCode?: string, sessionI
     is_off_vocal?: boolean; video_has_lyrics?: boolean
     queued_count_in_session?: number; was_queued_in_session?: boolean
     quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
+    enhancement_status?: string | null
   }>(`/songs/${id}${suffix ? `?${suffix}` : ''}`)
   return mapSong(raw)
 }
@@ -274,6 +286,7 @@ export async function updateSongAdminDetails(
       is_off_vocal?: boolean; video_has_lyrics?: boolean
       queued_count_in_session?: number; was_queued_in_session?: boolean
       quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
+      enhancement_status?: string | null
     }
     message: string
   }>(
@@ -306,6 +319,7 @@ export async function setSongValidation(
       is_off_vocal?: boolean; video_has_lyrics?: boolean
       queued_count_in_session?: number; was_queued_in_session?: boolean
       quality_score?: number; quality_flags?: SongQualityFlag[]; validated_by_admin?: boolean
+      enhancement_status?: string | null
     }
     message: string
   }>(
@@ -440,12 +454,72 @@ export async function fixDuration(songId: string, token: string): Promise<{
   )
 }
 
+export async function enhanceSong(songId: string, token: string): Promise<{
+  status: string
+  message: string
+  enhanced: SuggestIdentifyResponse
+}> {
+  return apiJson<{
+    status: string
+    message: string
+    enhanced: SuggestIdentifyResponse
+  }>(
+    `/songs/${songId}/enhance`,
+    {
+      method: 'POST',
+    },
+    token,
+  )
+}
+
+export async function queueSongEnhancement(songId: string, token: string): Promise<{
+  status: string
+  message: string
+  song_id: string
+}> {
+  return apiJson<{
+    status: string
+    message: string
+    song_id: string
+  }>(
+    `/songs/${songId}/enhance/queue`,
+    {
+      method: 'POST',
+    },
+    token,
+  )
+}
+
 export async function retryDownload(songId: string, token: string): Promise<SongDownloadRetryResponse> {
   return apiJson<SongDownloadRetryResponse>(`/songs/downloads/${songId}/retry`, { method: 'POST' }, token)
 }
 
 export async function stopDownload(songId: string, token: string): Promise<SongDownloadRetryResponse> {
   return apiJson<SongDownloadRetryResponse>(`/songs/downloads/${songId}/stop`, { method: 'POST' }, token)
+}
+
+export async function fetchDuplicateAudit(token: string): Promise<SongDuplicateAuditResponse> {
+  return apiJson<SongDuplicateAuditResponse>('/songs/duplicates/audit', {}, token)
+}
+
+export async function dismissDuplicatePair(songIdA: string, songIdB: string, token: string): Promise<{ message: string }> {
+  return apiJson<{ message: string }>(
+    '/songs/duplicates/dismiss',
+    { method: 'POST', body: JSON.stringify({ song_id_a: songIdA, song_id_b: songIdB }) },
+    token,
+  )
+}
+
+export async function mergeDuplicatePair(
+  keepSongId: string,
+  removeSongId: string,
+  token: string,
+): Promise<{ message: string; repointed_queue_rows: number }> {
+  return apiJson<{ message: string; repointed_queue_rows: number }>(
+    '/songs/duplicates/merge',
+    { method: 'POST', body: JSON.stringify({ keep_song_id: keepSongId, remove_song_id: removeSongId }) },
+    token,
+  )
 }
 
 export const adminService: AdminService = {
@@ -471,6 +545,11 @@ export const adminService: AdminService = {
   getTrimProgress,
   restoreTrim,
   fixDuration,
+  enhanceSong,
+  queueSongEnhancement,
   retryDownload,
   stopDownload,
+  fetchDuplicateAudit,
+  dismissDuplicatePair,
+  mergeDuplicatePair,
 }

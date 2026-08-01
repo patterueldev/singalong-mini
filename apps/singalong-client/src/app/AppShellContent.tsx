@@ -7,6 +7,7 @@ import {
 import { AppRoutes } from './AppRoutes'
 import { LoginPage } from '../features/admin/pages/LoginPage'
 import { AdminSongbookPage } from '../features/admin/pages/AdminSongbookPage'
+import { AdminDuplicateAuditPage } from '../features/admin/pages/AdminDuplicateAuditPage'
 import { SessionsPage } from '../features/admin/pages/SessionsPage'
 import { SessionControlPage } from '../features/admin/pages/SessionControlPage'
 import { GuestPage } from '../features/guest/pages/GuestPage'
@@ -26,6 +27,7 @@ import {
   AdminSessionSuggestUpdateRoute,
 } from '../features/admin/pages/AdminSessionSuggestPages'
 import { LoadingView } from '../features/shared/pages/LoadingView'
+import { useDocumentTitle } from '../shared/hooks/useDocumentTitle'
 import {
   archiveSession,
   createSession,
@@ -59,6 +61,7 @@ import '../App.css'
 
 function AppShellContent() {
   const navigate = useNavigate()
+  useDocumentTitle()
   const [auth, setAuth] = useState<StoredAuth | null>(null)
   const [isHydratingAuth, setIsHydratingAuth] = useState(true)
   const [username, setUsername] = useState('')
@@ -509,6 +512,12 @@ function AppShellContent() {
     ) : (
       <AdminSongbookPage auth={auth} />
     )
+  const adminDuplicateAuditElement =
+    auth === null ? (
+      <Navigate to="/admin/login" replace />
+    ) : (
+      <AdminDuplicateAuditPage auth={auth} />
+    )
   const adminSessionControlElement =
     auth === null ? (
       <Navigate to="/admin/login" replace />
@@ -566,6 +575,7 @@ function AppShellContent() {
       songbookDraftElement={songbookDraftElement}
       adminSessionsElement={adminSessionsElement}
       adminSongbookElement={adminSongbookElement}
+      adminDuplicateAuditElement={adminDuplicateAuditElement}
       adminSongbookSuggestSearchElement={adminSongbookSuggestSearchElement}
       adminSongbookSuggestUpdateElement={adminSongbookSuggestUpdateElement}
       adminSessionControlElement={adminSessionControlElement}

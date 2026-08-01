@@ -106,6 +106,29 @@ function getSongStatusClass(status: string) {
   return 'notice'
 }
 
+function getEnhancementStatusLabel(status: string | null) {
+  if (status === 'running') {
+    return 'Enhancing…'
+  }
+  if (status === 'done') {
+    return 'Enhanced'
+  }
+  if (status === 'error') {
+    return 'Enhance failed'
+  }
+  return null
+}
+
+function getEnhancementStatusClass(status: string | null) {
+  if (status === 'running') {
+    return 'warning'
+  }
+  if (status === 'error') {
+    return 'critical'
+  }
+  return 'success'
+}
+
 function formatAddedAt(value: string) {
   const timestamp = Date.parse(value)
   if (Number.isNaN(timestamp)) {
@@ -135,11 +158,14 @@ export function SongEditModal({
   onArchive = undefined,
   isArchiving = false,
   onMagicFixDuration = undefined,
+  onEnhance = undefined,
+  enhanceStatusMessage = '',
   tagSuggestions,
   onTrimClick,
   showTrimAction = true,
   showArchiveAction = true,
   showMagicFixAction = true,
+  showEnhanceAction = true,
 }: {
   song: SongbookSong
   thumbnailDataUrl: string | null
@@ -151,11 +177,14 @@ export function SongEditModal({
   onArchive?: () => void
   isArchiving?: boolean
   onMagicFixDuration?: () => void
+  onEnhance?: () => void
+  enhanceStatusMessage?: string
   tagSuggestions: string[]
   onTrimClick?: () => void
   showTrimAction?: boolean
   showArchiveAction?: boolean
   showMagicFixAction?: boolean
+  showEnhanceAction?: boolean
 }) {
   const [tagInput, setTagInput] = useState('')
   const thumbnailFileInputRef = useRef<HTMLInputElement>(null)
@@ -211,6 +240,18 @@ export function SongEditModal({
                 <span className="material-symbols-outlined">auto_fix_high</span>
               </button>
             ) : null}
+            {showEnhanceAction ? (
+              <button
+                type="button"
+                className="icon-control-button"
+                onClick={onEnhance}
+                disabled={isSaving || onEnhance === undefined}
+                title="Re-run AI enhancement"
+                aria-label="Re-run AI enhancement"
+              >
+                <span className="material-symbols-outlined">auto_awesome</span>
+              </button>
+            ) : null}
             <button
               type="button"
               className="icon-control-button"
@@ -223,6 +264,8 @@ export function SongEditModal({
             </button>
           </div>
         </div>
+
+        {enhanceStatusMessage !== '' ? <p className="success-message">{enhanceStatusMessage}</p> : null}
 
         <div className="song-editor-form top-gap">
           <div className="song-editor-grid">
@@ -460,6 +503,8 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
   const navigate = useNavigate()
   const {
     archiveSong,
+    enhanceSong,
+    queueSongEnhancement,
     fetchSongbook,
     fixDuration,
     retryDownload,
@@ -482,6 +527,7 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
   const [editingSong, setEditingSong] = useState<SongbookSong | null>(null)
   const [editingSongThumbnailDataUrl, setEditingSongThumbnailDataUrl] = useState<string | null>(null)
   const [isSavingSong, setIsSavingSong] = useState(false)
+  const [enhanceStatusMessage, setEnhanceStatusMessage] = useState('')
   const [archivingSongId, setArchivingSongId] = useState<string | null>(null)
   const [showTrimModal, setShowTrimModal] = useState(false)
   const [selectedSongForTrim, setSelectedSongForTrim] = useState<SongbookSong | null>(null)
@@ -490,6 +536,7 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
   const [downloadsSocketStatus, setDownloadsSocketStatus] = useState('Disconnected')
   const [retryingSongIds, setRetryingSongIds] = useState<string[]>([])
   const [stoppingSongIds, setStoppingSongIds] = useState<string[]>([])
+  const [queuingEnhanceSongIds, setQueuingEnhanceSongIds] = useState<string[]>([])
   const downloadsSocketRef = useRef<WebSocket | null>(null)
   const downloadsReconnectTimerRef = useRef<number | null>(null)
   const shouldReconnectDownloadsRef = useRef(false)
@@ -679,6 +726,24 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
       })
   }, [stopDownload, auth.accessToken])
 
+  const handleQueueEnhance = useCallback((song: SongbookSong) => {
+    setQueuingEnhanceSongIds((current) => (current.includes(song.id) ? current : [...current, song.id]))
+    setErrorMessage('')
+    void queueSongEnhancement(song.id, auth.accessToken)
+      .then((payload) => {
+        setMessage(payload.message)
+        setSongs((current) =>
+          current.map((item) => (item.id === song.id ? { ...item, enhancementStatus: 'running' } : item)),
+        )
+      })
+      .catch((error) => {
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to queue enhancement')
+      })
+      .finally(() => {
+        setQueuingEnhanceSongIds((current) => current.filter((entry) => entry !== song.id))
+      })
+  }, [queueSongEnhancement, auth.accessToken])
+
   const handleSaveSong = useCallback(async () => {
     if (editingSong === null) {
       return
@@ -738,12 +803,14 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
     setPreviewSong(null)
     setEditingSong(song)
     setEditingSongThumbnailDataUrl(null)
+    setEnhanceStatusMessage('')
   }, [])
 
   const closeEdit = useCallback(() => {
     if (isSavingSong) {
       return
     }
+    setEnhanceStatusMessage('')
     setEditingSong(null)
     setEditingSongThumbnailDataUrl(null)
   }, [isSavingSong])
@@ -773,6 +840,45 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
       setIsSavingSong(false)
     }
   }, [auth.accessToken, editingSong, fixDuration, previewSong])
+
+  const handleEnhance = useCallback(async () => {
+    if (editingSong === null) {
+      return
+    }
+
+    setIsSavingSong(true)
+    setEnhanceStatusMessage('Enhancing metadata via AI…')
+    setErrorMessage('')
+    try {
+      const payload = await enhanceSong(editingSong.id, auth.accessToken)
+      const enhanced = payload.enhanced
+      setEditingSong((current) =>
+        current === null
+          ? null
+          : {
+              ...current,
+              title: enhanced.title,
+              artist: enhanced.artist,
+              language: enhanced.language ?? current.language,
+              genre: enhanced.genre ?? current.genre,
+              tags: enhanced.tags && enhanced.tags.length > 0 ? enhanced.tags : current.tags,
+              lyrics: enhanced.lyrics ?? current.lyrics,
+              isOffVocal: enhanced.is_off_vocal,
+              videoHasLyrics: enhanced.video_has_lyrics,
+            },
+      )
+      setEnhanceStatusMessage(
+        payload.status === 'degraded'
+          ? 'Enhancement partially failed — review the fields before saving'
+          : 'Enhanced — review the changes and click Save to apply',
+      )
+    } catch (error) {
+      setEnhanceStatusMessage('')
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to enhance song')
+    } finally {
+      setIsSavingSong(false)
+    }
+  }, [auth.accessToken, editingSong, enhanceSong])
 
   return (
     <main className="app-shell admin-songbook-shell">
@@ -808,6 +914,15 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
               aria-label="Suggest song"
             >
               <span className="material-symbols-outlined">auto_awesome</span>
+            </button>
+            <button
+              type="button"
+              className="icon-control-button"
+              onClick={() => navigate('/admin/songbook/duplicates')}
+              title="Duplicate audit"
+              aria-label="Duplicate audit"
+            >
+              <span className="material-symbols-outlined">merge_type</span>
             </button>
           </div>
         </div>
@@ -953,6 +1068,13 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
                     <span className={`badge admin-songbook-status-badge ${getSongStatusClass(song.status)}`}>
                       {getSongStatusLabel(song.status)}
                     </span>
+                    {getEnhancementStatusLabel(song.enhancementStatus) ? (
+                      <span
+                        className={`badge admin-songbook-status-badge ${getEnhancementStatusClass(song.enhancementStatus)}`}
+                      >
+                        {getEnhancementStatusLabel(song.enhancementStatus)}
+                      </span>
+                    ) : null}
                   </div>
 
                   <div className="admin-songbook-added">
@@ -965,6 +1087,14 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
                     </button>
                   <button type="button" className="secondary" onClick={() => setPreviewSong(song)}>
                     View Details
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => handleQueueEnhance(song)}
+                    disabled={song.enhancementStatus === 'running' || queuingEnhanceSongIds.includes(song.id)}
+                  >
+                    {song.enhancementStatus === 'running' ? 'Enhancing…' : 'Enhance'}
                   </button>
                   {song.videoFile ? (
                     <button
@@ -1044,6 +1174,8 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
           onArchive={() => void handleArchiveSong(editingSong)}
           isArchiving={archivingSongId === editingSong.id}
           onMagicFixDuration={() => void handleMagicFixDuration()}
+          onEnhance={() => void handleEnhance()}
+          enhanceStatusMessage={enhanceStatusMessage}
           tagSuggestions={knownTagSuggestions}
           onTrimClick={() => {
             setSelectedSongForTrim(editingSong)

@@ -32,6 +32,7 @@ export function SongDetailPage() {
       isLoading={isLoading}
       errorMessage={error}
       onClose={() => navigate('/songbook')}
+      shareUrl={id ? `${window.location.origin}/songbook/song/${id}` : undefined}
     />
   )
 }
