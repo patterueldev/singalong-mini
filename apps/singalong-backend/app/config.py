@@ -35,6 +35,20 @@ class Settings(BaseSettings):
     enable_lyrics_web_search: bool = True
     enable_metadata_web_search: bool = True
 
+    # Bounded concurrency for ad-hoc yt-dlp metadata/search calls (search, identify, enhance).
+    # See app/services/ytdlp/work_queue.py — keeps concurrent yt-dlp instances (and their sockets
+    # and temp files) from exhausting file descriptors when several people search at once.
+    ytdlp_search_concurrency: int = 2
+    ytdlp_queue_max_wait_seconds: int = 20
+    ytdlp_call_timeout_seconds: int = 45
+    ytdlp_search_cache_ttl_seconds: int = 90
+
+    # Scheduled DB backup + integrity canary (see app/tasks/db_backup_task.py, db_health_task.py).
+    db_backup_dir: str = "/data/backups"
+    db_backup_interval_hours: int = 6
+    db_backup_retention_count: int = 20
+    db_health_check_interval_minutes: int = 30
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
