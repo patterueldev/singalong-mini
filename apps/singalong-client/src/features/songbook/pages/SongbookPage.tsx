@@ -326,10 +326,8 @@ export function SongbookPage({ notice, guestNickname, authToken }: SongbookPageP
         navigate(DRAFT_PATH, { state: { returnTo: songbookPath } })
         return
       }
-      const blockingMatch = (draft.possibleDuplicates ?? []).some(
-        (match) => match.confidence === 'exact' || match.confidence === 'high',
-      )
-      if (blockingMatch) {
+      const hasDuplicateMatch = (draft.possibleDuplicates ?? []).length > 0
+      if (hasDuplicateMatch) {
         setPendingDuplicate(draft)
         return
       }

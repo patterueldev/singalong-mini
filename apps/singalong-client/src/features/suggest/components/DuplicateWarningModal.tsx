@@ -32,11 +32,15 @@ export function DuplicateWarningModal({
   onReserveExisting,
   onAddAnyway,
   onCancel,
-  description = 'This looks like it might already be in the songbook. Reserve the existing song, or add this video anyway as a separate entry.',
+  description,
   existingActionLabel = 'Reserve this one',
 }: DuplicateWarningModalProps) {
-  const primaryMatches = matches.filter((match) => match.confidence === 'exact' || match.confidence === 'high')
-  const otherMatches = matches.filter((match) => match.confidence === 'possible')
+  const hasConfidentMatch = matches.some((match) => match.confidence === 'exact' || match.confidence === 'high')
+  const resolvedDescription =
+    description ??
+    (hasConfidentMatch
+      ? 'This looks like it might already be in the songbook. Reserve the existing song, or add this video anyway as a separate entry.'
+      : 'This might be the same song under a different upload — take a look before adding.')
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={onCancel}>
@@ -57,10 +61,10 @@ export function DuplicateWarningModal({
           </button>
         </div>
 
-        <p className="modal-description top-gap">{description}</p>
+        <p className="modal-description top-gap">{resolvedDescription}</p>
 
         <div className="duplicate-match-list top-gap">
-          {primaryMatches.map((match) => {
+          {matches.map((match) => {
             const statusLabel = describeStatus(match)
             return (
               <div className="duplicate-match-row" key={match.song_id}>
@@ -81,12 +85,6 @@ export function DuplicateWarningModal({
             )
           })}
         </div>
-
-        {otherMatches.length > 0 ? (
-          <p className="field-help top-gap">
-            Also similar: {otherMatches.map((match) => `${match.title} — ${match.artist}`).join(', ')}
-          </p>
-        ) : null}
 
         <div className="row-actions modal-actions">
           <button type="button" className="secondary" onClick={onCancel}>

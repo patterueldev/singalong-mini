@@ -888,6 +888,9 @@ async def suggest_song_enhance(
             content_confidence=enhanced_payload.get("content_confidence", 0.0),
             content_notice=enhanced_payload.get("content_notice"),
         )
+        enhanced_response.duplicate_matches = await _duplicate_matches_safe(
+            db, title=enhanced_response.title, artist=enhanced_response.artist, source_id=enhanced_response.source_id
+        )
 
         logger.info(
             "[ENHANCE] song-enhancement-successful youtube_id=%s title_before=%s title_after=%s artist_before=%s artist_after=%s",
@@ -909,23 +912,27 @@ async def suggest_song_enhance(
     except Exception as e:
         logger.exception("[ENHANCE] song-enhancement-failed: %s", e)
         # Graceful degradation: return original payload on any error
+        degraded_response = SongSuggestIdentifyResponse(
+            source_url=payload.source_url,
+            source_id=payload.source_id,
+            source=payload.source,
+            source_thumbnail=payload.source_thumbnail,
+            title=payload.title,
+            artist=payload.artist,
+            language=payload.language or None,
+            is_off_vocal=payload.is_off_vocal,
+            video_has_lyrics=payload.video_has_lyrics,
+            genre=payload.genre[0] if payload.genre else None,
+            tags=payload.tags or None,
+            lyrics=payload.lyrics or None,
+        )
+        degraded_response.duplicate_matches = await _duplicate_matches_safe(
+            db, title=degraded_response.title, artist=degraded_response.artist, source_id=degraded_response.source_id
+        )
         return SongSuggestEnhanceResponse(
             status="degraded",
             message="Enhancement partially failed, returned original values",
-            enhanced=SongSuggestIdentifyResponse(
-                source_url=payload.source_url,
-                source_id=payload.source_id,
-                source=payload.source,
-                source_thumbnail=payload.source_thumbnail,
-                title=payload.title,
-                artist=payload.artist,
-                language=payload.language or None,
-                is_off_vocal=payload.is_off_vocal,
-                video_has_lyrics=payload.video_has_lyrics,
-                genre=payload.genre[0] if payload.genre else None,
-                tags=payload.tags or None,
-                lyrics=payload.lyrics or None,
-            ),
+            enhanced=degraded_response,
         )
 
 
