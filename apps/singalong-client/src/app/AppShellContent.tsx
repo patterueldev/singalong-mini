@@ -27,6 +27,7 @@ import {
   AdminSessionSuggestUpdateRoute,
 } from '../features/admin/pages/AdminSessionSuggestPages'
 import { LoadingView } from '../features/shared/pages/LoadingView'
+import { useDocumentTitle } from '../shared/hooks/useDocumentTitle'
 import {
   archiveSession,
   createSession,
@@ -60,6 +61,7 @@ import '../App.css'
 
 function AppShellContent() {
   const navigate = useNavigate()
+  useDocumentTitle()
   const [auth, setAuth] = useState<StoredAuth | null>(null)
   const [isHydratingAuth, setIsHydratingAuth] = useState(true)
   const [username, setUsername] = useState('')

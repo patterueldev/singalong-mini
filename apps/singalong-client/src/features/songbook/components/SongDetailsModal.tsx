@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { formatLanguageLabel } from '../../../shared/lib/format'
 import type { SongbookSong } from '../../../shared/types/client'
 
@@ -14,6 +15,7 @@ type SongDetailsModalProps = {
   editLabel?: string
   onEditDetails?: () => void
   editDisabled?: boolean
+  shareUrl?: string
 }
 
 export function SongDetailsModal({
@@ -29,9 +31,23 @@ export function SongDetailsModal({
   editLabel = 'Edit Details',
   onEditDetails,
   editDisabled = false,
+  shareUrl,
 }: SongDetailsModalProps) {
+  const [shareState, setShareState] = useState<'idle' | 'copied' | 'error'>('idle')
+
   if (!isOpen) {
     return null
+  }
+
+  const handleShare = () => {
+    if (!shareUrl) return
+    void navigator.clipboard
+      .writeText(shareUrl)
+      .then(() => setShareState('copied'))
+      .catch(() => setShareState('error'))
+      .finally(() => {
+        window.setTimeout(() => setShareState('idle'), 2000)
+      })
   }
 
   return (
@@ -133,15 +149,22 @@ export function SongDetailsModal({
                 )}
               </div>
 
-              {song.sourceUrl ? (
+              {song.sourceUrl || shareUrl ? (
                 <div className="row-actions song-detail-actions">
-                  <button
-                    type="button"
-                    className="youtube-button"
-                    onClick={() => window.open(song.sourceUrl!, '_blank', 'noopener,noreferrer')}
-                  >
-                    View on Youtube
-                  </button>
+                  {song.sourceUrl ? (
+                    <button
+                      type="button"
+                      className="youtube-button"
+                      onClick={() => window.open(song.sourceUrl!, '_blank', 'noopener,noreferrer')}
+                    >
+                      View on Youtube
+                    </button>
+                  ) : null}
+                  {shareUrl ? (
+                    <button type="button" className="secondary" onClick={handleShare}>
+                      {shareState === 'copied' ? 'Link copied!' : shareState === 'error' ? 'Copy failed' : 'Copy Link'}
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
 

@@ -16,7 +16,6 @@ import { SearchResultsList } from '../../suggest/components/SearchResultsList'
 import { DownloadProgressModal } from '../components/DownloadProgressModal'
 import { SkeletonList } from '../components/SkeletonList'
 import { SongbookListItem } from '../components/SongbookListItem'
-import { SongDetailsModal } from '../components/SongDetailsModal'
 import type {
   DownloadProgressItem,
   SongbookSong,
@@ -34,54 +33,6 @@ export type SongbookPageProps = {
   authToken: string
 }
 
-type SongbookSongDetailModalProps = {
-  songId: string
-  onClose: () => void
-}
-
-function SongbookSongDetailModal({ songId, onClose }: SongbookSongDetailModalProps) {
-  const { fetchSongDetail } = useAdminService()
-  const [song, setSong] = useState<SongbookSong | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [errorMessage, setErrorMessage] = useState('')
-
-  useEffect(() => {
-    let cancelled = false
-    setIsLoading(true)
-    setErrorMessage('')
-    void fetchSongDetail(songId)
-      .then((payload) => {
-        if (!cancelled) {
-          setSong(payload)
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setErrorMessage(error instanceof Error ? error.message : 'Song does not exist')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [fetchSongDetail, songId])
-
-  return (
-    <SongDetailsModal
-      isOpen
-      song={song}
-      isLoading={isLoading}
-      errorMessage={errorMessage}
-      onClose={onClose}
-    />
-  )
-}
-
 export function SongbookPage({ notice, guestNickname, authToken }: SongbookPageProps) {
   const navigate = useNavigate()
   const { fetchSongbook, searchSongbook, fetchSongDetail } = useAdminService()
@@ -96,7 +47,6 @@ export function SongbookPage({ notice, guestNickname, authToken }: SongbookPageP
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [refreshToken, setRefreshToken] = useState(0)
-  const [activeSongId, setActiveSongId] = useState<string | null>(null)
   const [isYoutubeSearchActive, setIsYoutubeSearchActive] = useState(false)
   const [youtubeResults, setYoutubeResults] = useState<SuggestResult[]>([])
   const [isSearchingYoutube, setIsSearchingYoutube] = useState(false)
@@ -409,7 +359,7 @@ export function SongbookPage({ notice, guestNickname, authToken }: SongbookPageP
   // Already in the songbook? There is nothing to download — show its details instead.
   const downloadYoutubeResult = (result: SuggestResult) => {
     if (result.existingSongId !== null) {
-      setActiveSongId(result.existingSongId)
+      navigate(`/songbook/song/${result.existingSongId}`)
       return
     }
     void identifyAndDownload(result.sourceUrl)
@@ -463,7 +413,7 @@ export function SongbookPage({ notice, guestNickname, authToken }: SongbookPageP
             )
           ) : (
             songs.map((song) => (
-              <SongbookListItem key={song.id} song={song} onClick={() => setActiveSongId(song.id)} />
+              <SongbookListItem key={song.id} song={song} onClick={() => navigate(`/songbook/song/${song.id}`)} />
             ))
           )}
         </div>
@@ -539,10 +489,6 @@ export function SongbookPage({ notice, guestNickname, authToken }: SongbookPageP
         ) : null}
       </section>
 
-      {activeSongId !== null ? (
-        <SongbookSongDetailModal songId={activeSongId} onClose={() => setActiveSongId(null)} />
-      ) : null}
-
       {detailsResult !== null ? (
         <SearchResultModal
           result={detailsResult}
@@ -573,7 +519,7 @@ export function SongbookPage({ notice, guestNickname, authToken }: SongbookPageP
           existingActionLabel="View this one"
           onReserveExisting={(songId) => {
             setPendingDuplicate(null)
-            setActiveSongId(songId)
+            navigate(`/songbook/song/${songId}`)
           }}
           onAddAnyway={() => {
             const draft = pendingDuplicate
