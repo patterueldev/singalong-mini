@@ -14,7 +14,10 @@ export function normalizeDownloadProgressItems(payload: unknown): DownloadProgre
     const title = typeof raw.title === 'string' ? raw.title : null
     const artist = typeof raw.artist === 'string' ? raw.artist : null
     const status =
-      raw.status === 'pending' || raw.status === 'downloading' || raw.status === 'error'
+      raw.status === 'pending' ||
+      raw.status === 'downloading' ||
+      raw.status === 'error' ||
+      raw.status === 'cancelled'
         ? raw.status
         : null
     if (songId === null || title === null || artist === null || status === null) {

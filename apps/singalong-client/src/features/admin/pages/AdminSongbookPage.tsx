@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import type { DownloadProgressItem, StoredAuth, SongbookSong, WSIncoming } from '../../../shared/types/client'
 import { buildWSUrl } from '../../../shared/api/ws'
 import { useAdminService } from '../hooks/useAdminService'
-import { useGuestService } from '../../guest/hooks/useGuestService'
 import { formatLanguageLabel, normalizeLanguageCodeForUi } from '../../../shared/lib/format'
 import { LANGUAGE_OPTIONS } from '../../../shared/config/client'
 import { readFileAsDataUrl } from '../../../shared/lib/files'
@@ -459,12 +458,13 @@ export function SongEditModal({
 
 export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
   const navigate = useNavigate()
-  const { retryDownload: retrySongDownload } = useGuestService()
   const {
     archiveSong,
     fetchSongbook,
     fixDuration,
+    retryDownload,
     searchSongbook,
+    stopDownload,
     updateSongAdminDetails,
   } = useAdminService()
   const [songs, setSongs] = useState<SongbookSong[]>([])
@@ -489,6 +489,7 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
   const [downloadItems, setDownloadItems] = useState<DownloadProgressItem[]>([])
   const [downloadsSocketStatus, setDownloadsSocketStatus] = useState('Disconnected')
   const [retryingSongIds, setRetryingSongIds] = useState<string[]>([])
+  const [stoppingSongIds, setStoppingSongIds] = useState<string[]>([])
   const downloadsSocketRef = useRef<WebSocket | null>(null)
   const downloadsReconnectTimerRef = useRef<number | null>(null)
   const shouldReconnectDownloadsRef = useRef(false)
@@ -649,7 +650,7 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
 
   const handleRetryDownload = useCallback((songId: string) => {
     setRetryingSongIds((current) => (current.includes(songId) ? current : [...current, songId]))
-    void retrySongDownload(songId)
+    void retryDownload(songId, auth.accessToken)
       .then(() => {
         setDownloadItems((items) =>
           items.map((item) =>
@@ -668,7 +669,15 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
       .finally(() => {
         setRetryingSongIds((current) => current.filter((entry) => entry !== songId))
       })
-  }, [retrySongDownload])
+  }, [retryDownload, auth.accessToken])
+
+  const handleStopDownload = useCallback((songId: string) => {
+    setStoppingSongIds((current) => (current.includes(songId) ? current : [...current, songId]))
+    void stopDownload(songId, auth.accessToken)
+      .finally(() => {
+        setStoppingSongIds((current) => current.filter((entry) => entry !== songId))
+      })
+  }, [stopDownload, auth.accessToken])
 
   const handleSaveSong = useCallback(async () => {
     if (editingSong === null) {
@@ -1048,8 +1057,10 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
         status={downloadsSocketStatus}
         items={downloadItems}
         retryingSongIds={retryingSongIds}
+        stoppingSongIds={stoppingSongIds}
         onClose={() => setIsDownloadsModalOpen(false)}
         onRetryDownload={handleRetryDownload}
+        onStopDownload={handleStopDownload}
       />
 
       {showTrimModal && selectedSongForTrim ? (

@@ -1,10 +1,5 @@
 import { apiJson } from '../../../shared/api/httpClient'
-import type {
-  GuestAuth,
-  GuestLoginResponse,
-  SessionExistsResponse,
-  SongDownloadRetryResponse,
-} from '../../../shared/types/client'
+import type { GuestAuth, GuestLoginResponse, SessionExistsResponse } from '../../../shared/types/client'
 
 export interface GuestService {
   buildGuestJoinUrl: (baseUrl: string, sessionCode: string | null) => string
@@ -14,7 +9,6 @@ export interface GuestService {
   reserveSong: (sessionCode: string, songId: string, token: string) => Promise<void>
   cancelQueueItem: (sessionCode: string, queueId: string, token: string) => Promise<void>
   skipQueueItem: (sessionCode: string, queueId: string, token: string) => Promise<void>
-  retryDownload: (songId: string) => Promise<SongDownloadRetryResponse>
 }
 
 export function buildGuestJoinUrl(baseUrl: string, sessionCode: string | null): string {
@@ -73,12 +67,6 @@ export async function reserveSong(sessionCode: string, songId: string, token: st
   )
 }
 
-export function retryDownload(songId: string): Promise<SongDownloadRetryResponse> {
-  return apiJson<SongDownloadRetryResponse>(`/songs/downloads/${songId}/retry`, {
-    method: 'POST',
-  })
-}
-
 export const guestService: GuestService = {
   buildGuestJoinUrl,
   fetchSessionInfo,
@@ -87,7 +75,6 @@ export const guestService: GuestService = {
   reserveSong,
   cancelQueueItem,
   skipQueueItem,
-  retryDownload,
 }
 
 export const guestLoginWithNickname = loginWithNickname
@@ -96,5 +83,3 @@ export const guestFetchSessionInfo = fetchSessionInfo
 export const guestReserveSong = reserveSong
 export const guestCancelQueueItem = cancelQueueItem
 export const guestSkipQueueItem = skipQueueItem
-export const retrySongDownload = retryDownload
-export const guestRetrySongDownload = retryDownload

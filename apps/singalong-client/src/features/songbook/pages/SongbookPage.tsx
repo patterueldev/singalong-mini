@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAdminService } from '../../admin/hooks/useAdminService'
-import { useGuestService } from '../../guest/hooks/useGuestService'
 import { useSuggestService } from '../../suggest/hooks/useSuggestService'
 import {
   mergeDownloadProgressItems,
@@ -86,7 +85,6 @@ function SongbookSongDetailModal({ songId, onClose }: SongbookSongDetailModalPro
 export function SongbookPage({ notice, guestNickname, authToken }: SongbookPageProps) {
   const navigate = useNavigate()
   const { fetchSongbook, searchSongbook, fetchSongDetail } = useAdminService()
-  const { retryDownload: retrySongDownload } = useGuestService()
   const { search: suggestSearch, identify: suggestIdentify, download: suggestDownload } = useSuggestService()
   const [searchParams] = useSearchParams()
   const [query, setQuery] = useState(() => searchParams.get('query') ?? '')
@@ -109,7 +107,6 @@ export function SongbookPage({ notice, guestNickname, authToken }: SongbookPageP
   const [isDownloadsModalOpen, setIsDownloadsModalOpen] = useState(false)
   const [downloadItems, setDownloadItems] = useState<DownloadProgressItem[]>([])
   const [downloadsSocketStatus, setDownloadsSocketStatus] = useState('Disconnected')
-  const [retryingSongIds, setRetryingSongIds] = useState<string[]>([])
   const latestYoutubeQueryRef = useRef('')
   const downloadsSocketRef = useRef<WebSocket | null>(null)
   const downloadsReconnectTimerRef = useRef<number | null>(null)
@@ -346,29 +343,6 @@ export function SongbookPage({ notice, guestNickname, authToken }: SongbookPageP
       closeDownloadsSocket()
     }
   }, [isDownloadsModalOpen, clearDownloadsReconnectTimer, closeDownloadsSocket])
-
-  const handleRetryDownload = useCallback((songId: string) => {
-    setRetryingSongIds((current) => (current.includes(songId) ? current : [...current, songId]))
-    void retrySongDownload(songId)
-      .then(() => {
-        setDownloadItems((items) =>
-          items.map((item) =>
-            item.songId === songId
-              ? {
-                  ...item,
-                  status: 'pending',
-                  progressPct: null,
-                  progressMessage: 'Waiting in queue',
-                  errorMessage: null,
-                }
-              : item,
-          ),
-        )
-      })
-      .finally(() => {
-        setRetryingSongIds((current) => current.filter((entry) => entry !== songId))
-      })
-  }, [])
 
   const trimmedQuery = debouncedQuery.trim()
 
@@ -616,9 +590,7 @@ export function SongbookPage({ notice, guestNickname, authToken }: SongbookPageP
         isOpen={isDownloadsModalOpen}
         status={downloadsSocketStatus}
         items={downloadItems}
-        retryingSongIds={retryingSongIds}
         onClose={() => setIsDownloadsModalOpen(false)}
-        onRetryDownload={handleRetryDownload}
       />
     </main>
   )

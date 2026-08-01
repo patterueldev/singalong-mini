@@ -8,10 +8,12 @@ export function setOnAuthFailure(callback: (() => void) | null) {
 
 export class ApiError extends Error {
   status: number
+  timedOut: boolean
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, timedOut = false) {
     super(message)
     this.status = status
+    this.timedOut = timedOut
   }
 }
 
@@ -25,7 +27,12 @@ function authHeaders(token?: string): HeadersInit {
   }
 }
 
-export async function apiJson<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+export async function apiJson<T>(
+  path: string,
+  init: RequestInit = {},
+  token?: string,
+  timeoutMs?: number,
+): Promise<T> {
   const headers = new Headers(init.headers ?? {})
   if (token !== undefined) {
     const bearerHeaders = authHeaders(token)
@@ -38,10 +45,26 @@ export async function apiJson<T>(path: string, init: RequestInit = {}, token?: s
     headers.set('Content-Type', 'application/json')
   }
 
-  const response = await fetch(`${API_ROOT}${path}`, {
-    ...init,
-    headers,
-  })
+  const controller = timeoutMs !== undefined ? new AbortController() : null
+  const timeoutId = controller !== null ? setTimeout(() => controller.abort(), timeoutMs) : null
+
+  let response: Response
+  try {
+    response = await fetch(`${API_ROOT}${path}`, {
+      ...init,
+      headers,
+      signal: controller?.signal ?? init.signal,
+    })
+  } catch (error) {
+    if (controller !== null && controller.signal.aborted) {
+      throw new ApiError('Request timed out', 0, true)
+    }
+    throw error
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId)
+    }
+  }
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { detail?: string } | null

@@ -441,16 +441,17 @@ def list_song_downloads(
 def retry_song_download(
     song_id: uuid.UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
 ):
     from ..services.song_downloader_service import get_downloader
 
     download = db.query(SongDownload).filter(SongDownload.song_id == song_id).first()
     if download is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Download record not found")
-    if download.status != "error":
+    if download.status not in ("error", "cancelled"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only errored downloads can be retried",
+            detail="Only errored or cancelled downloads can be retried",
         )
 
     song = db.query(Song).filter(Song.id == song_id).first()
@@ -480,6 +481,33 @@ def retry_song_download(
         status="accepted",
         message="Song download requeued",
         song_id=str(song.id),
+    )
+
+
+@router.post("/downloads/{song_id}/stop", response_model=SongSuggestDownloadResponse, status_code=status.HTTP_202_ACCEPTED)
+def stop_song_download(
+    song_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
+):
+    from ..services.song_downloader_service import get_downloader
+
+    download = db.query(SongDownload).filter(SongDownload.song_id == song_id).first()
+    if download is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Download record not found")
+    if download.status not in ("pending", "downloading"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only pending or downloading downloads can be stopped",
+        )
+
+    downloader = get_downloader()
+    downloader.request_stop(str(song_id))
+
+    return SongSuggestDownloadResponse(
+        status="accepted",
+        message="Download stop requested",
+        song_id=str(song_id),
     )
 
 

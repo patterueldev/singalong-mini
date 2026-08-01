@@ -45,7 +45,7 @@ def _to_download_item(
 def list_active_download_items(db: Session) -> list[SongDownloadItem]:
     downloads = list(
         db.scalars(
-            select(SongDownload).where(SongDownload.status.in_(("pending", "downloading", "error"))).order_by(
+            select(SongDownload).where(SongDownload.status.in_(("pending", "downloading", "error", "cancelled"))).order_by(
                 SongDownload.added_at.asc()
             )
         ).all()
