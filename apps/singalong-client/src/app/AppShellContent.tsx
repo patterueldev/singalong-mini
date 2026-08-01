@@ -7,6 +7,7 @@ import {
 import { AppRoutes } from './AppRoutes'
 import { LoginPage } from '../features/admin/pages/LoginPage'
 import { AdminSongbookPage } from '../features/admin/pages/AdminSongbookPage'
+import { AdminDuplicateAuditPage } from '../features/admin/pages/AdminDuplicateAuditPage'
 import { SessionsPage } from '../features/admin/pages/SessionsPage'
 import { SessionControlPage } from '../features/admin/pages/SessionControlPage'
 import { GuestPage } from '../features/guest/pages/GuestPage'
@@ -509,6 +510,12 @@ function AppShellContent() {
     ) : (
       <AdminSongbookPage auth={auth} />
     )
+  const adminDuplicateAuditElement =
+    auth === null ? (
+      <Navigate to="/admin/login" replace />
+    ) : (
+      <AdminDuplicateAuditPage auth={auth} />
+    )
   const adminSessionControlElement =
     auth === null ? (
       <Navigate to="/admin/login" replace />
@@ -566,6 +573,7 @@ function AppShellContent() {
       songbookDraftElement={songbookDraftElement}
       adminSessionsElement={adminSessionsElement}
       adminSongbookElement={adminSongbookElement}
+      adminDuplicateAuditElement={adminDuplicateAuditElement}
       adminSongbookSuggestSearchElement={adminSongbookSuggestSearchElement}
       adminSongbookSuggestUpdateElement={adminSongbookSuggestUpdateElement}
       adminSessionControlElement={adminSessionControlElement}
