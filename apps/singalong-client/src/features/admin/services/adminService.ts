@@ -48,6 +48,7 @@ export interface AdminService {
   restoreTrim: (songId: string, token: string, historyId: string) => Promise<RestoreResponse>
   fixDuration: (songId: string, token: string) => Promise<{ song_id: string; old_duration: string; new_duration: string; status: string; message: string }>
   enhanceSong: (songId: string, token: string) => Promise<{ status: string; message: string; enhanced: SuggestIdentifyResponse }>
+  queueSongEnhancement: (songId: string, token: string) => Promise<{ status: string; message: string; song_id: string }>
   reserveSessionQueueSong: (
     sessionCode: string,
     songId: string,
@@ -471,6 +472,24 @@ export async function enhanceSong(songId: string, token: string): Promise<{
   )
 }
 
+export async function queueSongEnhancement(songId: string, token: string): Promise<{
+  status: string
+  message: string
+  song_id: string
+}> {
+  return apiJson<{
+    status: string
+    message: string
+    song_id: string
+  }>(
+    `/songs/${songId}/enhance/queue`,
+    {
+      method: 'POST',
+    },
+    token,
+  )
+}
+
 export async function retryDownload(songId: string, token: string): Promise<SongDownloadRetryResponse> {
   return apiJson<SongDownloadRetryResponse>(`/songs/downloads/${songId}/retry`, { method: 'POST' }, token)
 }
@@ -527,6 +546,7 @@ export const adminService: AdminService = {
   restoreTrim,
   fixDuration,
   enhanceSong,
+  queueSongEnhancement,
   retryDownload,
   stopDownload,
   fetchDuplicateAudit,
