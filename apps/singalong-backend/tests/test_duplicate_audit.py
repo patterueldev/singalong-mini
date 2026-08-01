@@ -51,6 +51,49 @@ def test_exact_source_id_bypasses_prefilter():
     assert groups[0].tier == "exact"
 
 
+def test_missing_source_id_falls_back_to_source_url_for_exact_match():
+    # An older row (a) never had source_id populated — only source_url.
+    # Titles/artists are wildly different so this can only be caught via
+    # the resolved video id, not by coincidence in the fuzzy title score.
+    a = ref(
+        "Totally Different Title",
+        "Artist A",
+        "s1",
+        source_id=None,
+        source_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    )
+    b = ref("Another Title Entirely", "Artist B", "s2", source_id="dQw4w9WgXcQ")
+    groups = find_duplicate_groups([a, b])
+    assert len(groups) == 1
+    assert groups[0].tier == "exact"
+
+
+def test_source_id_stored_as_full_url_is_normalized_to_match_bare_id():
+    # A legacy ingestion path stored the full watch URL in source_id
+    # instead of the bare video id.
+    a = ref("Totally Different Title", "Artist A", "s1", source_id="https://youtu.be/dQw4w9WgXcQ")
+    b = ref("Another Title Entirely", "Artist B", "s2", source_id="dQw4w9WgXcQ")
+    groups = find_duplicate_groups([a, b])
+    assert len(groups) == 1
+    assert groups[0].tier == "exact"
+
+
+def test_different_videos_are_not_falsely_matched_via_source_url_fallback():
+    a = ref(
+        "Totally Different Title",
+        "Artist A",
+        "s1",
+        source_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    )
+    b = ref(
+        "Another Title Entirely",
+        "Artist B",
+        "s2",
+        source_url="https://www.youtube.com/watch?v=aaaaaaaaaaa",
+    )
+    assert find_duplicate_groups([a, b]) == []
+
+
 def test_transitive_high_tier_pairs_form_one_three_member_group():
     # A (pure romanization) and C (pure native script) are two stored forms
     # of the same song that share no characters at all — A vs C doesn't

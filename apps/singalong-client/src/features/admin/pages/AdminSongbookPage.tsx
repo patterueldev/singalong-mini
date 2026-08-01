@@ -879,7 +879,7 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
               title="Duplicate audit"
               aria-label="Duplicate audit"
             >
-              <span className="material-symbols-outlined">content_copy</span>
+              <span className="material-symbols-outlined">merge_type</span>
             </button>
           </div>
         </div>
