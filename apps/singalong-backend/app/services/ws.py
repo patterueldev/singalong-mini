@@ -30,6 +30,11 @@ ADMIN_TO_PLAYER_TYPES = {
 PLAYER_TO_ADMIN_TYPES = {
     "playback.position",
     "playback.ended",
+    "playback.play",
+    "playback.pause",
+    "playback.seek",
+    "playback.volume",
+    "playback.skip",
 }
 
 
@@ -156,17 +161,35 @@ class SessionWebSocketHub:
                     if db is None:
                         await self._send_error(sender, session_code, "Playback transition requires database session")
                         return
+                    raw_item_id = payload.get("queue_item_id")
                     try:
                         items = advance_playing_queue_item(
                             db,
                             session_code,
                             completion_status="finished",
+                            expected_current_item_id=str(raw_item_id) if raw_item_id is not None else None,
                         )
                     except Exception as exc:
                         await self._send_error(sender, session_code, f"Failed to advance queue: {exc}")
                         return
                     await self.broadcast_queue_updated(session_code, items)
-                if db is not None and event_type != "playback.ended":
+                    return
+                if event_type == "playback.skip":
+                    if db is None:
+                        await self._send_error(sender, session_code, "Playback transition requires database session")
+                        return
+                    try:
+                        items = advance_playing_queue_item(
+                            db,
+                            session_code,
+                            completion_status="skipped",
+                        )
+                    except Exception as exc:
+                        await self._send_error(sender, session_code, f"Failed to advance queue: {exc}")
+                        return
+                    await self.broadcast_queue_updated(session_code, items)
+                    return
+                if db is not None:
                     try:
                         self._persist_player_playback_event(db, session_code, event_type, payload)
                     except Exception as exc:
@@ -427,6 +450,18 @@ class SessionWebSocketHub:
                 is_playing = raw_is_playing
         elif event_type == "playback.ended":
             is_playing = False
+        elif event_type == "playback.play":
+            is_playing = True
+        elif event_type == "playback.pause":
+            is_playing = False
+        elif event_type == "playback.seek":
+            raw_position = payload.get("position_seconds")
+            if isinstance(raw_position, (int, float)):
+                position_seconds = float(raw_position)
+        elif event_type == "playback.volume":
+            raw_volume_pct = payload.get("volume_pct")
+            if isinstance(raw_volume_pct, (int, float)):
+                volume_pct = int(round(float(raw_volume_pct)))
 
         update_top_pending_playback_state(
             db,
