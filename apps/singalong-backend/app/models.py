@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,6 +13,7 @@ SONG_DOWNLOAD_STATUSES = ("pending", "downloading", "error", "cancelled")
 SONG_ENHANCEMENT_STATUSES = ("pending", "running", "done", "error")
 SONG_QUEUE_STATUSES = ("playing", "pending", "finished", "skipped")
 TRIM_HISTORY_STATUSES = ("pending", "completed", "failed", "restored")
+DUPLICATE_DISMISSAL_REASONS = ("dismissed", "merged")
 
 
 class User(Base):
@@ -266,3 +267,47 @@ class SongTrimArchive(Base):
         server_default=func.now(),
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SongDuplicateDismissal(Base):
+    """Remembers an admin's decision that a (song, song) pair is not a
+    duplicate, or that it was a duplicate and has already been merged, so
+    the admin audit sweep (app/services/duplicate_audit.py) never
+    resurfaces it. Canonicalized so (A, B) and (B, A) collide — see
+    duplicate_audit.canonical_pair.
+    """
+
+    __tablename__ = "song_duplicate_dismissals"
+    __table_args__ = (
+        UniqueConstraint("song_id_low", "song_id_high", name="uq_song_duplicate_dismissal_pair"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    song_id_low: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("songs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    song_id_high: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("songs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    dismissed_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    reason: Mapped[str] = mapped_column(
+        Enum(*DUPLICATE_DISMISSAL_REASONS, name="song_duplicate_dismissal_reason", create_type=True),
+        nullable=False,
+        default="dismissed",
+        server_default="dismissed",
+    )
+    dismissed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )

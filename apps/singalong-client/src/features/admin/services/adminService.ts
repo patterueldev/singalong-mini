@@ -6,6 +6,7 @@ import type {
   SessionRecord,
   SessionWorkspace,
   SongDownloadRetryResponse,
+  SongDuplicateAuditResponse,
   SongQualityFlag,
   SongbookListResponse,
   SongbookSong,
@@ -60,6 +61,9 @@ export interface AdminService {
   fetchActiveSession: () => Promise<SessionRecord | null>
   retryDownload: (songId: string, token: string) => Promise<SongDownloadRetryResponse>
   stopDownload: (songId: string, token: string) => Promise<SongDownloadRetryResponse>
+  fetchDuplicateAudit: (token: string) => Promise<SongDuplicateAuditResponse>
+  dismissDuplicatePair: (songIdA: string, songIdB: string, token: string) => Promise<{ message: string }>
+  mergeDuplicatePair: (keepSongId: string, removeSongId: string, token: string) => Promise<{ message: string; repointed_queue_rows: number }>
 }
 
 function mapSong(raw: {
@@ -448,6 +452,30 @@ export async function stopDownload(songId: string, token: string): Promise<SongD
   return apiJson<SongDownloadRetryResponse>(`/songs/downloads/${songId}/stop`, { method: 'POST' }, token)
 }
 
+export async function fetchDuplicateAudit(token: string): Promise<SongDuplicateAuditResponse> {
+  return apiJson<SongDuplicateAuditResponse>('/songs/duplicates/audit', {}, token)
+}
+
+export async function dismissDuplicatePair(songIdA: string, songIdB: string, token: string): Promise<{ message: string }> {
+  return apiJson<{ message: string }>(
+    '/songs/duplicates/dismiss',
+    { method: 'POST', body: JSON.stringify({ song_id_a: songIdA, song_id_b: songIdB }) },
+    token,
+  )
+}
+
+export async function mergeDuplicatePair(
+  keepSongId: string,
+  removeSongId: string,
+  token: string,
+): Promise<{ message: string; repointed_queue_rows: number }> {
+  return apiJson<{ message: string; repointed_queue_rows: number }>(
+    '/songs/duplicates/merge',
+    { method: 'POST', body: JSON.stringify({ keep_song_id: keepSongId, remove_song_id: removeSongId }) },
+    token,
+  )
+}
+
 export const adminService: AdminService = {
   fetchSongbook,
   searchSongbook,
@@ -473,4 +501,7 @@ export const adminService: AdminService = {
   fixDuration,
   retryDownload,
   stopDownload,
+  fetchDuplicateAudit,
+  dismissDuplicatePair,
+  mergeDuplicatePair,
 }

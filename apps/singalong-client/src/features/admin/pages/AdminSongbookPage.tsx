@@ -809,6 +809,15 @@ export function AdminSongbookPage({ auth }: AdminSongbookPageProps) {
             >
               <span className="material-symbols-outlined">auto_awesome</span>
             </button>
+            <button
+              type="button"
+              className="icon-control-button"
+              onClick={() => navigate('/admin/songbook/duplicates')}
+              title="Duplicate audit"
+              aria-label="Duplicate audit"
+            >
+              <span className="material-symbols-outlined">content_copy</span>
+            </button>
           </div>
         </div>
 

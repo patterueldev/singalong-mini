@@ -49,7 +49,7 @@ singalong-v2/
 │   │   ├── app/
 │   │   │   ├── main.py        # App entry, WebSocket routes, startup
 │   │   │   ├── config.py      # Pydantic-settings config
-│   │   │   ├── models.py      # SQLAlchemy ORM models (6 tables)
+│   │   │   ├── models.py      # SQLAlchemy ORM models (8 tables)
 │   │   │   ├── schemas.py     # Pydantic request/response schemas
 │   │   │   ├── db.py          # DB engine & session factory
 │   │   │   ├── security.py    # JWT encode/decode
@@ -118,7 +118,7 @@ singalong-v2/
 
 ## Database Schema
 
-6 tables managed via SQLAlchemy ORM with PostgreSQL:
+8 tables managed via SQLAlchemy ORM with PostgreSQL:
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
@@ -129,6 +129,7 @@ singalong-v2/
 | `song_queue` | Per-session queue/reservations | session_id (FK), song_id (FK), queue_order, status (playing/pending/finished/skipped), playback state columns |
 | `song_trim_history` | Trim operation records | song_id (FK), trim_start_ms, trim_end_ms, backup_file, status |
 | `song_trim_archive` | Archived versions of trimmed files | song_id (FK), version, file_path, expires_at |
+| `song_duplicate_dismissals` | Remembered admin decisions on duplicate pairs | song_id_low (FK), song_id_high (FK), dismissed_by (FK), reason (dismissed/merged) |
 
 Schema evolution happens at startup via `main.py:on_startup` — auto-adds missing columns and enum values for zero-downtime migrations.
 
@@ -262,6 +263,7 @@ The macOS SwiftUI app (`apps/singalong-player/`) implements the same polling + W
 | `/admin/login` | Username/password login | None |
 | `/admin/dashboard` | Session list, create, archive | Admin JWT |
 | `/admin/songbook` | Song management (edit, trim, archive) | Admin JWT |
+| `/admin/songbook/duplicates` | Duplicate audit sweep (merge, dismiss) | Admin JWT |
 | `/admin/sessions/:code` | Session control (playback, queue, songbook) | Admin JWT |
 | `/player` | Fullscreen karaoke playback (web player) | localhost/.local only + auto-login player token |
 | `*` | Catch-all → redirect to `/guest` | — |

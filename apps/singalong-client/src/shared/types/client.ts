@@ -257,6 +257,41 @@ export type SuggestDuplicateMatch = {
   reasons: string[]
 }
 
+export type SongDuplicateGroupMember = {
+  song_id: string
+  title: string
+  artist: string
+  status: string
+  is_archived: boolean
+  source_id: string | null
+  source_url: string | null
+  thumbnail_url: string | null
+  added_at: string | null
+}
+
+export type SongDuplicateGroupEdge = {
+  song_id_a: string
+  song_id_b: string
+  score: number
+  title_score: number
+  artist_score: number | null
+  confidence: 'exact' | 'high' | 'possible'
+  reasons: string[]
+}
+
+export type SongDuplicateGroup = {
+  group_id: string
+  tier: 'exact' | 'high' | 'possible'
+  members: SongDuplicateGroupMember[]
+  edges: SongDuplicateGroupEdge[]
+}
+
+export type SongDuplicateAuditResponse = {
+  groups: SongDuplicateGroup[]
+  total_songs_scanned: number
+  generated_at: string
+}
+
 export type SuggestIdentifyResponse = {
   source_url: string
   source_id: string

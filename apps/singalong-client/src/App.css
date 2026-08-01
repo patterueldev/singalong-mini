@@ -1645,6 +1645,28 @@ button:disabled {
   font-size: 0.85rem;
 }
 
+.duplicate-audit-pair {
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+.duplicate-audit-pair + .duplicate-audit-pair {
+  margin-top: 0.75rem;
+}
+
+.duplicate-audit-pair-members {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .duplicate-audit-pair-members {
+    grid-template-columns: 1fr;
+  }
+}
+
 textarea {
   border: 1px solid var(--border-primary);
   border-radius: 8px;
