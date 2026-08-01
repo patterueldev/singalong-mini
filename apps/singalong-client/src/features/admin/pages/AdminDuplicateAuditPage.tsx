@@ -181,10 +181,15 @@ export function AdminDuplicateAuditPage({ auth }: AdminDuplicateAuditPageProps) 
                                   {' · Added '}
                                   {formatAddedAt(member.added_at)}
                                 </p>
+                                {member.source_id !== null ? (
+                                  <p className="session-meta">
+                                    Source ID: <code>{member.source_id}</code>
+                                  </p>
+                                ) : null}
                                 {member.source_url !== null ? (
                                   <p className="field-help">
                                     <a href={member.source_url} target="_blank" rel="noreferrer">
-                                      Source
+                                      {member.source_url}
                                     </a>
                                   </p>
                                 ) : null}
