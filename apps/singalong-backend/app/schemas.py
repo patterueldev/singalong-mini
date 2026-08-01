@@ -333,6 +333,7 @@ class SongbookItem(BaseModel):
     quality_score: int = 0
     quality_flags: list[SongQualityFlag] = Field(default_factory=list)
     validated_by_admin: bool = False
+    enhancement_status: str | None = None
 
 
 class SongAdminUpdateRequest(BaseModel):
@@ -448,6 +449,12 @@ class FixDurationResponse(BaseModel):
     new_duration: str
     status: str
     message: str
+
+
+class EnhanceSongResponse(BaseModel):
+    status: str
+    message: str
+    song_id: str
 
 
 class TrimProgressEvent(BaseModel):

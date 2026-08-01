@@ -148,6 +148,7 @@ export type SongbookSong = {
   qualityScore: number
   qualityFlags: SongQualityFlag[]
   validatedByAdmin: boolean
+  enhancementStatus: string | null
 }
 
 export type TrimHistoryItem = {
