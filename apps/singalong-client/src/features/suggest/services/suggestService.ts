@@ -9,7 +9,7 @@ import type {
 } from '../../../shared/types/client'
 
 export interface SuggestService {
-  search: (query: string, token: string) => Promise<SuggestSearchResponse>
+  search: (query: string, token: string, signal?: AbortSignal) => Promise<SuggestSearchResponse>
   identify: (url: string, token: string) => Promise<SuggestIdentifyResponse>
   download: (
     draft: SuggestDraft,
@@ -27,12 +27,13 @@ export type SuggestDownloadOptions = {
 
 const YOUTUBE_SEARCH_TIMEOUT_MS = 9000
 
-export function search(query: string, token: string): Promise<SuggestSearchResponse> {
+export function search(query: string, token: string, signal?: AbortSignal): Promise<SuggestSearchResponse> {
   return apiJson<SuggestSearchResponse>(
     `/songs/suggest/search?keyword=${encodeURIComponent(query)}&limit=20`,
     {
       method: 'POST',
       body: JSON.stringify({ query, limit: 20 }),
+      signal,
     },
     token,
     YOUTUBE_SEARCH_TIMEOUT_MS,

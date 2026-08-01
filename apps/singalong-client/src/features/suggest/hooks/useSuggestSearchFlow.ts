@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSuggestService } from './useSuggestService'
 import {
   buildInitialSuggestDraft,
@@ -25,27 +25,39 @@ export function useSuggestSearchFlow({ authToken, initialQuery = '', onIdentifie
   const [isSearching, setIsSearching] = useState(false)
   const [isIdentifyingUrl, setIsIdentifyingUrl] = useState(false)
   const isYouTubeUrlQuery = parseYouTubeVideoId(query) !== null
+  // Only one search should ever be in flight: each new call aborts whatever the previous one
+  // started, so a fast typist never has a slow, stale response overwrite fresher results — and
+  // the backend stops doing work nobody's waiting on anymore (see issue #60).
+  const searchAbortControllerRef = useRef<AbortController | null>(null)
 
   const executeSearch = useCallback(
     (searchQuery: string) => {
+      searchAbortControllerRef.current?.abort()
+
       const normalized = normalizeSuggestQuery(searchQuery)
       if (normalized.effectiveQuery === '') {
+        searchAbortControllerRef.current = null
         setQueryInfo('Please enter a search query.')
         setResults([])
         setEffectiveQuery('')
         return
       }
 
+      const controller = new AbortController()
+      searchAbortControllerRef.current = controller
+
       setErrorMessage('')
       setIsSearching(true)
 
-      void suggestSearch(normalized.effectiveQuery, authToken)
+      void suggestSearch(normalized.effectiveQuery, authToken, controller.signal)
         .then((response) => {
+          if (controller.signal.aborted) return
           setEffectiveQuery(response.effective_query)
           setQueryInfo(response.appended_karaoke ? 'Backend appended "karaoke" to the query.' : '')
           setResults(response.results.map(mapSuggestSearchItem))
         })
         .catch((error: unknown) => {
+          if (controller.signal.aborted) return
           const message = error instanceof Error ? error.message : 'Search failed'
           setErrorMessage(message)
           setEffectiveQuery(normalized.effectiveQuery)
@@ -53,6 +65,7 @@ export function useSuggestSearchFlow({ authToken, initialQuery = '', onIdentifie
           setResults([])
         })
         .finally(() => {
+          if (controller.signal.aborted) return
           setIsSearching(false)
         })
     },
@@ -62,6 +75,7 @@ export function useSuggestSearchFlow({ authToken, initialQuery = '', onIdentifie
   useEffect(() => {
     const trimmed = query.trim()
     if (trimmed === '') {
+      searchAbortControllerRef.current?.abort()
       setResults([])
       setEffectiveQuery('')
       setQueryInfo('')
@@ -70,6 +84,7 @@ export function useSuggestSearchFlow({ authToken, initialQuery = '', onIdentifie
     }
 
     if (parseYouTubeVideoId(trimmed) !== null) {
+      searchAbortControllerRef.current?.abort()
       setResults([])
       setEffectiveQuery('')
       setQueryInfo('')
@@ -85,6 +100,13 @@ export function useSuggestSearchFlow({ authToken, initialQuery = '', onIdentifie
       window.clearTimeout(timeoutId)
     }
   }, [executeSearch, query])
+
+  // Abort any in-flight search when the component unmounts.
+  useEffect(() => {
+    return () => {
+      searchAbortControllerRef.current?.abort()
+    }
+  }, [])
 
   const identifySourceUrl = useCallback(
     (sourceUrl: string) => {

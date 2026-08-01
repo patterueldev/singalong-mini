@@ -19,7 +19,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CLIENT_STATIC_DIR=/app/static/client
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg nodejs && \
+    apt-get install -y --no-install-recommends ffmpeg nodejs postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
 COPY apps/singalong-backend/requirements.txt /tmp/requirements.txt

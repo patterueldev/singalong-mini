@@ -7,6 +7,17 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - ./data/singalong-db:/var/lib/postgresql/data
+    # Issue #60: a PANICked Postgres must come back on its own instead of staying down through
+    # a live session, and a graceful stop needs enough time to finish its shutdown checkpoint
+    # instead of being SIGKILLed mid-write (the 10s Compose default was too short and is the
+    # confirmed trigger for one of the two corruption incidents).
+    restart: unless-stopped
+    stop_grace_period: 60s
+    shm_size: "256mb"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d singalong"]
       interval: 5s
@@ -18,6 +29,26 @@ services:
       context: ../..
       dockerfile: infrastructure/production/Singalong.dockerfile
     container_name: singalong-app
+    restart: unless-stopped
+    # Bounds the app's own file descriptor usage so it fails with a handled EMFILE long before
+    # it can exhaust file descriptors for the whole VM (which is what took Postgres down — see
+    # issue #60). Also bounds yt-dlp/ffmpeg subprocess + socket usage under concurrent search.
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 8192
+    healthcheck:
+      # python3 (not wget/curl) because the image is python:3.13-slim and doesn't install
+      # either of those.
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/songs?page=1&limit=1', timeout=3)\" || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/singalong
       APP_ENV: production
