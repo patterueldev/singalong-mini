@@ -21,6 +21,7 @@ from ..config import settings
 from ..db import SessionLocal, get_db
 from ..models import Session as KaraokeSession, Song, SongDownload, SongDuplicateDismissal, SongQueue, SongTrimHistory, User
 from ..schemas import (
+    EnhanceSongResponse,
     FixDurationResponse,
     SongDownloadListResponse,
     SongbookItem,
@@ -1058,6 +1059,7 @@ def _song_to_item(
         quality_score=quality_score,
         quality_flags=quality_flags,
         validated_by_admin=_song_validation_state(song),
+        enhancement_status=song.enhancement_status,
     )
 
 
@@ -1694,6 +1696,156 @@ def fix_duration(
         status=result["status"],
         message=result["message"],
     )
+
+
+@router.post("/{song_id}/enhance", response_model=SongSuggestEnhanceResponse)
+async def enhance_song(
+    song_id: uuid.UUID,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Re-run the AI enhancement pipeline against a song already in the songbook and
+    return the proposed fields for review.
+
+    Requires admin authentication. Runs synchronously and does NOT write to the
+    song row — the admin reviews the result in the edit modal and applies it via
+    the normal save flow (PATCH /songs/{song_id}).
+    """
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    provider = settings.ai_provider
+    if provider == "openai" and not settings.openai_api_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OPENAI_API_KEY is not configured")
+    if provider == "deepseek" and not settings.deepseek_api_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="DEEPSEEK_API_KEY is not configured")
+
+    youtube_title = song.title
+    youtube_description = ""
+    if song.source_url:
+        try:
+            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+                info = ydl.extract_info(song.source_url, download=False)
+            youtube_title = info.get("title") or song.title
+            youtube_description = info.get("description") or ""
+        except Exception as exc:
+            logger.warning("[ENHANCE_SONG] Failed to fetch fresh YouTube metadata for song_id=%s: %s", song_id, exc)
+
+    enhancement_payload = {
+        "source_url": song.source_url,
+        "source_id": song.source_id,
+        "source": song.source,
+        "source_thumbnail": _build_thumbnail_url(song.thumbnail_file),
+        "title": youtube_title,
+        "artist": song.artist,
+        "language": song.language or None,
+        "is_off_vocal": song.is_off_vocal,
+        "video_has_lyrics": song.has_lyrics,
+        "genre": song.genre,
+        "tags": _parse_tags(song.tags) or None,
+        "lyrics": song.lyrics or None,
+        "_youtube_description": youtube_description,
+    }
+    existing_genres = _extract_distinct_genres(db, None, 500)
+    existing_tags = _extract_distinct_tags(db, None, 800)
+
+    try:
+        enhanced_payload = await OrchestratorAgent().enhance(enhancement_payload, existing_genres, existing_tags)
+        enhanced_response = SongSuggestIdentifyResponse(
+            source_url=enhanced_payload.get("source_url") or song.source_url or "",
+            source_id=enhanced_payload.get("source_id") or song.source_id or "",
+            source=enhanced_payload.get("source") or song.source,
+            source_thumbnail=enhanced_payload.get("source_thumbnail") or "",
+            title=enhanced_payload.get("title", song.title),
+            artist=enhanced_payload.get("artist", song.artist),
+            language=enhanced_payload.get("language"),
+            is_off_vocal=enhanced_payload.get("is_off_vocal", song.is_off_vocal),
+            video_has_lyrics=enhanced_payload.get("video_has_lyrics", song.has_lyrics),
+            genre=enhanced_payload.get("genre"),
+            tags=enhanced_payload.get("tags"),
+            lyrics=enhanced_payload.get("lyrics"),
+            is_likely_song=enhanced_payload.get("is_likely_song", True),
+            content_confidence=enhanced_payload.get("content_confidence", 0.0),
+            content_notice=enhanced_payload.get("content_notice"),
+        )
+        return SongSuggestEnhanceResponse(
+            status="success",
+            message="Song metadata enhanced successfully",
+            enhanced=enhanced_response,
+        )
+    except Exception as exc:
+        logger.exception("[ENHANCE_SONG] enhancement failed for song_id=%s: %s", song_id, exc)
+        return SongSuggestEnhanceResponse(
+            status="degraded",
+            message="Enhancement partially failed, returned original values",
+            enhanced=SongSuggestIdentifyResponse(
+                source_url=song.source_url or "",
+                source_id=song.source_id or "",
+                source=song.source,
+                source_thumbnail=_build_thumbnail_url(song.thumbnail_file) or "",
+                title=song.title,
+                artist=song.artist,
+                language=song.language,
+                is_off_vocal=song.is_off_vocal,
+                video_has_lyrics=song.has_lyrics,
+                genre=song.genre,
+                tags=_parse_tags(song.tags),
+                lyrics=song.lyrics,
+            ),
+        )
+
+
+@router.post("/{song_id}/enhance/queue", response_model=EnhanceSongResponse)
+async def queue_song_enhancement(
+    song_id: uuid.UUID,
+    current_user: User = Depends(require_admin_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Queue a background AI-enhancement job for a song already in the songbook,
+    writing results directly onto the song row when it finishes.
+
+    Requires admin authentication. Rejects if enhancement is already running for
+    this song. Intended for bulk/list-level re-enhancement (no per-song review
+    step) — see the synchronous POST /{song_id}/enhance for the reviewed flow
+    used by the song edit modal.
+    """
+    from ..services.enhancement_service import get_enhancement_service
+
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if not song:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Song not found")
+
+    if song.enhancement_status == "running":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Enhancement already in progress")
+
+    enhancement_payload = {
+        "source_url": song.source_url,
+        "source_id": song.source_id,
+        "source": song.source,
+        "source_thumbnail": _build_thumbnail_url(song.thumbnail_file),
+        "title": song.title,
+        "artist": song.artist,
+        "language": song.language or None,
+        "is_off_vocal": song.is_off_vocal,
+        "video_has_lyrics": song.has_lyrics,
+        "genre": song.genre,
+        "tags": _parse_tags(song.tags) or None,
+        "lyrics": song.lyrics or None,
+    }
+    existing_genres = _extract_distinct_genres(db, None, 500)
+    existing_tags = _extract_distinct_tags(db, None, 800)
+    get_enhancement_service().enqueue(
+        session_factory=SessionLocal,
+        song_id=str(song.id),
+        payload=enhancement_payload,
+        existing_genres=existing_genres,
+        existing_tags=existing_tags,
+    )
+
+    return EnhanceSongResponse(status="accepted", message="Enhancement queued", song_id=str(song.id))
 
 
 @router.get("/{song_id}/trim-progress/{operation_id}", response_model=TrimProgressEvent)
