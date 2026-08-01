@@ -3,6 +3,7 @@ import type { PointerEvent } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { SkeletonList } from '../../songbook/components/SkeletonList'
 import type { SuggestResult } from '../../../shared/types/client'
+import { useTapVsScrollTrigger } from '../../../shared/hooks/useTapVsScrollTrigger'
 
 type SearchResultRowMenu = {
   primaryLabel?: string
@@ -47,10 +48,11 @@ SearchResultRow.displayName = 'SearchResultRow'
 
 function SearchResultMenuRow({ result, menu }: { result: SuggestResult; menu: (result: SuggestResult) => SearchResultRowMenu }) {
   const [menuAlign, setMenuAlign] = useState<'start' | 'end'>('start')
+  const trigger = useTapVsScrollTrigger()
   const actions = menu(result)
 
   return (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root open={trigger.open} onOpenChange={trigger.onOpenChange}>
       <DropdownMenu.Trigger asChild>
         <SearchResultRow
           result={result}
@@ -58,6 +60,7 @@ function SearchResultMenuRow({ result, menu }: { result: SuggestResult; menu: (r
             const rect = event.currentTarget.getBoundingClientRect()
             const tapX = event.clientX - rect.left
             setMenuAlign(tapX > rect.width / 2 ? 'end' : 'start')
+            trigger.onPointerDown(event)
           }}
         />
       </DropdownMenu.Trigger>
