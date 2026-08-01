@@ -37,6 +37,7 @@ export function PlayerPage() {
   const [playerVolumePct, setPlayerVolumePct] = useState(100)
   const [isPlayerMuted, setIsPlayerMuted] = useState(false)
   const [isPlaying, setIsPlaying] = useState(true)
+  const [isVolumePopoverOpen, setIsVolumePopoverOpen] = useState(false)
   const [marqueeDistancePx, setMarqueeDistancePx] = useState(0)
   const [marqueeOffsetPx, setMarqueeOffsetPx] = useState(0)
   const [transitionMessage, setTransitionMessage] = useState('')
@@ -54,6 +55,7 @@ export function PlayerPage() {
   const playerContainerRef = useRef<HTMLElement | null>(null)
   const queueViewportRef = useRef<HTMLDivElement | null>(null)
   const queueTrackRef = useRef<HTMLDivElement | null>(null)
+  const volumeControlRef = useRef<HTMLDivElement | null>(null)
   const resumePositionRef = useRef<number | null>(null)
   const resumeIsPlayingRef = useRef<boolean>(true)
   const lastNonZeroVolumeRef = useRef(100)
@@ -134,6 +136,22 @@ export function PlayerPage() {
       document.removeEventListener('fullscreenchange', handleFullscreenChange)
     }
   }, [])
+
+  useEffect(() => {
+    if (!isVolumePopoverOpen) {
+      return
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      const container = volumeControlRef.current
+      if (container !== null && event.target instanceof Node && !container.contains(event.target)) {
+        setIsVolumePopoverOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+    }
+  }, [isVolumePopoverOpen])
 
   const applyPlayerVolume = useCallback((pct: number) => {
     const clamped = Math.max(0, Math.min(100, Math.round(pct)))
@@ -972,26 +990,6 @@ export function PlayerPage() {
               skip_next
             </span>
           </button>
-          <button
-            type="button"
-            className="player-control-button"
-            onClick={toggleMuteLocally}
-            aria-label={isPlayerMuted ? 'Unmute' : 'Mute'}
-            title={isPlayerMuted ? 'Unmute' : 'Mute'}
-          >
-            <span className="material-symbols-outlined" aria-hidden="true">
-              {isPlayerMuted ? 'volume_off' : 'volume_up'}
-            </span>
-          </button>
-          <input
-            type="range"
-            className="player-volume-slider"
-            min={0}
-            max={100}
-            value={isPlayerMuted ? 0 : playerVolumePct}
-            onChange={(event) => setVolumeLocally(Number(event.target.value))}
-            aria-label="Volume"
-          />
         </div>
       ) : null}
 
@@ -1021,17 +1019,53 @@ export function PlayerPage() {
         </article>
       </section>
 
-      <p className="player-socket-status" aria-label="Player status">
-        <span className="material-symbols-outlined" aria-hidden="true">
-          {isPlayerMuted ? 'volume_off' : 'volume_up'}
-        </span>{' '}
-        {isPlayerMuted ? 0 : playerVolumePct}% <span className="player-status-bullet">•</span>{' '}
+      <div className="player-socket-status" aria-label="Player status">
+        <div className="player-volume-control" ref={volumeControlRef}>
+          {isVolumePopoverOpen ? (
+            <div className="player-volume-popover">
+              <input
+                type="range"
+                className="player-volume-slider-vertical"
+                min={0}
+                max={100}
+                value={isPlayerMuted ? 0 : playerVolumePct}
+                onChange={(event) => setVolumeLocally(Number(event.target.value))}
+                aria-label="Volume"
+                aria-orientation="vertical"
+              />
+              <button
+                type="button"
+                className="player-control-button player-volume-mute-button"
+                onClick={toggleMuteLocally}
+                aria-label={isPlayerMuted ? 'Unmute' : 'Mute'}
+                title={isPlayerMuted ? 'Unmute' : 'Mute'}
+              >
+                <span className="material-symbols-outlined" aria-hidden="true">
+                  {isPlayerMuted ? 'volume_off' : 'volume_up'}
+                </span>
+              </button>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="player-volume-trigger"
+            onClick={() => setIsVolumePopoverOpen((prev) => !prev)}
+            aria-label={`Volume ${isPlayerMuted ? 'muted' : `${playerVolumePct}%`}, tap to adjust`}
+            aria-expanded={isVolumePopoverOpen}
+          >
+            <span className="material-symbols-outlined" aria-hidden="true">
+              {isPlayerMuted ? 'volume_off' : 'volume_up'}
+            </span>
+            {isPlayerMuted ? 0 : playerVolumePct}%
+          </button>
+        </div>
+        <span className="player-status-bullet">•</span>
         <span
           className={`player-connection-dot ${isSocketConnected ? 'connected' : 'disconnected'}`}
           aria-label={isSocketConnected ? 'WebSocket connected' : 'WebSocket disconnected'}
           title={socketStatus}
         />
-      </p>
+      </div>
       <button
         type="button"
         className="player-fullscreen-toggle"
