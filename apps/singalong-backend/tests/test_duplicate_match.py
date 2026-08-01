@@ -133,6 +133,31 @@ def test_exact_source_id_short_circuits():
     assert result.score == 1.0
 
 
+def test_translated_artist_name_caps_identical_title_at_possible():
+    # Real production case: two YouTube uploads of the same karaoke track
+    # ("めにしゅき♡ラッシュっしゅ!", an Uma Musume character song) with a
+    # byte-identical native title, but one stored with a romanized artist
+    # ("Uma Musume") and the other with the native franchise name ("ウマ娘").
+    # That's a *translation*, not a transliteration, so no string-similarity
+    # signal bridges it — the pair must still surface as a 'possible' match
+    # (not silently dropped) so the frontend can prompt a human.
+    candidate = ref(
+        "めにしゅき♡ラッシュっしゅ! (Meni Shuki♡Rasshu sshu!)",
+        "ウマ娘",
+        source_id="25TGT5-NJ_g",
+    )
+    existing = ref(
+        "めにしゅき♡ラッシュっしゅ! (Meni Shuki♡Rush-sshu!)",
+        "Uma Musume",
+        source_id="ANqLXWMVCRU",
+    )
+    result = score_pair(candidate, existing)
+    assert result.title_score == 1.0
+    assert result.artist_score == 0.0
+    assert result.tier == "possible"
+    assert "different-artist" in result.reasons
+
+
 def test_rank_candidates_prefilter_does_not_drop_the_motivating_case():
     # Regression guard for the Jaccard prefilter: it must compare full
     # normalized titles (which include a trailing parenthetical's contents),
