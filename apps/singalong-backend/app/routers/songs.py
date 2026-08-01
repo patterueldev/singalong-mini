@@ -69,6 +69,7 @@ from ..services.thumbnail_service import convert_base64_to_jpg, save_thumbnail
 from ..services.song_quality import assess_song_quality
 from ..services.ytdlp.naming import normalize_song_title
 from ..services.ytdlp.url_utils import extract_canonical_youtube_url, extract_single_video_info
+from ..services.ytdlp.work_queue import run_ytdlp, search_cache
 from ..services.songs_download import extract_youtube_video_id, run_song_download
 from ..services.sessions import get_active_session_by_code
 from ..services.songs import cleanup_expired_archives, fix_video_duration, restore_backup, trim_video
@@ -107,27 +108,32 @@ def _pick_thumbnail_url(entry: dict[str, object]) -> str:
     return ""
 
 
-def _resolve_single_youtube_video(
-    youtube_id: str, original_query: str, db: Session
+async def _resolve_single_youtube_video(
+    youtube_id: str, original_query: str
 ) -> SongSuggestSearchResponse:
-    existing_song = db.query(Song).filter(Song.source_id == youtube_id).first()
-    if existing_song is not None:
-        item = SongSuggestSearchItem(
-            id=youtube_id,
-            title=existing_song.title,
-            thumbnail_url=_build_thumbnail_url(existing_song.thumbnail_file) or "",
-            duration=_format_duration(existing_song.duration),
-            channel_name=existing_song.artist,
-            exists_in_songbook=True,
-            existing_song_id=str(existing_song.id),
-            source_url=extract_canonical_youtube_url(original_query),
-            youtube_id=youtube_id,
-        )
-        return SongSuggestSearchResponse(effective_query=original_query, appended_karaoke=False, results=[item])
+    # Short-lived session, closed before the (slow, network-bound) yt-dlp call below —
+    # never hold a DB connection across that I/O (see app/services/ytdlp/work_queue.py).
+    with SessionLocal() as db:
+        existing_song = db.query(Song).filter(Song.source_id == youtube_id).first()
+        if existing_song is not None:
+            item = SongSuggestSearchItem(
+                id=youtube_id,
+                title=existing_song.title,
+                thumbnail_url=_build_thumbnail_url(existing_song.thumbnail_file) or "",
+                duration=_format_duration(existing_song.duration),
+                channel_name=existing_song.artist,
+                exists_in_songbook=True,
+                existing_song_id=str(existing_song.id),
+                source_url=extract_canonical_youtube_url(original_query),
+                youtube_id=youtube_id,
+            )
+            return SongSuggestSearchResponse(effective_query=original_query, appended_karaoke=False, results=[item])
 
     canonical_url = extract_canonical_youtube_url(original_query)
     try:
-        info = extract_single_video_info(canonical_url)
+        info = await run_ytdlp(lambda: extract_single_video_info(canonical_url))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Identify provider error: {exc}") from exc
 
@@ -383,8 +389,7 @@ async def suggest_song_download(
             youtube_title = payload.title
             youtube_description = ""
             try:
-                with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-                    info = ydl.extract_info(payload.source_url, download=False)
+                info = await run_ytdlp(lambda: extract_single_video_info(payload.source_url))
                 youtube_title = info.get("title") or payload.title
                 youtube_description = info.get("description") or ""
             except Exception as exc:
@@ -522,10 +527,9 @@ def stop_song_download(
 
 
 @router.post("/suggest/search", response_model=SongSuggestSearchResponse)
-def suggest_song_search(
+async def suggest_song_search(
     payload: SongSuggestSearchRequest,
     keyword: str | None = Query(default=None, min_length=1, max_length=200),
-    db: Session = Depends(get_db),
     _: User = Depends(_require_songbook_user),
 ):
     query = (keyword or payload.query).strip()
@@ -536,7 +540,7 @@ def suggest_song_search(
     if "youtube.com" in lowered_query or "youtu.be" in lowered_query:
         youtube_id = extract_youtube_video_id(query)
         if youtube_id is not None:
-            return _resolve_single_youtube_video(youtube_id, query, db)
+            return await _resolve_single_youtube_video(youtube_id, query)
 
     appended_karaoke = SUGGEST_KEYWORD_REGEX.search(query) is None
     effective_query = query if not appended_karaoke else f"{query} karaoke"
@@ -549,9 +553,18 @@ def suggest_song_search(
         "default_search": "ytsearch",
     }
 
-    try:
+    def _do_search() -> dict:
         with yt_dlp.YoutubeDL(search_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{limit}:{effective_query}", download=False)
+            return ydl.extract_info(f"ytsearch{limit}:{effective_query}", download=False)
+
+    # Cached + bounded (app/services/ytdlp/work_queue.py): several people searching the
+    # same title within the TTL window collapse into a single upstream yt-dlp call, and
+    # concurrent distinct searches are capped instead of piling up unbounded threads/sockets.
+    cache_key = f"ytsearch{limit}:{effective_query}"
+    try:
+        info = await search_cache.get_or_set(cache_key, lambda: run_ytdlp(_do_search))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Search provider error: {exc}") from exc
 
@@ -560,13 +573,16 @@ def suggest_song_search(
     lookup_source_ids = [source_id for source_id in source_ids if source_id != ""]
     existing_source_id_map: dict[str, str] = {}
     if lookup_source_ids:
-        existing_source_id_map = {
-            source_id: str(song_id)
-            for (source_id, song_id) in db.query(Song.source_id, Song.id)
-            .filter(Song.source_id.in_(lookup_source_ids))
-            .all()
-            if isinstance(source_id, str) and source_id != ""
-        }
+        # Short-lived session opened only after the yt-dlp call returns — never held
+        # across that network I/O.
+        with SessionLocal() as db:
+            existing_source_id_map = {
+                source_id: str(song_id)
+                for (source_id, song_id) in db.query(Song.source_id, Song.id)
+                .filter(Song.source_id.in_(lookup_source_ids))
+                .all()
+                if isinstance(source_id, str) and source_id != ""
+            }
     for entry in (info.get("entries") or [])[:limit]:
         video_id = entry.get("id") or ""
         raw_url = entry.get("url") or ""
@@ -663,7 +679,10 @@ async def suggest_song_identify(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid YouTube URL")
 
     try:
-        info = extract_single_video_info(payload.url.strip())
+        url = payload.url.strip()
+        info = await run_ytdlp(lambda: extract_single_video_info(url))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Identify provider error: {exc}") from exc
 
@@ -829,8 +848,7 @@ async def suggest_song_enhance(
         youtube_duration = None
         youtube_categories = None
         try:
-            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-                info = ydl.extract_info(payload.source_url, download=False)
+            info = await run_ytdlp(lambda: extract_single_video_info(payload.source_url))
             youtube_title = info.get("title") or payload.title
             youtube_description = info.get("description") or ""
             youtube_duration = info.get("duration")
@@ -888,6 +906,9 @@ async def suggest_song_enhance(
             content_confidence=enhanced_payload.get("content_confidence", 0.0),
             content_notice=enhanced_payload.get("content_notice"),
         )
+        enhanced_response.duplicate_matches = await _duplicate_matches_safe(
+            db, title=enhanced_response.title, artist=enhanced_response.artist, source_id=enhanced_response.source_id
+        )
 
         logger.info(
             "[ENHANCE] song-enhancement-successful youtube_id=%s title_before=%s title_after=%s artist_before=%s artist_after=%s",
@@ -909,23 +930,27 @@ async def suggest_song_enhance(
     except Exception as e:
         logger.exception("[ENHANCE] song-enhancement-failed: %s", e)
         # Graceful degradation: return original payload on any error
+        degraded_response = SongSuggestIdentifyResponse(
+            source_url=payload.source_url,
+            source_id=payload.source_id,
+            source=payload.source,
+            source_thumbnail=payload.source_thumbnail,
+            title=payload.title,
+            artist=payload.artist,
+            language=payload.language or None,
+            is_off_vocal=payload.is_off_vocal,
+            video_has_lyrics=payload.video_has_lyrics,
+            genre=payload.genre[0] if payload.genre else None,
+            tags=payload.tags or None,
+            lyrics=payload.lyrics or None,
+        )
+        degraded_response.duplicate_matches = await _duplicate_matches_safe(
+            db, title=degraded_response.title, artist=degraded_response.artist, source_id=degraded_response.source_id
+        )
         return SongSuggestEnhanceResponse(
             status="degraded",
             message="Enhancement partially failed, returned original values",
-            enhanced=SongSuggestIdentifyResponse(
-                source_url=payload.source_url,
-                source_id=payload.source_id,
-                source=payload.source,
-                source_thumbnail=payload.source_thumbnail,
-                title=payload.title,
-                artist=payload.artist,
-                language=payload.language or None,
-                is_off_vocal=payload.is_off_vocal,
-                video_has_lyrics=payload.video_has_lyrics,
-                genre=payload.genre[0] if payload.genre else None,
-                tags=payload.tags or None,
-                lyrics=payload.lyrics or None,
-            ),
+            enhanced=degraded_response,
         )
 
 
@@ -1726,8 +1751,7 @@ async def enhance_song(
     youtube_description = ""
     if song.source_url:
         try:
-            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-                info = ydl.extract_info(song.source_url, download=False)
+            info = await run_ytdlp(lambda: extract_single_video_info(song.source_url))
             youtube_title = info.get("title") or song.title
             youtube_description = info.get("description") or ""
         except Exception as exc:

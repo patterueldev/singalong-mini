@@ -2,6 +2,7 @@ import { forwardRef, useState } from 'react'
 import type { PointerEvent, ReactNode } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import type { SongbookSong } from '../../../shared/types/client'
+import { useTapVsScrollTrigger } from '../../../shared/hooks/useTapVsScrollTrigger'
 
 type SongbookListItemMenu = {
   onReserve: () => void
@@ -60,13 +61,14 @@ SongbookListItemRow.displayName = 'SongbookListItemRow'
 
 export function SongbookListItem({ song, onClick, badge, menu }: SongbookListItemProps) {
   const [menuAlign, setMenuAlign] = useState<'start' | 'end'>('start')
+  const trigger = useTapVsScrollTrigger()
 
   if (menu === undefined) {
     return <SongbookListItemRow song={song} badge={badge} onClick={onClick} />
   }
 
   return (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root open={trigger.open} onOpenChange={trigger.onOpenChange}>
       <DropdownMenu.Trigger asChild>
         <SongbookListItemRow
           song={song}
@@ -75,6 +77,7 @@ export function SongbookListItem({ song, onClick, badge, menu }: SongbookListIte
             const rect = event.currentTarget.getBoundingClientRect()
             const tapX = event.clientX - rect.left
             setMenuAlign(tapX > rect.width / 2 ? 'end' : 'start')
+            trigger.onPointerDown(event)
           }}
         />
       </DropdownMenu.Trigger>

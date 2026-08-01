@@ -45,18 +45,25 @@ export async function apiJson<T>(
     headers.set('Content-Type', 'application/json')
   }
 
-  const controller = timeoutMs !== undefined ? new AbortController() : null
-  const timeoutId = controller !== null ? setTimeout(() => controller.abort(), timeoutMs) : null
+  const timeoutController = timeoutMs !== undefined ? new AbortController() : null
+  const timeoutId = timeoutController !== null ? setTimeout(() => timeoutController.abort(), timeoutMs) : null
+
+  // Combine the internal timeout with a caller-supplied abort signal (e.g. a superseded
+  // search) so either one can cancel the request.
+  const signals = [timeoutController?.signal, init.signal].filter(
+    (signal): signal is AbortSignal => signal !== undefined,
+  )
+  const effectiveSignal = signals.length === 0 ? undefined : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
 
   let response: Response
   try {
     response = await fetch(`${API_ROOT}${path}`, {
       ...init,
       headers,
-      signal: controller?.signal ?? init.signal,
+      signal: effectiveSignal,
     })
   } catch (error) {
-    if (controller !== null && controller.signal.aborted) {
+    if (timeoutController !== null && timeoutController.signal.aborted) {
       throw new ApiError('Request timed out', 0, true)
     }
     throw error

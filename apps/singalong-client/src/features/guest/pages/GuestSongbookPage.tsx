@@ -307,10 +307,8 @@ export function GuestSongbookPage() {
         navigate(DRAFT_PATH, { state: { returnTo: songsPath } })
         return
       }
-      const blockingMatch = (draft.possibleDuplicates ?? []).some(
-        (match) => match.confidence === 'exact' || match.confidence === 'high',
-      )
-      if (blockingMatch) {
+      const hasDuplicateMatch = (draft.possibleDuplicates ?? []).length > 0
+      if (hasDuplicateMatch) {
         setPendingDuplicate(draft)
         return
       }

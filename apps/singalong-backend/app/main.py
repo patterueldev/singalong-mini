@@ -262,6 +262,8 @@ async def on_startup():
     from .db import SessionLocal
     from .services.song_downloader_service import get_downloader, initialize_downloader
     from .tasks.trim_cleanup_task import start_cleanup_scheduler
+    from .tasks.db_backup_task import start_backup_scheduler
+    from .tasks.db_health_task import start_health_scheduler
 
     media_dir = Path(settings.media_root_dir)
     initialize_downloader(media_dir, SessionLocal, settings.ytdlp_cookies_file)
@@ -273,10 +275,18 @@ async def on_startup():
     # Start trim archive cleanup scheduler
     start_cleanup_scheduler()
 
+    # Start Postgres backup + integrity-canary schedulers (issue #60)
+    start_backup_scheduler()
+    start_health_scheduler()
+
 
 @app.on_event("shutdown")
 async def on_shutdown():
     """Shutdown event handler."""
     from .tasks.trim_cleanup_task import stop_cleanup_scheduler
+    from .tasks.db_backup_task import stop_backup_scheduler
+    from .tasks.db_health_task import stop_health_scheduler
 
     stop_cleanup_scheduler()
+    stop_backup_scheduler()
+    stop_health_scheduler()
