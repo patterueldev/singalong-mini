@@ -5,18 +5,22 @@ type DownloadProgressModalProps = {
   isOpen: boolean
   status: string
   items: DownloadProgressItem[]
-  retryingSongIds: string[]
+  retryingSongIds?: string[]
+  stoppingSongIds?: string[]
   onClose: () => void
-  onRetryDownload: (songId: string) => void
+  onRetryDownload?: (songId: string) => void
+  onStopDownload?: (songId: string) => void
 }
 
 export function DownloadProgressModal({
   isOpen,
   status,
   items,
-  retryingSongIds,
+  retryingSongIds = [],
+  stoppingSongIds = [],
   onClose,
   onRetryDownload,
+  onStopDownload,
 }: DownloadProgressModalProps) {
   if (!isOpen) {
     return null
@@ -46,14 +50,17 @@ export function DownloadProgressModal({
           ) : (
             items.map((item) => {
               const isRetrying = retryingSongIds.includes(item.songId)
+              const isStopping = stoppingSongIds.includes(item.songId)
               const progressValue =
                 item.progressPct !== null ? Math.max(0, Math.min(100, item.progressPct)) : 0
               const statusText =
                 item.status === 'error'
                   ? item.errorMessage ?? 'Download failed'
-                  : item.status === 'pending'
-                    ? 'Waiting in queue'
-                    : 'Downloading video'
+                  : item.status === 'cancelled'
+                    ? item.errorMessage ?? 'Cancelled'
+                    : item.status === 'pending'
+                      ? 'Waiting in queue'
+                      : 'Downloading video'
 
               return (
                 <article key={item.songId} className="downloads-progress-item">
@@ -89,7 +96,19 @@ export function DownloadProgressModal({
                       </span>
                     </div>
                     <p className="session-meta">{statusText}</p>
-                    {item.status === 'error' ? (
+                    {onStopDownload && (item.status === 'pending' || item.status === 'downloading') ? (
+                      <div className="downloads-actions">
+                        <button
+                          type="button"
+                          className="secondary small"
+                          onClick={() => onStopDownload(item.songId)}
+                          disabled={isStopping}
+                        >
+                          {isStopping ? 'Stopping…' : 'Stop'}
+                        </button>
+                      </div>
+                    ) : null}
+                    {onRetryDownload && (item.status === 'error' || item.status === 'cancelled') ? (
                       <div className="downloads-actions">
                         <button
                           type="button"

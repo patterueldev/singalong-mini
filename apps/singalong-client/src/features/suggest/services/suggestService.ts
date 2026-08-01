@@ -25,6 +25,8 @@ export type SuggestDownloadOptions = {
   reservedForNickname?: string
 }
 
+const YOUTUBE_SEARCH_TIMEOUT_MS = 9000
+
 export function search(query: string, token: string): Promise<SuggestSearchResponse> {
   return apiJson<SuggestSearchResponse>(
     `/songs/suggest/search?keyword=${encodeURIComponent(query)}&limit=20`,
@@ -33,6 +35,7 @@ export function search(query: string, token: string): Promise<SuggestSearchRespo
       body: JSON.stringify({ query, limit: 20 }),
     },
     token,
+    YOUTUBE_SEARCH_TIMEOUT_MS,
   )
 }
 

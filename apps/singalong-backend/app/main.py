@@ -238,6 +238,8 @@ async def on_startup():
         # Migrate song_downloads constrained VARCHAR to TEXT (separate block so
         # column dict is fresh from the inspector).
         if inspector.has_table("song_downloads"):
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TYPE song_download_status ADD VALUE IF NOT EXISTS 'cancelled'"))
             downloads_columns = {column["name"]: column for column in inspector.get_columns("song_downloads")}
             for col_name in ("title", "artist"):
                 col_info = downloads_columns.get(col_name)

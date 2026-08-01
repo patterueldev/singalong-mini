@@ -112,6 +112,7 @@ export function GuestSongbookPage() {
   const [youtubeResults, setYoutubeResults] = useState<SuggestResult[]>([])
   const [isSearchingYoutube, setIsSearchingYoutube] = useState(false)
   const [youtubeAppendedKaraoke, setYoutubeAppendedKaraoke] = useState(false)
+  const [youtubeUnavailable, setYoutubeUnavailable] = useState(false)
   const [isProcessingResult, setIsProcessingResult] = useState(false)
   const [detailsResult, setDetailsResult] = useState<SuggestResult | null>(null)
   const [pendingDuplicate, setPendingDuplicate] = useState<SuggestDraft | null>(null)
@@ -143,6 +144,7 @@ export function GuestSongbookPage() {
     setIsYoutubeSearchActive(false)
     setYoutubeResults([])
     setYoutubeAppendedKaraoke(false)
+    setYoutubeUnavailable(false)
   }, [debouncedQuery])
 
   const handleSearchYoutube = useCallback(
@@ -152,6 +154,7 @@ export function GuestSongbookPage() {
       setIsYoutubeSearchActive(true)
       setIsSearchingYoutube(true)
       setYoutubeAppendedKaraoke(false)
+      setYoutubeUnavailable(false)
       setErrorMessage('')
       void suggestSearch(searchQuery, guestAuth.accessToken)
         .then((response) => {
@@ -159,10 +162,10 @@ export function GuestSongbookPage() {
           setYoutubeResults(response.results.map(mapSuggestSearchItem))
           setYoutubeAppendedKaraoke(response.appended_karaoke)
         })
-        .catch((error: unknown) => {
+        .catch(() => {
           if (latestYoutubeQueryRef.current !== searchQuery) return
           setYoutubeResults([])
-          setErrorMessage(error instanceof Error ? error.message : 'YouTube search failed')
+          setYoutubeUnavailable(true)
         })
         .finally(() => {
           if (latestYoutubeQueryRef.current !== searchQuery) return
@@ -178,6 +181,7 @@ export function GuestSongbookPage() {
       setIsYoutubeSearchActive(false)
       setYoutubeResults([])
       setYoutubeAppendedKaraoke(false)
+      setYoutubeUnavailable(false)
       setErrorMessage('')
       try {
         const response = await suggestSearch(sourceUrl, guestAuth.accessToken)
@@ -195,9 +199,8 @@ export function GuestSongbookPage() {
           setIsYoutubeSearchActive(true)
           setYoutubeResults([item])
         }
-      } catch (error) {
-        setSongs([])
-        setErrorMessage(error instanceof Error ? error.message : 'Failed to resolve that YouTube link')
+      } catch {
+        setYoutubeUnavailable(true)
       }
     },
     [guestAuth, sessionCode, suggestSearch],
@@ -372,6 +375,11 @@ export function GuestSongbookPage() {
 
         {message !== '' ? <p className="success-message">{message}</p> : null}
         {errorMessage !== '' ? <p className="error-message">{errorMessage}</p> : null}
+        {youtubeUnavailable && !isYoutubeSearchActive ? (
+          <div className="warning-banner top-gap" role="status">
+            <span>YouTube search unavailable — showing songbook results.</span>
+          </div>
+        ) : null}
 
         <div className="guest-scroll-content">
           {isLoading ? (
@@ -382,7 +390,9 @@ export function GuestSongbookPage() {
             trimmedQuery !== '' ? (
               <p className="empty-state">
                 {parseYouTubeVideoId(trimmedQuery) !== null
-                  ? 'This URL is not available in the songbook.'
+                  ? youtubeUnavailable
+                    ? 'This URL could not be resolved — YouTube search is unavailable right now.'
+                    : 'This URL is not available in the songbook.'
                   : `"${trimmedQuery}" is not available in the songbook.`}
               </p>
             ) : (
@@ -472,7 +482,15 @@ export function GuestSongbookPage() {
                   })}
                 />
               </div>
-              {!isSearchingYoutube && youtubeResults.length === 0 ? (
+              {!isSearchingYoutube && youtubeUnavailable ? (
+                <div className="warning-banner top-gap" role="status">
+                  <span>
+                    {activeSongbookCount > 0
+                      ? 'YouTube search unavailable — showing songbook results.'
+                      : 'YouTube search unavailable right now. No songs found.'}
+                  </span>
+                </div>
+              ) : !isSearchingYoutube && youtubeResults.length === 0 ? (
                 <p className="empty-state">No YouTube results found.</p>
               ) : null}
             </div>

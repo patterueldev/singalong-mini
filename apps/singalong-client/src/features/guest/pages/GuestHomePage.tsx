@@ -13,12 +13,7 @@ import { adminService } from '../../admin/services/adminService'
 import { DownloadProgressModal } from '../../songbook/components/DownloadProgressModal'
 import { ReservationListItem } from '../../shared/components/ReservationListItem'
 import { useGuestSession } from '../hooks/useGuestSession'
-import {
-  guestCancelQueueItem,
-  guestFetchSessionInfo,
-  guestRetrySongDownload,
-  guestSkipQueueItem,
-} from '../services/guestService'
+import { guestCancelQueueItem, guestFetchSessionInfo, guestSkipQueueItem } from '../services/guestService'
 import { isValidSessionCode } from '../../../shared/lib/validation'
 import { formatLanguageLabel } from '../../../shared/lib/format'
 import type {
@@ -217,7 +212,6 @@ export function GuestHomePage() {
   const { guestAuth, sessionCode, leaveGuestSession, hasGuestSession } = useGuestSession()
   const [queueItems, setQueueItems] = useState<SongQueueItem[]>([])
   const [downloadItems, setDownloadItems] = useState<DownloadProgressItem[]>([])
-  const [retryingSongIds, setRetryingSongIds] = useState<string[]>([])
   const [socketStatus, setSocketStatus] = useState('Disconnected')
   const [isLoading, setIsLoading] = useState(true)
   const [sessionTitle, setSessionTitle] = useState('Session')
@@ -408,15 +402,6 @@ export function GuestHomePage() {
     [queueItems],
   )
 
-  const handleRetryDownload = async (songId: string) => {
-    setRetryingSongIds((current) => (current.includes(songId) ? current : [...current, songId]))
-    try {
-      await guestRetrySongDownload(songId)
-    } finally {
-      setRetryingSongIds((current) => current.filter((entry) => entry !== songId))
-    }
-  }
-
   const handleCopyGuestJoinUrl = useCallback(() => {
     if (guestJoinUrl === '') {
       return
@@ -505,11 +490,7 @@ export function GuestHomePage() {
         isOpen={isDownloadsModalOpen}
         status={socketStatus}
         items={downloadItems}
-        retryingSongIds={retryingSongIds}
         onClose={() => setIsDownloadsModalOpen(false)}
-        onRetryDownload={(songId) => {
-          void handleRetryDownload(songId)
-        }}
       />
 
       {isQrModalOpen ? (

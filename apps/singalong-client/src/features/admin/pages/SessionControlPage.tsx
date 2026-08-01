@@ -3,7 +3,6 @@ import type { CSSProperties } from 'react'
 import QRCode from 'qrcode'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAdminService } from '../hooks/useAdminService'
-import { useGuestService } from '../../guest/hooks/useGuestService'
 import { fetchSongDetail } from '../services/adminService'
 import { SongEditModal } from './AdminSongbookPage'
 import { ReservationListItem } from '../../shared/components/ReservationListItem'
@@ -20,7 +19,8 @@ import {
 import { apiJson } from '../../../shared/api/httpClient'
 import { buildWSUrl } from '../../../shared/api/ws'
 import { fetchGuestBaseUrl } from '../../../shared/api/publicConfig'
-import { formatDownloadStatus, formatDurationClock } from '../../../shared/lib/format'
+import { formatDurationClock } from '../../../shared/lib/format'
+import { DownloadProgressModal } from '../../songbook/components/DownloadProgressModal'
 import { SongbookListItem } from '../../songbook/components/SongbookListItem'
 import { SongDetailsModal } from '../../songbook/components/SongDetailsModal'
 import type {
@@ -90,117 +90,6 @@ function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
   const [moved] = next.splice(fromIndex, 1)
   next.splice(toIndex, 0, moved)
   return next
-}
-
-type DownloadProgressModalProps = {
-  isOpen: boolean
-  status: string
-  items: DownloadProgressItem[]
-  retryingSongIds: string[]
-  onClose: () => void
-  onRetryDownload: (songId: string) => void
-}
-
-function DownloadProgressModal({
-  isOpen,
-  status,
-  items,
-  retryingSongIds,
-  onClose,
-  onRetryDownload,
-}: DownloadProgressModalProps) {
-  if (!isOpen) {
-    return null
-  }
-
-  return (
-    <div className="modal-backdrop" onClick={onClose} role="presentation">
-      <section
-        className="modal-card downloads-modal-card"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-      >
-        <div className="modal-header">
-          <div>
-            <h2>Download Progress</h2>
-            <p className="subtitle">Status: {status}</p>
-          </div>
-          <button type="button" className="secondary" onClick={onClose}>
-            Close
-          </button>
-        </div>
-
-        <div className="downloads-modal-list top-gap">
-          {items.length === 0 ? (
-            <p className="empty-state">No active downloads.</p>
-          ) : (
-            items.map((item) => {
-              const isRetrying = retryingSongIds.includes(item.songId)
-              const progressValue =
-                item.progressPct !== null ? Math.max(0, Math.min(100, item.progressPct)) : 0
-              const statusText =
-                item.status === 'error'
-                  ? item.errorMessage ?? 'Download failed'
-                  : item.status === 'pending'
-                    ? 'Waiting in queue'
-                    : 'Downloading video'
-
-              return (
-                <article key={item.songId} className="downloads-progress-item">
-                  {item.sourceThumbnail ? (
-                    <img
-                      className="downloads-progress-thumb"
-                      src={item.sourceThumbnail}
-                      alt={item.title}
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="downloads-progress-thumb downloads-progress-thumb--placeholder" />
-                  )}
-                  <div className="downloads-progress-content">
-                    <strong>{item.title}</strong>
-                    <p className="session-meta">
-                      {item.artist}
-                      {' · '}
-                      {item.duration ?? '--:--'}
-                    </p>
-                    <p className="session-meta">{item.addedByUsername ?? '—'}</p>
-                    <div className="downloads-progress-row">
-                      <div className="downloads-progress-bar-group">
-                        <progress
-                          className="downloads-progress-bar"
-                          max={100}
-                          value={progressValue}
-                        />
-                        <span className="downloads-progress-pct">{progressValue}%</span>
-                      </div>
-                      <span className={`badge download-status-badge ${item.status}`}>
-                        {formatDownloadStatus(item.status)}
-                      </span>
-                    </div>
-                    <p className="session-meta">{statusText}</p>
-                    {item.status === 'error' ? (
-                      <div className="downloads-actions">
-                        <button
-                          type="button"
-                          className="secondary small"
-                          onClick={() => onRetryDownload(item.songId)}
-                          disabled={isRetrying}
-                        >
-                          {isRetrying ? 'Retrying…' : 'Retry'}
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                </article>
-              )
-            })
-          )}
-        </div>
-      </section>
-    </div>
-  )
 }
 
 type SessionControlPageProps = {
@@ -317,13 +206,14 @@ export function SessionControlPage({
     fetchSessionQueue,
     fetchSessionWorkspace,
     fetchSongbook,
+    retryDownload,
     searchSongbook,
     reserveSessionQueueSong,
     removeQueueItem,
+    stopDownload,
     updateSessionMetadata,
     updateSongAdminDetails,
   } = useAdminService()
-  const { retryDownload: retrySongDownload } = useGuestService()
   const params = useParams<{ sessionCode: string }>()
   const sessionCode = params.sessionCode ?? ''
   const [socketStatus, setSocketStatus] = useState('Connecting...')
@@ -331,6 +221,7 @@ export function SessionControlPage({
   const [downloadItems, setDownloadItems] = useState<DownloadProgressItem[]>([])
   const [isDownloadsModalOpen, setIsDownloadsModalOpen] = useState(false)
   const [retryingDownloadSongIds, setRetryingDownloadSongIds] = useState<string[]>([])
+  const [stoppingDownloadSongIds, setStoppingDownloadSongIds] = useState<string[]>([])
   const [songbookItems, setSongbookItems] = useState<SongbookSong[]>([])
   const [songbookQuery, setSongbookQuery] = useState('')
   const [songbookPage, setSongbookPage] = useState(1)
@@ -674,7 +565,7 @@ export function SessionControlPage({
 
   const handleRetryDownload = useCallback((songId: string) => {
     setRetryingDownloadSongIds((current) => (current.includes(songId) ? current : [...current, songId]))
-    void retrySongDownload(songId)
+    void retryDownload(songId, auth.accessToken)
       .then(() => {
         setDownloadItems((items) =>
           items.map((item) =>
@@ -693,7 +584,15 @@ export function SessionControlPage({
       .finally(() => {
         setRetryingDownloadSongIds((current) => current.filter((entry) => entry !== songId))
       })
-  }, [])
+  }, [retryDownload, auth.accessToken])
+
+  const handleStopDownload = useCallback((songId: string) => {
+    setStoppingDownloadSongIds((current) => (current.includes(songId) ? current : [...current, songId]))
+    void stopDownload(songId, auth.accessToken)
+      .finally(() => {
+        setStoppingDownloadSongIds((current) => current.filter((entry) => entry !== songId))
+      })
+  }, [stopDownload, auth.accessToken])
 
   const pendingQueueItems = useMemo(
     () =>
@@ -1533,8 +1432,10 @@ export function SessionControlPage({
           status={socketStatus}
           items={downloadItems}
           retryingSongIds={retryingDownloadSongIds}
+          stoppingSongIds={stoppingDownloadSongIds}
           onClose={() => setIsDownloadsModalOpen(false)}
           onRetryDownload={handleRetryDownload}
+          onStopDownload={handleStopDownload}
         />
         <ReserveSongModal
           isOpen={isReserveModalOpen}

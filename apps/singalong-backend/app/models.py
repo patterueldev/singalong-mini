@@ -9,7 +9,7 @@ from .db import Base
 
 USER_ROLES = ("admin", "guest", "player")
 SONG_STATUSES = ("draft", "downloading", "published", "archived", "error")
-SONG_DOWNLOAD_STATUSES = ("pending", "downloading", "error")
+SONG_DOWNLOAD_STATUSES = ("pending", "downloading", "error", "cancelled")
 SONG_ENHANCEMENT_STATUSES = ("pending", "running", "done", "error")
 SONG_QUEUE_STATUSES = ("playing", "pending", "finished", "skipped")
 TRIM_HISTORY_STATUSES = ("pending", "completed", "failed", "restored")
